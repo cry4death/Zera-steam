@@ -84,6 +84,7 @@ var horde: Horde
 var boss: Boss
 var firing_enabled := true
 const BOSS_TARGET := -2 # отдельный uid, индексы орды остаются прежними
+const MANUAL_TARGET := -3 # точка игрока, поиск врага не нужен
 var _boss_active := false
 var boss_damage := PackedFloat64Array([0, 0, 0, 0, 0, 0, 0, 0])
 var boss_sources: Dictionary = {}
@@ -299,7 +300,7 @@ func _physics_process(delta: float) -> void:
 	if player == null or player.is_dead or not firing_enabled:
 		return
 	_aim_hold -= delta
-	if _aim_hold <= 0.0:
+	if _aim_hold <= 0.0 and not player.manual_aim:
 		player.aim_dir = Vector2.ZERO
 	if Input.is_action_just_pressed("reload"):
 		reload_all()
@@ -334,12 +335,16 @@ func _update_slot(i: int, delta: float) -> void:
 			s.reloading = false
 			s.mag = s.stats["mag"]
 		return
+	if not player.fire_requested:
+		s.fan_left = 0
+		s.burst_left = 0
+		return
 	if s.fan_left > 0:
 		_update_fan(i, s, delta)
 		return
 	if s.cooldown > 0.0:
 		return
-	var target := _nearest_target(player.global_position, s.stats["range"])
+	var target := MANUAL_TARGET if player.manual_aim else _nearest_target(player.global_position, s.stats["range"])
 	if target == -1:
 		return
 	if s.trait_id == "fan":
@@ -370,9 +375,11 @@ func _streak_mult(s: Slot) -> float:
 ## Один выстрел в цель target: снаряды, отдача, вспышка, звук, гильза, магазин. Паузу ставит вызывающий.
 func _fire_shot(i: int, s: Slot, target: int) -> void:
 	var origin := player.global_position
-	_burst_shot(s, BOSS_TARGET if target == BOSS_TARGET else horde.uid[target])
-	var target_pos := _target_position(target)
-	var dir := (target_pos - origin).normalized()
+	_burst_shot(s, target if target < -1 else horde.uid[target])
+	var target_pos := player.aim_point if target == MANUAL_TARGET else _target_position(target)
+	var dir := player.aim_dir if target == MANUAL_TARGET else (target_pos - origin).normalized()
+	if target == MANUAL_TARGET:
+		target_pos = origin + (target_pos - origin).limit_length(float(s.stats["range"]))
 	player.aim_dir = dir
 	_aim_hold = 0.4
 	# множитель урона: усиленный выстрел «Копья» и последний патрон магазина (дерево класса)
@@ -451,7 +458,7 @@ func _update_fan(i: int, s: Slot, delta: float) -> void:
 	s.fan_t -= delta
 	if s.fan_t > 0.0:
 		return
-	var target := _fan_target(s)
+	var target := MANUAL_TARGET if player.manual_aim else _fan_target(s)
 	if target == -1:
 		s.fan_left = 0 # цели кончились: оставшиеся патроны берегутся
 		return
@@ -954,6 +961,8 @@ func _fire_grenades(i: int, muzzle: Vector2, target: Vector2) -> void:
 	var flags := (G_LAST if s.shot_gibs else 0) | (G_STICKY if s.trait_id == "sticky" else 0)
 	for k in n:
 		var t := target + (Vector2(randf_range(-14, 14), randf_range(-14, 14)) if k > 0 else Vector2.ZERO)
+		if player.manual_aim and k > 0:
+			t = player.global_position + (t - player.global_position).limit_length(float(s.stats["range"]))
 		_spawn_grenade(muzzle, t, i, s.stats["damage"] * s.shot_mult, s.stats["radius"], false, flags)
 
 

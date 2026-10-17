@@ -14,12 +14,12 @@ extends Node
 
 const SAVE_VERSION := 2
 const DEFAULT_SETTINGS := {"master": 1.0, "weapons": 1.0, "world": 1.0, "ui": 1.0,
-	"gore": 2, "shake": 1.0, "fullscreen": true}
+	"gore": 2, "shake": 1.0, "fullscreen": true, "auto_fire": true}
 signal settings_changed
 var settings: Dictionary = DEFAULT_SETTINGS.duplicate()
 const SAVE_PATH := "user://zera_save.json"
 ## Любой из этих флагов (по началу строки) — тест-режим игры: сохранение только в памяти.
-const TEST_FLAGS := ["--audio-test", "--sim", "--bench", "--boss", "--alarm", "--ui-test", "--weapons-test", "--loadout", "--s3-test", "--meta-test", "--kinds", "--gore-stress", "--fresh-save"]
+const TEST_FLAGS := ["--aim-test", "--audio-test", "--sim", "--bench", "--boss", "--alarm", "--ui-test", "--weapons-test", "--loadout", "--s3-test", "--meta-test", "--kinds", "--gore-stress", "--fresh-save"]
 
 # Уровень класса: накоплено ДНК для уровня n = 80 · (n − 1)^1.5 (BALANCE §11.2)
 const LEVEL_DNA_K := 80.0
@@ -105,7 +105,7 @@ func clean_settings(value: Variant) -> Dictionary:
 		return out
 	for key: String in out:
 		var v: Variant = value.get(key)
-		if key == "fullscreen":
+		if key in ["fullscreen", "auto_fire"]:
 			if v is bool:
 				out[key] = v
 		elif _is_num(v) and is_finite(float(v)):

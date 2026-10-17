@@ -37,7 +37,16 @@ var effects: Effects
 var sfx: Sfx
 
 var facing := Vector2.RIGHT
-var aim_dir := Vector2.ZERO # куда смотрит ствол; задаёт оружие при выстреле
+var aim_dir := Vector2.ZERO # направление оружия: выстрел или ручной прицел
+const AIM_DEADZONE := 0.35
+const STICK_AIM_DISTANCE := 140.0
+var force_auto_aim := false # старые тесты не зависят от мыши и настроек
+var manual_aim := false
+var fire_requested := true
+var aim_point := Vector2.ZERO # мировая точка прицела
+var aim_gamepad := false
+var aim_mouse_position := Vector2.ZERO # координаты viewport; камера применяется каждый тик
+var _manual_dir := Vector2.RIGHT
 var dash_cd := 0.0 # время до возврата следующего заряда рывка
 var dash_max := 1 # зарядов рывка (дерево класса: «Рефлексы» +1)
 var dash_left := 1
@@ -67,6 +76,7 @@ const DIRT_STAGES := [0.0, 15.0, 50.0, 120.0]
 
 
 func _ready() -> void:
+	aim_mouse_position = get_viewport().get_mouse_position()
 	apply_bonuses(Meta.run_bonuses())
 	var sheet := PixelArt.tex("player")
 	for d in DIRT_STAGES.size():
@@ -91,6 +101,7 @@ func _physics_process(delta: float) -> void:
 	_moving = input != Vector2.ZERO
 	if _moving:
 		facing = input.normalized()
+	_update_aim()
 	if Input.is_action_just_pressed("grenade"):
 		throw_grenade()
 
@@ -108,6 +119,8 @@ func _physics_process(delta: float) -> void:
 	_walk += position.distance_to(before)
 	_kick *= exp(-delta * 28.0)
 	position = position.clamp(arena.position + Vector2.ONE * 8.0, arena.end - Vector2.ONE * 8.0)
+	if manual_aim:
+		_update_aim() # после движения курсор остаётся в той же мировой точке
 
 	var look := aim_dir if aim_dir != Vector2.ZERO else facing
 	sprite.rotation = look.angle()
@@ -166,6 +179,49 @@ func _read_input(delta: float) -> Vector2:
 	return Input.get_vector("move_left", "move_right", "move_up", "move_down")
 
 
+## Последнее устройство выбирает прицел; отклонённый правый стик всегда перехватывает авто.
+func _input(event: InputEvent) -> void:
+	if force_auto_aim or autopilot:
+		return
+	if event is InputEventMouseMotion:
+		aim_mouse_position = event.position
+		if event.relative.length_squared() > 0.25:
+			aim_gamepad = false
+	elif event is InputEventMouseButton:
+		aim_mouse_position = event.position
+		aim_gamepad = false
+	elif event is InputEventJoypadMotion:
+		if event.axis in [JOY_AXIS_RIGHT_X, JOY_AXIS_RIGHT_Y] and absf(event.axis_value) > AIM_DEADZONE:
+			aim_gamepad = true
+		elif event.axis == JOY_AXIS_TRIGGER_RIGHT and event.axis_value > 0.25:
+			aim_gamepad = true
+
+
+## Единственный источник направления для бойца, всех стволов и HUD.
+func _update_aim() -> void:
+	manual_aim = false
+	fire_requested = true
+	if force_auto_aim or autopilot:
+		return
+	var stick := Input.get_vector("aim_left", "aim_right", "aim_up", "aim_down", 0.0)
+	var stick_active := stick.length() > AIM_DEADZONE
+	if stick_active:
+		aim_gamepad = true
+		_manual_dir = stick.normalized()
+	var auto_fire: bool = Meta.settings["auto_fire"]
+	manual_aim = not auto_fire or stick_active or Input.is_action_pressed("aim_override")
+	fire_requested = auto_fire or Input.is_action_pressed("fire")
+	if aim_gamepad:
+		aim_point = global_position + _manual_dir * STICK_AIM_DISTANCE
+	else:
+		aim_point = get_canvas_transform().affine_inverse() * aim_mouse_position
+		var offset := aim_point - global_position
+		if offset.length_squared() > 0.01:
+			_manual_dir = offset.normalized()
+	if manual_aim:
+		aim_dir = _manual_dir
+
+
 func take_damage(amount: float) -> void:
 	if is_dead or _iframes > 0.0:
 		return
@@ -202,7 +258,7 @@ func is_dashing() -> bool:
 	return _dash_t > 0.0
 
 
-## Бросок гранаты: туда, куда бежим; стоим на месте — туда, куда смотрит ствол.
+## Бросок гранаты: в ручной прицел; в авто — по движению, стоя — по стволу.
 ## Возвращает false, если граната ещё на перезарядке.
 func throw_grenade() -> bool:
 	if is_dead or grenade_cd > 0.0 or _gren_t >= 0.0:
@@ -216,6 +272,8 @@ func throw_grenade() -> bool:
 
 ## Куда полетит граната.
 func grenade_dir() -> Vector2:
+	if manual_aim:
+		return aim_dir
 	if _dash_t > 0.0:
 		return _dash_dir
 	if _moving or aim_dir == Vector2.ZERO:
