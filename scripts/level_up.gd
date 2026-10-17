@@ -12,6 +12,7 @@ const GAP := 12.0
 const FONT := 10
 
 var progression: Progression
+var sfx: Sfx
 var weapons: Weapons
 var cards: Array = []
 var _card: Dictionary = {} # выбранная карта на шаге выбора ствола
@@ -80,8 +81,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			_pick(3)
 		KEY_Q:
 			if _card.is_empty() and progression.rerolls > 0 and _title == "":
+				_sound("confirm")
 				reroll_requested.emit()
+			else:
+				_sound("deny")
 		KEY_ESCAPE:
+			_sound("click")
 			_card = {}
 	get_viewport().set_input_as_handled()
 
@@ -96,17 +101,27 @@ func _rect_at(p: Vector2) -> int:
 func _pick(i: int) -> void:
 	if _card.is_empty():
 		if i >= cards.size():
+			_sound("deny")
 			return
 		var card: Dictionary = cards[i]
 		if Progression.needs_slot(card):
+			_sound("click")
 			_card = card
 			_hover = -1
 		else:
+			_sound("confirm")
 			chosen.emit(card, -1)
 	else:
 		if i >= weapons.slots.size() or progression.slot_status(_card, i) == "":
+			_sound("deny")
 			return
+		_sound("confirm")
 		chosen.emit(_card, i)
+
+
+func _sound(id: String) -> void:
+	if sfx != null:
+		sfx.play("ui/" + id)
 
 
 func _draw() -> void:

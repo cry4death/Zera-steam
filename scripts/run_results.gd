@@ -14,6 +14,7 @@ const COUNT_TIME := 0.3
 const INPUT_DELAY := 0.25
 
 var _stats: Dictionary = {}
+var sfx: Sfx
 var _ui := 1.0
 var _t := 0.0
 var _finished := false
@@ -66,6 +67,8 @@ func _process(delta: float) -> void:
 func _activate(restart := false) -> void:
 	if _t < INPUT_DELAY or _requested:
 		return
+	if sfx != null:
+		sfx.play("ui/click" if not _finished else "ui/confirm")
 	if not _finished:
 		_t = _duration()
 		_finished = true

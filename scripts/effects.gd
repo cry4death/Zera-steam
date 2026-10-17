@@ -8,6 +8,7 @@ const BLOOD_DARK := Color(0.22, 0.015, 0.015)
 const BLOOD := Color(0.45, 0.03, 0.03)
 
 var floor_decals: FloorDecals
+var gore_multiplier := 1.0
 var sfx: Sfx
 var casings_on_floor := 0
 var mags_on_floor := 0
@@ -70,6 +71,8 @@ func _ready() -> void:
 
 
 func emit(p: Vector2, v: Vector2, life: float, color: Color, size: float, drag: float, bake := false) -> void:
+	if bake and gore_multiplier < 1.0 and randf() > gore_multiplier:
+		return
 	var i := _n
 	if _n >= MAX_PARTICLES:
 		i = randi() % MAX_PARTICLES # переполнение: затираем случайную

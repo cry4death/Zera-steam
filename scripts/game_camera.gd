@@ -5,6 +5,7 @@ extends Camera2D
 var target: Node2D
 var _shake := 0.0
 var _kick := Vector2.ZERO
+var shake_multiplier := 1.0
 
 
 func setup(rect: Rect2, follow: Node2D) -> void:
@@ -33,4 +34,4 @@ func _process(delta: float) -> void:
 		global_position = target.global_position
 	_shake = move_toward(_shake, 0.0, delta * 25.0)
 	_kick *= exp(-delta * 30.0)
-	offset = _kick + Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * _shake
+	offset = (_kick + Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * _shake) * shake_multiplier
