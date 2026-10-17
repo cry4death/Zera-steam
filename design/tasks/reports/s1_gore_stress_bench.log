@@ -1,0 +1,7 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+D3D12 12_0 - Forward+ - Using Device #0: NVIDIA - NVIDIA GeForce RTX 3060 Ti
+
+KINDS population=400 mix=220/100/40/40 elites=6 total=406
+KINDS frames=1441 avg_fps=144.0 avg_frame_ms=6.95 worst_frame_ms=7.14 horde_ms=1.54 enemies=405 kills=919
+KINDS process_ms=9.11 physics_ms=6.84 draw_calls=2308 objects=1854 gore=437 particles=1266 wet=202
+KINDS screenshot: C:/Users/Dev/Desktop/GameZ/tasks/reports/s1_gore_stress.png

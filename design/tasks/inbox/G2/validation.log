@@ -1,0 +1,44 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+PASS: initially hidden and inactive
+PASS: single Control, no child nodes
+PASS: full-screen anchors
+PASS: mouse and focus pass through
+PASS: pause is respected under an ALWAYS parent
+PASS: warn starts at 3
+PASS: warning stripes enter during first 0.25 seconds
+PASS: stripes fully entered and title blink is hard
+PASS: warning title repeats at 2 Hz
+PASS: warning countdown 2
+PASS: warning countdown 1
+PASS: start replaces warning and shows 0:30
+PASS: initial flash respects central alpha limit
+PASS: first heartbeat reaches corner alpha 0.70
+PASS: second heartbeat is weaker
+PASS: full-screen flash ends by 0.3 seconds
+PASS: stripes leave by 0.4 seconds
+PASS: bonus and remaining time are cached text
+PASS: last five seconds use 0.6-second heartbeat period
+PASS: finish is visible but not active
+PASS: finish halves vignette opacity at 0.75 seconds
+PASS: repeated finish does not restart fade
+PASS: finish hides and stops processing after 1.5 seconds
+PASS: zero warning duration stays hidden
+PASS: negative alarm duration stays hidden
+PASS: non-finite duration is rejected
+PASS: alarm automatically finishes when duration expires
+PASS: stop clears and hides immediately
+PASS: warning expiry never starts the game alarm by itself
+PASS: large delta handles alarm expiry and full result fade
+PASS: reduced motion keeps warning stable
+PASS: reduced motion removes flash and heartbeat
+PASS: actual tree pause freezes warning under ALWAYS layer
+PASS: warning resumes after unpause
+PASS: actual tree pause freezes active alarm
+PASS: actual tree pause freezes result fade
+PASS: textures are reused across phases
+PASS: vignette is transparent throughout central 60 percent rectangle
+PASS: phase changes create no child nodes
+RESULT: failures=0
+ERROR: Failed to read the root certificate store.
+   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2582)

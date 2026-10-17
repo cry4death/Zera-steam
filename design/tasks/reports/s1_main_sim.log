@@ -1,0 +1,14 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+D3D12 12_0 - Forward+ - Using Device #0: NVIDIA - NVIDIA GeForce RTX 3060 Ti
+
+PICK lvl=2 { "type": "module", "id": 0, "rare": false } slot=0 of ["weapon", "module", "module"]
+PICK lvl=3 { "type": "module", "id": 0, "rare": false } slot=0 of ["passive", "level", "module"]
+PICK lvl=4 { "type": "passive", "id": 5, "rare": false } slot=-1 of ["weapon", "weapon", "passive"]
+SIM 01:00 level=4 kills=73 xp=70/73 credits=1/1 zombies=13 fps=144 | АК-С L1 Стан1 [Рико2]
+PICK lvl=5 { "type": "level", "slot": 0, "rare": false } slot=-1 of ["level", "ammo", "passive"]
+PICK lvl=6 { "type": "weapon", "id": 1, "rare": false } slot=-1 of ["weapon", "module", "weapon"]
+PICK lvl=7 { "type": "level", "slot": 0, "rare": false } slot=-1 of ["module", "passive", "level"]
+SIM 02:00 level=7 kills=239 xp=223/239 credits=10/10 zombies=22 fps=144 | АК-С L3 Стан1 [Рико2] | Мясник L1 Стан1 []
+PICK lvl=8 { "type": "passive", "id": 3, "rare": false } slot=-1 of ["weapon", "passive", "level"]
+PICK lvl=9 { "type": "level", "slot": 1, "rare": false } slot=-1 of ["weapon", "level", "passive"]
+SIM 03:00 level=9 kills=467 xp=440/467 credits=24/28 zombies=43 fps=144 | АК-С L3 Стан1 [Рико2] | Мясник L2 Стан1 []
