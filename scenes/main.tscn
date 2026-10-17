@@ -1,0 +1,114 @@
+[gd_scene load_steps=18 format=3]
+
+[ext_resource type="Script" path="res://scripts/game.gd" id="1_game"]
+[ext_resource type="Script" path="res://scripts/ground.gd" id="2_ground"]
+[ext_resource type="Script" path="res://scripts/effects.gd" id="3_effects"]
+[ext_resource type="Script" path="res://scripts/horde.gd" id="4_horde"]
+[ext_resource type="Script" path="res://scripts/player.gd" id="5_player"]
+[ext_resource type="Script" path="res://scripts/weapons.gd" id="6_weapons"]
+[ext_resource type="Script" path="res://scripts/spawner.gd" id="7_spawner"]
+[ext_resource type="Script" path="res://scripts/game_camera.gd" id="8_camera"]
+[ext_resource type="Script" path="res://scripts/hud.gd" id="9_hud"]
+[ext_resource type="Script" path="res://scripts/floor_decals.gd" id="10_floor"]
+[ext_resource type="Script" path="res://scripts/gore.gd" id="11_gore"]
+[ext_resource type="Script" path="res://scripts/screen_blood.gd" id="12_screen"]
+[ext_resource type="Script" path="res://scripts/gems.gd" id="13_gems"]
+[ext_resource type="Script" path="res://scripts/progression.gd" id="14_progression"]
+[ext_resource type="Script" path="res://scripts/level_up.gd" id="15_level_up"]
+[ext_resource type="Script" path="res://scripts/trader.gd" id="16_trader"]
+[ext_resource type="Script" path="res://scripts/trader_ui.gd" id="17_trader_ui"]
+
+[node name="Main" type="Node2D"]
+script = ExtResource("1_game")
+
+[node name="World" type="Node2D" parent="."]
+
+[node name="Ground" type="Node2D" parent="World"]
+script = ExtResource("2_ground")
+
+[node name="FloorDecals" type="Node2D" parent="World"]
+script = ExtResource("10_floor")
+
+[node name="Gore" type="Node2D" parent="World"]
+script = ExtResource("11_gore")
+
+[node name="Gems" type="Node2D" parent="World"]
+script = ExtResource("13_gems")
+
+[node name="Credits" type="Node2D" parent="World"]
+script = ExtResource("13_gems")
+art = "credit"
+glow = Color(1, 0.8, 0.3, 1)
+
+[node name="Effects" type="Node2D" parent="World"]
+script = ExtResource("3_effects")
+
+[node name="Horde" type="Node2D" parent="World"]
+script = ExtResource("4_horde")
+
+[node name="Player" type="Node2D" parent="World"]
+script = ExtResource("5_player")
+
+[node name="Sprite" type="Sprite2D" parent="World/Player"]
+
+[node name="Weapons" type="Node2D" parent="World"]
+script = ExtResource("6_weapons")
+
+[node name="Spawner" type="Node" parent="."]
+script = ExtResource("7_spawner")
+
+[node name="Progression" type="Node" parent="."]
+script = ExtResource("14_progression")
+
+[node name="Trader" type="Node" parent="."]
+script = ExtResource("16_trader")
+
+[node name="Camera" type="Camera2D" parent="."]
+script = ExtResource("8_camera")
+
+[node name="ScreenFX" type="CanvasLayer" parent="."]
+
+[node name="ScreenBlood" type="Control" parent="ScreenFX"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("12_screen")
+
+[node name="HUD" type="CanvasLayer" parent="."]
+layer = 2
+
+[node name="Hud" type="Control" parent="HUD"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("9_hud")
+
+[node name="Overlay" type="CanvasLayer" parent="."]
+process_mode = 3
+layer = 3
+
+[node name="LevelUp" type="Control" parent="Overlay"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("15_level_up")
+
+[node name="Trader" type="Control" parent="Overlay"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("17_trader_ui")
