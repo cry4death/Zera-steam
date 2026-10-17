@@ -1,0 +1,4 @@
+Generated 59 WAV files: PCM16, 48000 Hz; 6014924 bytes
+Recorded shots: pistol=4 revolver=4 smg=5 rifle=4 sniper=4 shotgun=4; launcher=3 rail=3
+Synthesis: brass_small=6 brass_rifle=6 shell=6 mag_drop=6 grenade=4
+Peak guard: <= -1.01 dBFS; source hashes and exact cuts: manifest.json
