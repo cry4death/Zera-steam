@@ -82,3 +82,18 @@ tasks/
 
 Если задача вернулась на доработку дважды, ревьюер поднимает уровень на ступень.
 Выбранный уровень записывается в журнал `BOARD.md` при выдаче.
+
+## Godot на одной машине — по очереди (с 2026-10-17)
+
+Исполнители работают параллельно на одной машине (встроенная AMD), поэтому чужие окна Godot искажают FPS.
+**Каждый оконный запуск и каждый замер производительности** (`--bench`, `--alarm`, `--boss`, `--*-test` со скриншотами)
+— только через общую блокировку:
+
+```
+bash C:/Users/Dev/Desktop/zera-assets/locks/godot_exclusive.sh "<путь к Godot_console.exe>" --disable-vsync --path . -- <аргументы>
+& C:\Users\Dev\Desktop\zera-assets\locks\godot_exclusive.ps1 <exe> <аргументы>      # PowerShell
+```
+
+Скрипт ждёт очереди и отсутствия чужих процессов Godot (до 10 мин) и печатает `GODOT_EXCLUSIVE other_godot_processes=N`.
+Замер с `N > 0` — не чистый, повторить. Headless-прогоны без замеров (`--import`, `--sim`, `--meta-test`) — без блокировки.
+Codex запускается с `--add-dir C:\Users\Dev\Desktop\zera-assets\locks`.
