@@ -64,6 +64,9 @@ var _gore_stress := false
 var _no_fire := false
 var _ui_test := false
 var _s3_test := false
+var _weapons_test := false
+var _wtest_shot := false
+var _wtest_started := 0.0
 var _sim := false
 var _sim_next_report := 60.0
 var _sim_until := 600.0
@@ -82,8 +85,10 @@ var _bench_frames := 0
 var _bench_frame_ms := 0.0
 var _bench_worst_ms := 0.0
 var _bench_horde_ms := 0.0
+var _bench_physics_ms := 0.0
 var _bench_enemies := 0
 
+@onready var sfx: Sfx = $Sfx
 @onready var player: Player = $World/Player
 @onready var horde: Horde = $World/Horde
 @onready var weapons: Weapons = $World/Weapons
@@ -126,6 +131,10 @@ func _ready() -> void:
 			_shot_path = arg.trim_prefix("--shot=")
 		elif arg == "--no-fire":
 			_no_fire = true # для скриншотов живой орды: не стреляем и стоим на месте
+		elif arg == "--weapons-test":
+			_weapons_test = true
+		elif arg == "--loadout-w1":
+			_w1_loadout.call_deferred()
 		elif arg == "--loadout":
 			_full_loadout.call_deferred() # бенчмарк с полным арсеналом
 		elif arg == "--alarm":
@@ -146,6 +155,9 @@ func _ready() -> void:
 	ground.setup(ARENA)
 	floor_decals.setup(ARENA)
 	effects.floor_decals = floor_decals
+	effects.sfx = sfx
+	player.sfx = sfx
+	weapons.sfx = sfx
 	gore.setup(floor_decals, effects, ARENA, player)
 	player.arena = ARENA
 	player.position = ARENA.get_center()
@@ -208,6 +220,9 @@ func _ready() -> void:
 	trader_ui.closed.connect(_on_trader_closed)
 	weapons.prototype_unlocked.connect(_on_prototype)
 
+	if _weapons_test:
+		weapons.process_mode = Node.PROCESS_MODE_DISABLED
+		_run_weapons_test.call_deferred()
 	if _sim:
 		player.god_mode = true
 		player.autopilot = true
@@ -256,6 +271,11 @@ func _physics_process(delta: float) -> void:
 	if _sim and time >= _sim_next_report:
 		_sim_next_report += 60.0
 		_sim_report()
+	if _weapons_test and horde.count < 40:
+		var p := player.global_position + Vector2.from_angle(randf_range(-0.7, 0.7)) * randf_range(85.0, 130.0)
+		var e := horde.spawn(p)
+		if e >= 0:
+			horde.speed[e] = 7.0
 	if _bench and horde.count < _bench_target:
 		if _kinds:
 			_fill_kinds()
@@ -433,7 +453,7 @@ func _loot_cards(count: int, with_ammo: bool, all_rare: bool) -> Array:
 
 
 func _open_loot(title: String, sub: String, count: int, with_ammo: bool, all_rare: bool) -> void:
-	if _bench or _sim or _alarm:
+	if _bench or _sim or _alarm or _weapons_test:
 		var cards := _loot_cards(count, with_ammo, all_rare)
 		if cards.is_empty():
 			return
@@ -491,7 +511,7 @@ func _on_credits_collected(value: int) -> void:
 func _on_level_ready() -> void:
 	if level_up.visible or trader_ui.visible:
 		return
-	if _bench or _sim or _alarm:
+	if _bench or _sim or _alarm or _weapons_test:
 		# в бенчмарке и симуляции выбираем сами (случайно), без паузы
 		while progression.pending > 0:
 			var cards := progression.make_cards(time / 60.0)
@@ -558,7 +578,7 @@ func _open_trader() -> void:
 		var removed := horde.despawn_far(player.global_position, CALM_RADIUS)
 		if _sim:
 			print("CALM %02d:%02d removed=%d left=%d" % [int(time) / 60, int(time) % 60, removed, horde.count - removed])
-	if _bench or _sim or _alarm:
+	if _bench or _sim or _alarm or _weapons_test:
 		_auto_shop()
 		return
 	get_tree().paused = true
@@ -830,6 +850,7 @@ func _bench_step(delta: float) -> void:
 	_bench_frame_ms += delta * 1000.0
 	_bench_worst_ms = maxf(_bench_worst_ms, delta * 1000.0)
 	_bench_horde_ms += horde.update_ms
+	_bench_physics_ms += Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
 	_bench_enemies += horde.count
 	if _bench_t < BENCH_WARMUP + BENCH_DURATION:
 		return
@@ -843,6 +864,7 @@ func _bench_step(delta: float) -> void:
 		label, Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
 		Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), Performance.get_monitor(Performance.OBJECT_COUNT),
 		gore.count, effects.particle_count(), floor_decals.pool_count()])
+	print("%s physics_avg_ms=%.2f" % [label, _bench_physics_ms / n])
 	if _shot_path != "":
 		await RenderingServer.frame_post_draw
 		get_viewport().get_texture().get_image().save_png(_shot_path)
@@ -1011,3 +1033,138 @@ func _run_s3_test() -> void:
 	await RenderingServer.frame_post_draw
 	get_viewport().get_texture().get_image().save_png(dir.path_join("s3_game_over.png"))
 	get_tree().quit()
+
+
+## Те же уровни/модули, что в старом --loadout, для сравнения нагрузки новых основ.
+func _w1_loadout() -> void:
+	_full_loadout()
+	for i in 4:
+		weapons.slots[i].base = WeaponDefs.Base.PISTOL + i
+		weapons.refresh(i)
+		weapons.slots[i].mag = weapons.slots[i].stats["mag"]
+
+
+## Восемь независимых 10-секундных отрезков. Урон — фактически снятые HP, без overkill.
+func _run_weapons_test() -> void:
+	spawner.enabled = false
+	player.god_mode = true
+	gems.collected.disconnect(progression.add_xp)
+	weapons.shot_fired.connect(_wtest_on_shot)
+	# Направление отдачи и ограничение накопления проверяются независимо от FPS.
+	camera.kick(Vector2.RIGHT, 1.0)
+	assert(camera._kick.x < 0.0)
+	for i in 100:
+		camera.kick(Vector2.RIGHT, 1.0)
+	assert(camera._kick.length() <= 3.501)
+	camera._kick = Vector2.ZERO
+	assert(not sfx.has("weapons/missing/shot"))
+	sfx.play("weapons/missing/shot")
+	# Все новые основы действительно попадают в карты Level Up.
+	var offered := PackedByteArray([0, 0, 0, 0, 0, 0, 0, 0])
+	for attempt in 400:
+		for card: Dictionary in progression.make_cards(0.0):
+			if card["type"] == "weapon":
+				offered[int(card["id"])] = 1
+	for base in range(4, 8):
+		assert(offered[base] == 1)
+	print("WTEST checks recoil_direction=true recoil_cap=true new_cards=true missing_sfx_silent=true")
+	for base in WeaponDefs.BASES:
+		for level: int in [1, 5]:
+			var st := WeaponDefs.base_stats(base, level)
+			var cycle: float = float(st["mag"]) / float(st["rate"])
+			var crit: float = 1.0 + float(st["crit"]) + 0.15 # базовые 5% + стандарт I 10%
+			var dps: float = float(st["damage"]) * int(st["proj"]) * float(st["rate"]) * cycle / (cycle + float(st["reload"])) * crit
+			print("WTEST DPS %s L%d damage=%.1f rate=%.2f proj=%d mag=%d reload=%.2f crit=%.2f effective=%.2f" % [Weapons.GUN_IDS[base], level, st["damage"], st["rate"], st["proj"], st["mag"], st["reload"], crit - 1.0, dps])
+		weapons.slots.clear()
+		weapons.add_weapon(base)
+		_wtest_shot = false
+		var shots_before := weapons.shots[base]
+		var kills_before := kills
+		var damage_before := weapons.damage_dealt
+		var casings_before := effects.casings_on_floor
+		var mags_before := effects.mags_on_floor
+		var sounds_before := sfx.played
+		var dropped_before := sfx.dropped
+		effects.lights_peak = 0
+		var started := time
+		_wtest_started = time
+		weapons.process_mode = Node.PROCESS_MODE_INHERIT
+		# Снимок по сигналу после полной сборки вспышки, в том же кадре рендера.
+		await get_tree().create_timer(10.0).timeout
+		var elapsed := time - started
+		# Долетевшие пули/гранаты и последний затвор завершаются на прежнем слоте.
+		weapons.slots[0].cooldown = 1.0e9
+		await get_tree().create_timer(1.7).timeout # все гильзы и магазины успевают лечь
+		print("WTEST %s shots=%d kills=%d dps=%.2f casings_on_floor=%d mags_on_floor=%d sfx_played=%d sfx_dropped=%d lights_peak=%d" % [
+			Weapons.GUN_IDS[base], weapons.shots[base] - shots_before, kills - kills_before,
+			(weapons.damage_dealt - damage_before) / elapsed, effects.casings_on_floor - casings_before,
+			effects.mags_on_floor - mags_before, sfx.played - sounds_before, sfx.dropped - dropped_before, effects.lights_peak])
+		assert(weapons.shots[base] > shots_before)
+		if base in [WeaponDefs.Base.RIFLE, WeaponDefs.Base.SHOTGUN, WeaponDefs.Base.PISTOL, WeaponDefs.Base.REVOLVER, WeaponDefs.Base.SMG, WeaponDefs.Base.SNIPER]:
+			assert(effects.casings_on_floor > casings_before)
+		if base in [WeaponDefs.Base.RIFLE, WeaponDefs.Base.PISTOL, WeaponDefs.Base.SMG]:
+			assert(effects.mags_on_floor > mags_before)
+		weapons.bullet_count = 0
+		for e in horde.count:
+			horde.dead[e] = 1
+		await get_tree().physics_frame
+		weapons.process_mode = Node.PROCESS_MODE_INHERIT
+	weapons.process_mode = Node.PROCESS_MODE_DISABLED
+	if _shot_path != "" and DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		get_viewport().get_texture().get_image().save_png(_shot_path.replace(".png", "_floor.png"))
+	print("WTEST complete casings=%d mags=%d" % [effects.casings_on_floor, effects.mags_on_floor])
+	if _shot_path != "" and DisplayServer.get_name() != "headless":
+		await _wtest_spread_palette()
+	get_tree().quit()
+
+
+func _wtest_on_shot(base: int) -> void:
+	if _wtest_shot or _shot_path == "" or time - _wtest_started < 2.0:
+		return
+	_wtest_shot = true
+	if DisplayServer.get_name() == "headless":
+		return
+	get_tree().paused = true
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(_shot_path.replace(".png", "_" + Weapons.GUN_IDS[base] + ".png"))
+	# Контрольный кадр того же состояния мира без источников света.
+	for light in effects._lights:
+		light.enabled = false
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(_shot_path.replace(".png", "_" + Weapons.GUN_IDS[base] + "_unlit.png"))
+	get_tree().paused = false
+
+
+## Чистый участок для веера длинной очереди и двух цветов патронов, без груды трупов.
+func _wtest_spread_palette() -> void:
+	player.position += Vector2(-240, -160)
+	camera.global_position = player.global_position
+	camera.reset_smoothing()
+	for e in horde.count:
+		horde.dead[e] = 1
+	await get_tree().physics_frame
+	weapons.slots.clear()
+	weapons.add_weapon(WeaponDefs.Base.SMG)
+	var s := weapons.slots[0]
+	s.level = 5
+	weapons.refresh(0)
+	s.mag = s.stats["mag"]
+	# Близкую автоматическую толпу заменяем дальней неподвижной мишенью.
+	_weapons_test = false
+	for k in 24:
+		var e := horde.spawn(player.position + Vector2(150.0, (k - 12) * 8.0))
+		horde.speed[e] = 0.0
+		horde.hp[e] = 10000.0
+		horde.max_hp[e] = 10000.0
+	weapons.process_mode = Node.PROCESS_MODE_INHERIT
+	for ammo: int in [WeaponDefs.Ammo.INCENDIARY, WeaponDefs.Ammo.CRYO]:
+		s.ammo = ammo
+		await get_tree().create_timer(1.5).timeout
+		await weapons.shot_fired
+		get_tree().paused = true
+		await RenderingServer.frame_post_draw
+		var tag := "incendiary" if ammo == WeaponDefs.Ammo.INCENDIARY else "cryo"
+		get_viewport().get_texture().get_image().save_png(_shot_path.replace(".png", "_spread_" + tag + ".png"))
+		print("WTEST palette=%s heat=%.1f tracers=%d camera_kick=%.2f" % [tag, s.heat, weapons.bullet_count, camera._kick.length()])
+		get_tree().paused = false

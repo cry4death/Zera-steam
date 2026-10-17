@@ -32,6 +32,7 @@ var god_mode := false
 var autopilot := false # для бенчмарка: бегает по кругу сам
 var auto_target := Vector2.INF # симуляция: бежать к образцам
 var effects: Effects
+var sfx: Sfx
 
 var facing := Vector2.RIGHT
 var aim_dir := Vector2.ZERO # куда смотрит ствол; задаёт оружие при выстреле
@@ -102,7 +103,7 @@ func _physics_process(delta: float) -> void:
 	else:
 		position += input * move_speed * delta
 	_walk += position.distance_to(before)
-	_kick = maxf(_kick - delta * 12.0, 0.0)
+	_kick *= exp(-delta * 28.0)
 	position = position.clamp(arena.position + Vector2.ONE * 8.0, arena.end - Vector2.ONE * 8.0)
 
 	var look := aim_dir if aim_dir != Vector2.ZERO else facing
@@ -148,8 +149,8 @@ func add_dirt(amount: float) -> void:
 
 
 ## Отдача при выстреле.
-func kick() -> void:
-	_kick = 1.0
+func kick(strength := 1.0) -> void:
+	_kick = minf(_kick + strength, 3.0)
 
 
 func is_dashing() -> bool:
