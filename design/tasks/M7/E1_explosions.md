@@ -59,3 +59,12 @@ godot --disable-vsync --path . -- --alarm ; --boss ; --loadout --bench=500 (×2 
 напрямую). В `weapons.gd`, `hazards.gd`, `effects.gd`, `floor_decals.gd` — **не трогать**: подключение во все места
 взрывов и удаление круга `_blasts` — отдельным коротким шагом после слияния P1 (E1b). В отчёте — точный список мест
 подключения (файл:функция) для E1b.
+
+## E1b — подключение (выдано 2026-10-18, после P1)
+
+Подключить `Explosions` во все места взрывов по карте из `design/tasks/reports/E1.md` §«Подключение E1b»: граната-активка,
+«Гром»/«Улей», детонатор и цепные детонации (`weapons.gd::explode`), взрыв толстяка (`hazards.gd`), смерть босса (`game.gd`).
+Удалить круг `_blasts` из `weapons.gd`. Урон/логика не меняются. Параллельно **W3** правит в `weapons.gd` позиции/дула
+стволов — `explode` и `_blasts` трогаешь только ты, остальное не трогай. Проверка: `--fx-test`, `--alarm` (цепь толстяков),
+`--boss` (смерть), `--weapons-test`, `--loadout --bench=500` ×2 против main — оконные только через `godot_exclusive.sh`.
+Скриншоты реального боя `e1b_grenade.png`, `e1b_launcher.png`, `e1b_fat.png`, `e1b_boss.png`. Отчёт `design/tasks/reports/E1b.md`.
