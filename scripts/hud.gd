@@ -84,7 +84,7 @@ func _draw() -> void:
 		]
 		for i in lines.size():
 			_text_right(font, Vector2(w - 8, 15 + i * 11), lines[i], DIM)
-		_text_right(font, Vector2(w - 8, h - 4), "F1 +100 · F2 бессм. · F3 отладка · F4 +1 мин · F5 патроны · F6 смерть · F7 уровень · F8 +100 кр.", Color(0.5, 0.5, 0.48), 7)
+		_text_right(font, Vector2(w - 8, h - 4), "F1 +100 · F2 бессм. · F3 отладка · F4 +1 мин · F5 патроны · F6 смерть · F7 бегуны · F8 толстяк · F9 плевальщик · F10 элитка", Color(0.5, 0.5, 0.48), 7)
 
 	# комбо и надписи
 	if game.combo >= 5:
