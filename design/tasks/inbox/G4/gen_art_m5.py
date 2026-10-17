@@ -91,7 +91,7 @@ def boss_surface(cv, pts, rmp, seed, bias=0):
     y0, y1 = min(y for _, y in pts), max(y for _, y in pts)
     inside = boss_inside(pts)
     cv.ellipse((x0 + x1) / 2, (y0 + y1) / 2,
-               (x1 - x0) * 0.78, (y1 - y0) * 0.78, rmp,
+               (x1 - x0) * 0.65, (y1 - y0) * 0.64, rmp,
                cond=inside, tex=0.25, seed=seed, bias=bias)
     return inside
 
@@ -103,6 +103,10 @@ def boss_armor(cv, pts, seed):
     cx = sum(x for x, _ in pts) / len(pts)
     cy = sum(y for _, y in pts) / len(pts)
     # Фаски ориентированы относительно источника света проекта.
+    cv.tube(cx - 2, min(y for _, y in pts) + 1.5,
+            cx + 1, max(y for _, y in pts) - 2, 5, METAL,
+            w1=2.5, bias=-0.1, tex=0.18, seed=seed, cond=inside)
+    cv.shade_area(cx + 4, cy + 4, 8, 7, 0.64)
     for (ax, ay), (bx, by) in zip(pts, pts[1:] + pts[:1]):
         mx, my = (ax + bx) / 2 - cx, (ay + by) / 2 - cy
         col = STEEL[3] if mx * ga.LIGHT[0] + my * ga.LIGHT[1] > 0 else METAL[0]
@@ -122,6 +126,10 @@ def boss_armor(cv, pts, seed):
         cv.dot(x - 0.3, y - 0.3, STEEL[5])
         cv.dot(x + 0.4, y + 0.4, METAL[0])
     cv.stain(rng, cx + 3, cy + 4, 1.4, ga.BLOOD, cond=inside)
+    for _ in range(7):
+        x, y = cx + rng.uniform(-5, 6), cy + rng.uniform(-6, 6)
+        if inside(x, y):
+            cv.dot(x, y, ga.BLOOD[rng.randrange(3)])
 
 
 def boss_fibers(cv, x0, y0, x1, y1, width, seed):
@@ -130,14 +138,32 @@ def boss_fibers(cv, x0, y0, x1, y1, width, seed):
     dx, dy = x1 - x0, y1 - y0
     ln = math.hypot(dx, dy) or 1
     ux, uy = dx / ln, dy / ln
-    for _ in range(round(ln * width * 0.12)):
+    for _ in range(round(ln * width * 0.17)):
         t, off = rng.uniform(0.1, 0.85), rng.uniform(-0.38, 0.38) * width
         x, y = x0 + dx * t - uy * off, y0 + dy * t + ux * off
-        length = rng.uniform(1, 3.5)
-        cv.line(x, y, x + ux * length, y + uy * length, ga.MUSCLE[rng.choice((0, 1, 2))],
+        length = rng.uniform(1, 4)
+        cv.line(x, y, x + ux * length, y + uy * length, ga.darker(ga.MUSCLE[rng.choice((0, 1))], 0.7),
                 cond=lambda nx, ny: cv.getn(nx, ny) is not None)
-        if rng.random() < 0.3:
-            cv.dot(x - uy * 0.65, y + ux * 0.65, ga.darker(ga.FLESH[3], 0.8))
+        if rng.random() < 0.22:
+            cv.line(x - uy * 0.65, y + ux * 0.65,
+                    x + ux * length * 0.45 - uy * 0.65, y + uy * length * 0.45 + ux * 0.65,
+                    ga.darker(ga.FLESH[3], 0.72),
+                    cond=lambda nx, ny: cv.getn(nx, ny) is not None)
+
+
+def boss_mottles(cv, x0, y0, x1, y1, width, seed, raw=False):
+    """Пятна разного масштаба привязаны к мышце, а не к кадру анимации."""
+    rng = random.Random(seed)
+    dx, dy = x1 - x0, y1 - y0
+    ln = math.hypot(dx, dy) or 1
+    for _ in range(round(ln * width * 0.07)):
+        t, off = rng.uniform(0.1, 0.9), rng.uniform(-0.35, 0.35) * width
+        x, y = x0 + dx * t - dy / ln * off, y0 + dy * t + dx / ln * off
+        rmp = ga.BLOOD if raw else [ga.mix(c, ga.VARIANTS[0]["skin"], 0.38)
+                                                  for c in ga.ramp(ga.BRUISE)]
+        cv.stain(rng, x, y, rng.uniform(0.45, 1.2), rmp)
+        if rng.random() < 0.4:
+            cv.dot(x - 0.6, y, ga.DRIED[1])
 
 
 def boss_wound(cv, x, y, seed, size=1):
@@ -168,11 +194,12 @@ def boss(phase, frame):
     cv = ga.Canvas(96, 96)
     rng = random.Random(5700)  # локальные seed сохраняют раны при движении
     rush = frame == 4
-    swing = (0, 3.8, 0, -3.8, 0)[frame]
+    swing = (3.8, 0, -3.8, 0, 0)[frame]
     cx = 43 + (3 if rush else 0)
     cy = 48 + (0, -1, 0.7, 1, 0)[frame]
-    skin = ga.ramp(ga.VARIANTS[0]["skin"])
-    raw = [ga.mix(ga.darker(c, 0.8), ga.BLOOD[3], 0.25) for c in ga.MUSCLE]
+    skin = [ga.darker(c, 0.88) for c in ga.ramp(
+        ga.mix(ga.VARIANTS[0]["skin"], ga.VARIANTS[2]["skin"], 0.35))]
+    raw = [ga.mix(ga.darker(c, 0.74), ga.BLOOD[2], 0.22) for c in ga.MUSCLE]
     tissue = raw if phase == 2 else skin
     # Колени и тяжёлые ступни выступают из-под суженной задней части туши.
     for side in (-1, 1):
@@ -184,11 +211,14 @@ def boss(phase, frame):
         cv.tear(rng, kx - 1, ky - 2, 1.2, 4, ga.FLESH)
         cv.tube(fx - 3, fy, fx + 4, fy - side, 7, ga.SHOES, w1=8, tex=0.3)
         cv.line(fx - 2, fy - 2, fx + 4, fy - 2.5, METAL[2])
+        cv.ellipse(fx + 6, fy - side * 2, 2.8, 3.3, tissue,
+                   tex=0.3, seed=5683, bias=-0.25)
+        cv.stain(rng, fx + 6.5, fy - side * 2, 1.2, ga.BLOOD)
     # Один клиновидный объём: затылочный горб широк спереди, поясница узкая.
     pts = [(cx + x, cy + y) for x, y in
-           ((-25, -3), (-22, -10), (-15, -14), (-10, -22), (0, -28),
-            (10, -27), (18, -21), (23, -10), (25, 1), (21, 14),
-            (13, 22), (2, 25), (-10, 19), (-18, 11), (-24, 7))]
+           ((-25, -3), (-22, -10), (-15, -14), (-10, -22), (0, -29),
+            (10, -28), (18, -21), (23, -10), (25, 1), (21, 14),
+            (13, 22), (2, 24), (-10, 17), (-18, 10), (-24, 7))]
     if rush:
         pts = [(x + (x - cx) * 0.12, cy + (y - cy) * 0.87) for x, y in pts]
     inside = boss_surface(cv, pts, tissue, 5700, bias=-0.17 if phase == 2 else -0.08)
@@ -208,16 +238,40 @@ def boss(phase, frame):
         cv.tear(rng, cx - 13, cy + side * 7, -side * 0.35, 12,
                 ga.BLOOD if phase == 2 else ga.MUSCLE, cond=inside)
     if phase == 2:
+        # Глубокие межмышечные борозды и длинные косые пучки спины.
+        cv.shade_area(cx + 4, cy, 13, 18, 0.36)
+        for side in (-1, 1):
+            for k in range(3):
+                cv.tube(cx - 17 + k * 5, cy + side * 6,
+                        cx + 8 + k * 2, cy + side * (18 - k * 3),
+                        7 - k, raw, w1=3.5, bias=-0.2, tex=0.28, seed=5708 + k,
+                        cond=inside)
         boss_fibers(cv, cx - 18, cy, cx + 11, cy - 17, 18, 5705)
         boss_fibers(cv, cx - 17, cy + 6, cx + 14, cy + 15, 16, 5706)
         boss_wound(cv, cx - 5, cy + 2, 5750)
         boss_wound(cv, cx + 12, cy - 16, 5751, 0.55)
         boss_wound(cv, cx + 8, cy + 18, 5752, 0.48)
+        # Рваные островки оставшейся кожи, подкожный жир и мокрые блики.
+        for dx, dy, scale in ((-19, -5, 1), (-14, 13, 0.8), (13, -22, 0.7)):
+            skin_pts = [(cx + dx + xx * scale, cy + dy + yy * scale)
+                        for xx, yy in ((-2, -4), (2, -2), (1, 0), (3, 2),
+                                       (0, 5), (-1, 2), (-3, 3), (-2, 0))]
+            boss_surface(cv, skin_pts, skin, 5780, bias=-0.3)
+            cv.line(cx + dx + scale, cy + dy - scale,
+                    cx + dx + scale * 2, cy + dy + scale, ga.FAT[2])
+            cv.tube(cx + dx, cy + dy + 4 * scale,
+                    cx + dx - 2, cy + dy + 8 * scale,
+                    1.2, ga.BLOOD, w1=0.3)
+        wet_rng = random.Random(5781)
+        for _ in range(22):
+            xx, yy = cx + wet_rng.uniform(-16, 17), cy + wet_rng.uniform(-22, 20)
+            if inside(xx, yy) and cv.filled(xx, yy):
+                cv.dot(xx, yy, ga.mix(ga.FLESH[4], ga.BONE[3], 0.25))
     # Лопатки и предплечья разной толщины, локоть образует перелом контура.
     for side in (-1, 1):
         ext = swing * side
         sx = cx + 8 + (4 if rush else ext * 0.22)
-        sy = cy + side * (19 if rush else (24 if side < 0 else 22))
+        sy = cy + side * (19 if rush else (24 if side < 0 else 22)) + ext * 0.24
         ex = cx + (9 if rush else 19 + ext * 0.65)
         ey = cy + side * (27 if rush else 31)
         hx = cx + (12 if rush else 31 + ext)
@@ -230,6 +284,9 @@ def boss(phase, frame):
         cv.tube(sx - 8, sy + side, ex, ey, 22 if side < 0 else 18,
                 tissue, w1=12, tex=0.28, seed=5710 + side, bias=-0.1, cond=shoulder_inside)
         cv.tube(ex, ey, hx - 2, hy, 13, tissue, w1=8, tex=0.28, seed=5713 + side)
+        # Локтевой сгиб, отдельный разгибатель и сухожилие до запястья.
+        cv.tube(ex + 1, ey - side * 1.5, hx - 4, hy - side * 1.5,
+                7, tissue, w1=3.5, tex=0.25, bias=-0.14, seed=5716 + side)
         cv.shade_area(ex - 3, ey - side * 2, 6, 4, 0.48)
         cv.line(ex - 2, ey + side * 2, ex + 2, ey + side * 3, ga.MUSCLE[1])
         palm = [(hx + x, hy + y) for x, y in
@@ -241,21 +298,27 @@ def boss(phase, frame):
             cv.tube(hx + 5.8, yy + 0.5, hx + 8 - abs(k - 1), yy + 1.3,
                     1.0, ga.BONE, w1=0.3, bias=-0.3)
             cv.dot(hx + 3, yy - 0.5, ga.BLOOD[1])
-        cv.stain(rng, hx + 2, hy, 2.5, ga.BLOOD)
+        cv.stain(rng, hx + 2, hy, 1.2, ga.BLOOD)
+        for k in range(2):
+            cv.line(hx + 3.5, hy - 1.5 + k * 2.8,
+                    hx + 6, hy - 1.2 + k * 2.8, ga.BLOOD[0])
+        boss_mottles(cv, ex, ey, hx - 1, hy, 10, 5790 + side, phase == 2)
         cv.walk(rng, ex + 1, ey - side * 2, math.atan2(hy - ey, hx - ex),
                 17, ga.VEIN, 0.4)
-        cv.dot(ex, ey, ga.BRUISE)
+        cv.dot(ex, ey, ga.BRUISE if phase == 1 else ga.BLOOD[0])
         cv.tear(rng, sx, sy - 3, 0.6 * side, 7, ga.BLOOD if phase == 2 else ga.FLESH)
         if phase == 2:
             boss_fibers(cv, sx - 5, sy, ex, ey, 14, 5720 + side)
             boss_fibers(cv, ex, ey, hx, hy, 8, 5723 + side)
             cv.stain(rng, ex - 1, ey + side * 2, 2, ga.BLOOD)
+            cv.line(ex + 2, ey - side * 2.5, ex + 4, ey - side * 2,
+                    ga.mix(ga.FLESH[4], ga.BONE[2], 0.2))
             # Рваный остаток мёртвой кожи с жёлтой подкожной кромкой.
             cv.tube(ex - 3, ey + side * 4, hx - 4, hy + side * 4,
                     2, skin, w1=0.6, tex=0.3)
             cv.line(ex - 1, ey + side * 3.5, ex + 2, ey + side * 3, ga.FAT[2])
         else:
-            cv.ellipse(ex - 2, ey, 2.4, 1.6, ga.ramp(ga.BRUISE), tex=0.3)
+            cv.stain(rng, ex - 2, ey, 1.8, ga.ramp(ga.BRUISE))
             # Большая левая наплечная пластина, меньшая правая.
             size = 1.05 if side < 0 else 0.79
             plate = [(sx + x * size, sy + y * size) for x, y in
@@ -288,21 +351,23 @@ def boss(phase, frame):
             boss_armor(cv, [(xx - 4, yy + side * 4), (xx + 1, yy + side * 3),
                            (xx + 3, yy + side * 8), (xx - 3, yy + side * 10)], 5760 + side)
     # Маленькое лицо погружено в горб; костяной клин не закрывает челюсть и глаза.
-    hx, hy = cx + (27 if rush else 21), cy + (1.5 if rush else 0)
+    hx, hy = cx + (28 if rush else 21), cy + (3 if rush else 0)
     cv.shade_area(hx - 5, hy, 12, 10, 0.35)
     head = [(hx + x, hy + y) for x, y in
             ((-6, -3), (-3, -7), (1, -6), (5, -4), (7, 0), (5, 5), (0, 6), (-4, 4))]
     head_ramp = [ga.darker(c, 0.72) for c in tissue]
     boss_surface(cv, head, head_ramp, 5770, bias=-0.2)
     horn = [(hx + x, hy + y) for x, y in
-            ((-4, -1), (-1, -2.1), (3, -1.6), (5, -1.3), (9, -0.8),
-             (7, 0.1), (8, 0.8), (4, 1.1), (2, 1.8), (-2, 1.2), (-5, 0))]
-    horn_ramp = [ga.darker(c, 0.7) for c in ga.BONE]
+            ((-4, -2), (-2, -5), (0, -4), (1, -5.2), (4, -3.5),
+             (6.5, -2.7), (5.6, -0.7), (7, 0), (4, 0.9),
+             (2, -0.1), (0, 1), (-3, 0))]
+    horn_ramp = [ga.darker(c, 0.67) for c in ga.BONE]
     boss_surface(cv, horn, horn_ramp, 5771, bias=-0.45)
     cv.line(hx - 3, hy - 2, hx + 1, hy - 0.3, ga.BONE[1])
     cv.line(hx + 1, hy - 0.3, hx, hy + 1.5, ga.BONE[0])
     cv.line(hx + 1, hy - 0.3, hx + 4, hy - 0.8, ga.BONE[0])
-    cv.dot(hx + 5, hy - 1.5, ga.BONE[4])
+    cv.dot(hx + 2, hy - 3.8, ga.BONE[3])
+    cv.walk(random.Random(5773), hx - 2, hy - 3.5, 0.35, 7, ga.BONE[0], 0.5)
     # Пасть открыта с нижней стороны костяного клина, её не перекрывает лоб.
     cv.tube(hx + 2, hy + 5, hx + 7, hy + 3, 2.2, horn_ramp, w1=1.0, bias=-0.4)
     cv.tube(hx + 4, hy + 3, hx + 7, hy + 1, 2.4, ga.BLOOD, w1=1.8, bias=-0.8)
@@ -318,7 +383,16 @@ def boss(phase, frame):
         cv.dot(hx + 4.7, hy + side * 3.5, ga.EYE_GLOW)
     cv.tube(hx + 4, hy + 4.5, hx + 1, hy + 8, 1.1, ga.BLOOD, w1=0.3)
     cv.outline(0.36)
-    return cv.image()
+    img = cv.image()
+    if rush:
+        # Вся туша, включая броню, подаётся вперёд и опускается перед ударом.
+        # NEAREST сохраняет жёсткий пиксель; размер контрактной ячейки не меняется.
+        center = 48 * cv.s
+        img = img.transform(img.size, Image.Transform.AFFINE,
+                            (1 / 1.12, 0, center - center / 1.12,
+                             0, 1 / 0.9, center - center / 0.9),
+                            resample=Image.Resampling.NEAREST)
+    return img
 
 
 def boss_plate(k):
