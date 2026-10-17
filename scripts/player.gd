@@ -7,6 +7,7 @@ signal hurt(amount: float)
 signal died
 signal dashed
 signal grenade_landed(at: Vector2) # граната приземлилась: взрыв делает игра
+signal adrenaline_fired # «Адреналин» (дерево класса): рывок зарядил все стволы
 
 const RADIUS := 5.0
 # граната (BALANCE.md §1): бросок на 100 px, дугой за 0.45 с
@@ -29,6 +30,7 @@ var hp := 100.0
 var arena := Rect2()
 var is_dead := false
 var god_mode := false
+var damage_taken := 0.0 # весь урон, дошедший до бойца (в бессмертии тоже считается — для отчёта --sim)
 var autopilot := false # для бенчмарка: бегает по кругу сам
 var auto_target := Vector2.INF # симуляция: бежать к образцам
 var effects: Effects
@@ -36,7 +38,11 @@ var sfx: Sfx
 
 var facing := Vector2.RIGHT
 var aim_dir := Vector2.ZERO # куда смотрит ствол; задаёт оружие при выстреле
-var dash_cd := 0.0
+var dash_cd := 0.0 # время до возврата следующего заряда рывка
+var dash_max := 1 # зарядов рывка (дерево класса: «Рефлексы» +1)
+var dash_left := 1
+var adrenaline := false # «Адреналин»: рывок мгновенно перезаряжает все стволы
+var adrenaline_cd := 0.0
 var grenade_cd := 0.0
 var dirt := 0.0 # насколько боец перемазан кровью
 
@@ -61,7 +67,7 @@ const DIRT_STAGES := [0.0, 15.0, 50.0, 120.0]
 
 
 func _ready() -> void:
-	hp = max_hp
+	apply_bonuses(Meta.run_bonuses())
 	var sheet := PixelArt.tex("player")
 	for d in DIRT_STAGES.size():
 		for a in PixelArt.ANIM_FRAMES:
@@ -75,7 +81,8 @@ func _physics_process(delta: float) -> void:
 	_update_grenade(delta)
 	if is_dead:
 		return
-	dash_cd = maxf(dash_cd - delta, 0.0)
+	_recharge_dash(delta)
+	adrenaline_cd = maxf(adrenaline_cd - delta, 0.0)
 	grenade_cd = maxf(grenade_cd - delta, 0.0)
 	_iframes = maxf(_iframes - delta, 0.0)
 	_hurt_t = maxf(_hurt_t - delta, 0.0)
@@ -87,12 +94,8 @@ func _physics_process(delta: float) -> void:
 	if Input.is_action_just_pressed("grenade"):
 		throw_grenade()
 
-	if Input.is_action_just_pressed("dash") and dash_cd <= 0.0:
-		_dash_dir = facing
-		_dash_t = dash_time
-		dash_cd = dash_cooldown
-		_iframes = maxf(_iframes, dash_iframes)
-		dashed.emit()
+	if Input.is_action_just_pressed("dash"):
+		try_dash()
 
 	var before := position
 	if _dash_t > 0.0:
@@ -115,6 +118,45 @@ func _physics_process(delta: float) -> void:
 	sprite.modulate = Color(1.0, 0.4, 0.4) if _hurt_t > hit_iframes - 0.1 else Color.WHITE
 
 
+## Дерево класса на этот забег (Meta.run_bonuses): +HP, заряды рывка, «Адреналин».
+func apply_bonuses(bonuses: Dictionary) -> void:
+	max_hp = 100.0 + float(bonuses["hp_add"])
+	hp = max_hp
+	dash_max = int(bonuses["dash_charges"])
+	dash_left = dash_max
+	dash_cd = 0.0
+	adrenaline = bool(bonuses["adrenaline"])
+	adrenaline_cd = 0.0
+
+
+## Рывок по текущему направлению; false — нет заряда. Заряды восстанавливаются по одному за dash_cooldown.
+func try_dash() -> bool:
+	if is_dead or dash_left <= 0:
+		return false
+	_dash_dir = facing
+	_dash_t = dash_time
+	dash_left -= 1
+	if dash_cd <= 0.0:
+		dash_cd = dash_cooldown
+	_iframes = maxf(_iframes, dash_iframes)
+	dashed.emit()
+	if adrenaline and adrenaline_cd <= 0.0:
+		adrenaline_cd = Meta.ADRENALINE_COOLDOWN
+		adrenaline_fired.emit()
+	return true
+
+
+func _recharge_dash(delta: float) -> void:
+	if dash_left >= dash_max:
+		dash_cd = 0.0
+		return
+	dash_cd = maxf(dash_cd - delta, 0.0)
+	if dash_cd <= 0.0:
+		dash_left += 1
+		if dash_left < dash_max:
+			dash_cd = dash_cooldown
+
+
 func _read_input(delta: float) -> Vector2:
 	if autopilot:
 		_auto_t += delta
@@ -125,7 +167,10 @@ func _read_input(delta: float) -> Vector2:
 
 
 func take_damage(amount: float) -> void:
-	if is_dead or god_mode or _iframes > 0.0:
+	if is_dead or _iframes > 0.0:
+		return
+	damage_taken += amount
+	if god_mode:
 		return
 	hp -= amount
 	_iframes = hit_iframes

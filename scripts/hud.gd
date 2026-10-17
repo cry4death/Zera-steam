@@ -49,8 +49,14 @@ func _draw() -> void:
 	# HP, рывок, уровень
 	_bar(Rect2(8, 9, 110, 7), player.hp / player.max_hp, Color(0.75, 0.1, 0.1))
 	_text(font, Vector2(122, 16), "%d" % ceili(player.hp), TEXT)
-	var dash_ready := 1.0 - player.dash_cd / player.dash_cooldown
-	_bar(Rect2(8, 19, 40, 3), dash_ready, Color(0.4, 0.75, 1.0) if dash_ready >= 1.0 else Color(0.3, 0.45, 0.6))
+	# рывок: по сегменту на заряд; адреналин — тонкая полоска под ним
+	var seg := (40.0 - 3.0 * (player.dash_max - 1)) / player.dash_max
+	for k in player.dash_max:
+		var fill := 1.0 if k < player.dash_left else (1.0 - player.dash_cd / player.dash_cooldown if k == player.dash_left else 0.0)
+		_bar(Rect2(8 + k * (seg + 3.0), 19, seg, 3), fill, Color(0.4, 0.75, 1.0) if fill >= 1.0 else Color(0.3, 0.45, 0.6))
+	if player.adrenaline:
+		var adr := 1.0 - player.adrenaline_cd / Meta.ADRENALINE_COOLDOWN
+		_bar(Rect2(8, 25, 40, 1), adr, Color(1.0, 0.45, 0.7) if adr >= 1.0 else Color(0.5, 0.25, 0.35))
 	_text(font, Vector2(8, 34), "УР. %d" % prog.level, XP_COLOR, 11)
 	_text(font, Vector2(78, 34), "%d кр." % prog.credits, CREDIT_COLOR, 9)
 	_draw_grenade(font, player, Vector2(52, 18))
@@ -144,10 +150,9 @@ func _draw_grenade(font: Font, player: Player, p: Vector2) -> void:
 ## Панель ствола: имя и уровень, патроны, модули, магазин или перезарядка.
 func _draw_slot(font: Font, weapons: Weapons, i: int, p: Vector2) -> void:
 	var s: Weapons.Slot = weapons.slots[i]
-	var d: Dictionary = WeaponDefs.BASES[s.base]
 	var proto := s.prototype >= 0
 	draw_rect(Rect2(p, Vector2(PANEL_W, 37)), Color(0.04, 0.04, 0.04, 0.55))
-	var title: String = "%s ур.%d" % [d["short"], s.level] if not proto else WeaponDefs.PROTOTYPES[s.prototype]["name"]
+	var title: String = "%s ур.%d" % [s.short_name(), s.level] if not proto else WeaponDefs.PROTOTYPES[s.prototype]["name"]
 	_text(font, p + Vector2(4, 9), title, Color(1.0, 0.6, 0.3) if proto else TEXT, 9)
 	var ammo_col: Color = [Color(0.85, 0.85, 0.8), Color(1.0, 0.85, 0.5), Color(1.0, 0.55, 0.2), Color(0.6, 0.9, 1.0)][s.ammo]
 	if s.ammo_rare:
@@ -159,6 +164,8 @@ func _draw_slot(font: Font, weapons: Weapons, i: int, p: Vector2) -> void:
 		mods.append("%s %s" % [mname.left(5), WeaponDefs.ROMAN[m["rank"]]])
 	if not mods.is_empty():
 		_text(font, p + Vector2(4, 26), " · ".join(mods), Color(0.7, 0.75, 0.85), 7)
+	if s.charged:
+		_text(font, p + Vector2(PANEL_W - 38, 18), "◆ ×1.5", Color(1.0, 0.72, 0.35), 8)
 	var bar := Rect2(p + Vector2(4, 31), Vector2(PANEL_W - 8, 3))
 	if s.reloading:
 		_bar(bar, weapons.reload_progress(i), Color(0.9, 0.7, 0.25))

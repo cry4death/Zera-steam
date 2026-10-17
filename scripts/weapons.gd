@@ -11,10 +11,15 @@ signal prototype_unlocked(slot: int, proto_name: String)
 const BULLET_RADIUS := 1.5
 const SHARD_SPEED := 300.0
 const GRENADE_KNOCK := 120.0 # отброс от гранаты игрока
+const SUSTAINED_TIME := 3.0 # «Шквал огня»: столько секунд непрерывной стрельбы до бонуса темпа
+const LAST_ROUND_MULT := 3.0 # «Последний патрон»
 
 ## Один ствол игрока.
 class Slot:
 	var base := 0
+	var model := "ak_s" # id в WeaponDefs.MODELS
+	var gun := "rifle" # голос: sfx/weapons/<gun>/
+	var trait_id := "" # черта модели (WeaponDefs.TRAITS)
 	var level := 1
 	var ammo := 0
 	var ammo_rank := 1
@@ -33,6 +38,27 @@ class Slot:
 	var reload_missing := 0
 	var burst_shots := 0
 	var burst_target := -1
+	var streak := 0.0 # сколько секунд подряд стреляет (Шквал огня)
+	var charged := false # kill_charge: следующий выстрел усилен
+	var burst_left := 0 # burst3: сколько пуль осталось в очереди
+	var fan_left := 0 # fan: сколько пуль осталось в барабане веера
+	var fan_t := 0.0
+	var fan_interval := 0.1
+	var fan_hit := PackedInt32Array() # fan: цели (uid), по которым уже стреляли в этом веере
+	var shot_mult := 1.0 # множитель урона текущего выстрела (заряд, последний патрон)
+	var shot_gibs := false # текущий выстрел рвёт на гибы (последний патрон)
+	var shot_charged := false
+	var last_damage := 0.0 # урон снаряда последнего выстрела до крита (для тестов)
+
+	func set_model(id: String) -> void:
+		model = id
+		var m: Dictionary = WeaponDefs.MODELS[id]
+		base = m["base"]
+		gun = m["gun"]
+		trait_id = m["trait"]
+
+	func short_name() -> String:
+		return WeaponDefs.MODELS[model]["short"]
 
 	func module(id: int) -> Dictionary:
 		for m in modules:
@@ -72,6 +98,7 @@ const RECOIL := [0.8, 1.8, 1.4, 1.5, 0.55, 1.25, 0.25, 2.5]
 var shots := PackedInt32Array([0, 0, 0, 0, 0, 0, 0, 0])
 var damage_dealt := 0.0
 var passives := {} # WeaponDefs.Passive → уровень (заполняет прогрессия)
+var bonuses := {} # дерево класса на этот забег (Meta.run_bonuses())
 
 var slots: Array[Slot] = []
 var bullet_count := 0
@@ -79,6 +106,7 @@ var bullet_count := 0
 # пули: позиция, скорость, жизнь, урон, ствол, пробивание, отскоки, флаги, uid последней цели
 const F_SHARD := 1 # осколок сплита: сам не делится
 const F_CHAIN := 2 # снаряд цепи
+const F_LAST := 4 # пуля последнего патрона: убийство всегда рвёт на гибы
 var _bpos := PackedVector2Array()
 var _bvel := PackedVector2Array()
 var _blife := PackedFloat32Array()
@@ -98,6 +126,19 @@ var _gslot := PackedInt32Array()
 var _gdmg := PackedFloat32Array()
 var _grad := PackedFloat32Array()
 var _gsmall := PackedByteArray() # кассетная мини-граната
+var _gflag := PackedByteArray() # G_LAST | G_STICKY
+const G_LAST := 1 # граната последнего патрона: убитые рвутся на гибы
+const G_STICKY := 2 # «Улей»: прилипает к цели и рвётся через STICKY_FUSE
+
+# прилипшие гранаты: позиция, uid носителя (0 — земля, BOSS_TARGET — босс), смещение, время до взрыва
+var _xpos := PackedVector2Array()
+var _xuid := PackedInt32Array()
+var _xoff := PackedVector2Array()
+var _xt := PackedFloat32Array()
+var _xslot := PackedInt32Array()
+var _xdmg := PackedFloat32Array()
+var _xrad := PackedFloat32Array()
+var _xflag := PackedByteArray()
 
 # эффекты для отрисовки: лучи [от, до, ширина, время, цвет], взрывы [центр, радиус, время]
 var _beams: Array = []
@@ -122,14 +163,16 @@ func _ready() -> void:
 	for kind: String in FLASH_KINDS:
 		for variant in 4:
 			_flash_tex.append(PixelArt.tex("flash_%s_%d" % [kind, variant]))
+	bonuses = Meta.run_bonuses()
 	add_weapon(WeaponDefs.Base.RIFLE)
 
 
 # --- управление стволами -----------------------------------------------------------
 
-func add_weapon(base: int) -> void:
+## model "" — избранная модель категории (Meta.model_for).
+func add_weapon(base: int, model := "") -> void:
 	var s := Slot.new()
-	s.base = base
+	s.set_model(model if model != "" else Meta.model_for(base))
 	slots.append(s)
 	refresh(slots.size() - 1)
 	s.mag = s.stats["mag"]
@@ -142,10 +185,17 @@ func has_base(base: int) -> bool:
 	return false
 
 
-## Пересчёт статов ствола: основа + уровень + пассивки + модули, проверка прототипа.
+## Пересчёт статов ствола (CONTRACTS §11): основа → переопределения модели → уровни L2–L5 →
+## мастерская модели → дерево класса → пассивки → модули, затем проверка прототипа.
 func refresh(i: int) -> void:
 	var s := slots[i]
-	var st := WeaponDefs.base_stats(s.base, s.level)
+	var st := WeaponDefs.model_stats(s.model, s.level)
+	var step: Dictionary = Meta.WORKSHOP_STEP
+	st["damage"] *= (1.0 + step["damage"] * Meta.workshop_level(s.model, "damage")) * float(bonuses.get("damage_mul", 1.0))
+	st["rate"] *= 1.0 + step["rate"] * Meta.workshop_level(s.model, "rate")
+	st["mag"] = ceili(float(st["mag"]) * (1.0 + step["mag"] * Meta.workshop_level(s.model, "mag")) * float(bonuses.get("mag_mul", 1.0)) - 0.0001)
+	st["reload"] *= (1.0 + step["reload"] * Meta.workshop_level(s.model, "reload")) * float(bonuses.get("reload_mul", 1.0))
+	st["crit"] += float(bonuses.get("crit_add", 0.0))
 	st["damage"] *= 1.0 + _passive(WeaponDefs.Passive.DAMAGE)
 	st["rate"] *= 1.0 + _passive(WeaponDefs.Passive.FIRE_RATE)
 	st["reload"] *= 1.0 - _passive(WeaponDefs.Passive.RELOAD)
@@ -195,6 +245,43 @@ func reload_all() -> void:
 			_start_reload(s)
 
 
+## Убрать все снаряды в полёте (тесты).
+func clear_projectiles() -> void:
+	bullet_count = 0
+	_gpos.clear()
+	_gvel.clear()
+	_gleft.clear()
+	_gslot.clear()
+	_gdmg.clear()
+	_grad.clear()
+	_gsmall.clear()
+	_gflag.clear()
+	_xpos.clear()
+	_xuid.clear()
+	_xoff.clear()
+	_xt.clear()
+	_xslot.clear()
+	_xdmg.clear()
+	_xrad.clear()
+	_xflag.clear()
+	_beams.clear()
+
+
+## «Адреналин»: рывок мгновенно заряжает все стволы.
+func refill_all() -> void:
+	for s in slots:
+		s.reloading = false
+		s.reload_t = 0.0
+		s.mag = s.stats["mag"]
+
+
+func any_reloading() -> bool:
+	for s in slots:
+		if s.reloading:
+			return true
+	return false
+
+
 # --- кадр -----------------------------------------------------------------------------------
 
 func _physics_process(delta: float) -> void:
@@ -202,6 +289,7 @@ func _physics_process(delta: float) -> void:
 	_update_boss_fire(delta)
 	_update_bullets(delta)
 	_update_grenades(delta)
+	_update_stuck(delta)
 	_age_fx(delta)
 	queue_redraw()
 	# Слой вспышек перерисовывается, только пока есть вспышки (и один раз, чтобы стереть).
@@ -226,6 +314,12 @@ func _update_slot(i: int, delta: float) -> void:
 	if s.since_shot > 1.5 / float(s.stats["rate"]):
 		_end_burst(s)
 		s.heat = move_toward(s.heat, 0.0, delta * 35.0)
+	# «Шквал огня»: серия не прерывается короткими паузами между очередями, но перезарядка её сбрасывает
+	if s.since_shot > maxf(0.6, 1.5 / float(s.stats["rate"])):
+		s.streak = 0.0
+		s.burst_left = 0
+	elif not s.reloading:
+		s.streak += delta
 	if s.rack_t >= 0.0:
 		s.rack_t -= delta
 		if s.rack_t < 0.0:
@@ -240,17 +334,59 @@ func _update_slot(i: int, delta: float) -> void:
 			s.reloading = false
 			s.mag = s.stats["mag"]
 		return
+	if s.fan_left > 0:
+		_update_fan(i, s, delta)
+		return
 	if s.cooldown > 0.0:
 		return
-	var origin := player.global_position
-	var target := _nearest_target(origin, s.stats["range"])
+	var target := _nearest_target(player.global_position, s.stats["range"])
 	if target == -1:
 		return
+	if s.trait_id == "fan":
+		_start_fan(s)
+		_update_fan(i, s, 0.0)
+		return
+	_fire_shot(i, s, target)
+	# ППШ и очереди сохраняют дробную часть интервала: 14/с не округляется до 12/с на физике 60 Гц.
+	var carry := -delta if s.base == WeaponDefs.Base.SMG or s.trait_id == "burst3" else 0.0
+	s.cooldown = maxf(s.cooldown, carry) + _shot_interval(s)
+
+
+## Пауза до следующего выстрела с учётом «Шквала огня»; у burst3 — внутри очереди короткая, после неё длинная.
+func _shot_interval(s: Slot) -> float:
+	var rate: float = s.stats["rate"] * _streak_mult(s)
+	if s.trait_id == "burst3":
+		s.burst_left = WeaponDefs.BURST_SHOTS - 1 if s.burst_left <= 0 else s.burst_left - 1
+		if s.burst_left > 0:
+			return WeaponDefs.BURST_GAP
+		return maxf(WeaponDefs.BURST_SHOTS / rate - WeaponDefs.BURST_GAP * (WeaponDefs.BURST_SHOTS - 1), WeaponDefs.BURST_GAP)
+	return 1.0 / rate
+
+
+func _streak_mult(s: Slot) -> float:
+	return 1.0 + float(bonuses.get("sustained_rate", 0.0)) if s.streak >= SUSTAINED_TIME else 1.0
+
+
+## Один выстрел в цель target: снаряды, отдача, вспышка, звук, гильза, магазин. Паузу ставит вызывающий.
+func _fire_shot(i: int, s: Slot, target: int) -> void:
+	var origin := player.global_position
 	_burst_shot(s, BOSS_TARGET if target == BOSS_TARGET else horde.uid[target])
 	var target_pos := _target_position(target)
 	var dir := (target_pos - origin).normalized()
 	player.aim_dir = dir
 	_aim_hold = 0.4
+	# множитель урона: усиленный выстрел «Копья» и последний патрон магазина (дерево класса)
+	s.shot_mult = 1.0
+	s.shot_charged = false
+	s.shot_gibs = false
+	if s.trait_id == "kill_charge" and s.charged:
+		s.charged = false
+		s.shot_charged = true
+		s.shot_mult *= WeaponDefs.KILL_CHARGE_MULT
+	if s.mag == 1 and bool(bonuses.get("last_round", false)):
+		s.shot_mult *= LAST_ROUND_MULT
+		s.shot_gibs = true
+	s.last_damage = float(s.stats["damage"]) * s.shot_mult
 	player.kick(RECOIL[s.base])
 	if camera:
 		camera.kick(dir, RECOIL[s.base])
@@ -283,25 +419,64 @@ func _update_slot(i: int, delta: float) -> void:
 		effects.emit(muzzle + dir * 3.0, dir * 9.0 + Vector2(0, -6), 0.45, smoke, 3.4, 2.0)
 		if s.heat > 8.0:
 			effects.emit(muzzle, Vector2(0, -14), 0.7, Color(0.5, 0.5, 0.48, 0.2), 3.5, 1.0)
-	if s.base in [WeaponDefs.Base.RIFLE, WeaponDefs.Base.SMG]:
+	# у «Ровного боя» и очередей по 3 разброс не растёт
+	if s.base in [WeaponDefs.Base.RIFLE, WeaponDefs.Base.SMG] and s.trait_id != "steady" and s.trait_id != "burst3":
 		s.heat = minf(s.heat + (1.0 if s.base == WeaponDefs.Base.RIFLE else 1.4), 16.0 if s.base == WeaponDefs.Base.RIFLE else 26.0)
 	s.since_shot = 0.0
 	if s.base in [WeaponDefs.Base.SHOTGUN, WeaponDefs.Base.SNIPER]:
-		s.rack_t = 0.25 if s.base == WeaponDefs.Base.SHOTGUN else 0.3
-		s.rack_dir = dir
+		if s.trait_id == "slamfire":
+			if effects:
+				effects.casing(origin, dir, "shell") # автомат без помпы: гильза сразу
+		else:
+			s.rack_t = 0.25 if s.base == WeaponDefs.Base.SHOTGUN else 0.3
+			s.rack_dir = dir
 	elif s.base in [WeaponDefs.Base.RIFLE, WeaponDefs.Base.PISTOL, WeaponDefs.Base.SMG] and effects:
 		effects.casing(origin, dir, "brass_rifle" if s.base == WeaponDefs.Base.RIFLE else "brass_small")
 	s.mag -= 1
-	# ППШ сохраняет дробную часть интервала: 14/с не округляется до 12/с на физике 60 Гц.
-	s.cooldown = maxf(s.cooldown, -delta if s.base == WeaponDefs.Base.SMG else 0.0) + 1.0 / s.stats["rate"]
 	if s.mag <= 0:
 		_sound(s, "dry")
 		_start_reload(s)
 	shot_fired.emit(s.base)
 
 
+## Веер ковбоя: барабан целиком по разным целям за FAN_TIME (темп сокращает его).
+func _start_fan(s: Slot) -> void:
+	s.fan_left = s.mag
+	s.fan_hit.clear()
+	s.fan_interval = WeaponDefs.FAN_TIME * WeaponDefs.FAN_BASE_RATE / (float(s.stats["rate"]) * _streak_mult(s)) / float(maxi(s.mag, 1))
+	s.fan_t = 0.0
+
+
+func _update_fan(i: int, s: Slot, delta: float) -> void:
+	s.fan_t -= delta
+	if s.fan_t > 0.0:
+		return
+	var target := _fan_target(s)
+	if target == -1:
+		s.fan_left = 0 # цели кончились: оставшиеся патроны берегутся
+		return
+	s.fan_left -= 1
+	s.fan_t += s.fan_interval
+	_fire_shot(i, s, target)
+	s.cooldown = 0.0
+
+
+## Ближайшая цель, по которой в этом веере ещё не стреляли; кончились новые — по кругу.
+func _fan_target(s: Slot) -> int:
+	var origin := player.global_position
+	var target := _nearest_target(origin, s.stats["range"], s.fan_hit)
+	if target == -1 and not s.fan_hit.is_empty():
+		s.fan_hit.clear()
+		target = _nearest_target(origin, s.stats["range"])
+	if target != -1:
+		s.fan_hit.append(BOSS_TARGET if target == BOSS_TARGET else horde.uid[target])
+	return target
+
+
 func _start_reload(s: Slot) -> void:
 	_end_burst(s)
+	s.burst_left = 0
+	s.fan_left = 0
 	s.reloading = true
 	s.reload_t = 0.0
 	s.reload_missing = int(s.stats["mag"]) - s.mag
@@ -324,18 +499,26 @@ func _end_burst(s: Slot) -> void:
 
 
 func _burst_shot(s: Slot, target_uid: int) -> void:
-	if s.base != WeaponDefs.Base.RIFLE and s.base != WeaponDefs.Base.SMG:
-		return
+	if (s.base != WeaponDefs.Base.RIFLE and s.base != WeaponDefs.Base.SMG) or s.trait_id == "burst3":
+		return # очереди по 3 хвоста не дают
 	if s.burst_target != target_uid:
 		_end_burst(s)
 	s.burst_target = target_uid
 	s.burst_shots += 1
 
 
+## Голос по MODELS[model]["gun"]; нет такого файла (звуки моделей делает A3) — голос серийной модели.
+func sound_id(s: Slot, action: String) -> String:
+	var id := "weapons/" + s.gun + "/" + action
+	if sfx and not sfx.has(id):
+		id = "weapons/" + GUN_IDS[s.base] + "/" + action
+	return id
+
+
 func _sound(s: Slot, action: String) -> void:
 	if sfx:
 		# A2 уже сводит механику на ~12 дБ тише выстрела.
-		sfx.play("weapons/" + GUN_IDS[s.base] + "/" + action)
+		sfx.play(sound_id(s, action))
 
 
 ## Пороговые события без таймеров-нод. Тактическая помпа вставляет только недостающие патроны.
@@ -384,7 +567,7 @@ func _fire_bullets(i: int, muzzle: Vector2, dir: Vector2) -> void:
 			# автомат: несколько пуль идут небольшим веером
 			a += (k - (n - 1) * 0.5) * deg_to_rad(5.0) + randf_range(-spread, spread) * 0.5
 		var spd: float = st["speed"] * (randf_range(0.85, 1.1) if s.base == WeaponDefs.Base.SHOTGUN else 1.0)
-		_spawn_bullet(muzzle, Vector2.from_angle(a) * spd, st["range"] / spd, st["damage"], i, pierce, bounce, 0)
+		_spawn_bullet(muzzle, Vector2.from_angle(a) * spd, st["range"] / spd, st["damage"] * s.shot_mult, i, pierce, bounce, F_LAST if s.shot_gibs else 0)
 
 
 func _spawn_bullet(p: Vector2, v: Vector2, life: float, dmg: float, slot: int, pierce: int, bounce: int, flags: int, depth := 0) -> void:
@@ -470,7 +653,7 @@ func _bullet_hit(b: int, e: int, at: Vector2) -> bool:
 	var dir := _bvel[b].normalized()
 	var is_boss := e == BOSS_TARGET
 	var source := "chain" if _bflags[b] & F_CHAIN else ("shard" if _bflags[b] & F_SHARD else "bullet")
-	var killed := _hit_boss(slot, _bdmg[b], dir, at, source) if is_boss else _hit_enemy(slot, e, _bdmg[b], dir, at, s.stats["knock"])
+	var killed := _hit_boss(slot, _bdmg[b], dir, at, source) if is_boss else _hit_enemy(slot, e, _bdmg[b], dir, at, s.stats["knock"], false, _bflags[b] & F_LAST != 0)
 	var uid := BOSS_TARGET if is_boss else horde.uid[e]
 	_blast[b] = uid
 	# сплит: осколки веером (сами не делятся)
@@ -577,7 +760,7 @@ func _update_boss_fire(delta: float) -> void:
 
 
 ## Урон по зомби с эффектами патронов ствола. Возвращает true, если убит.
-func _hit_enemy(slot: int, e: int, dmg: float, dir: Vector2, at: Vector2, knockback: float, explosive := false) -> bool:
+func _hit_enemy(slot: int, e: int, dmg: float, dir: Vector2, at: Vector2, knockback: float, explosive := false, gibs := false) -> bool:
 	var s := slots[slot]
 	var rank := s.ammo_rank
 	var rare := WeaponDefs.RARE_MULT if s.ammo_rare else 1.0
@@ -597,7 +780,11 @@ func _hit_enemy(slot: int, e: int, dmg: float, dir: Vector2, at: Vector2, knockb
 			horde.chill_hit(e, 0.2, 4 if rank < 2 else 3, rank >= 3, s.prototype == 1)
 	var e_pos := horde.pos[e]
 	damage_dealt += minf(dmg, horde.hp[e])
+	var prev_death := horde.death_override
+	if gibs:
+		horde.death_override = Gore.Death.GIBS # «Последний патрон» всегда рвёт на гибы
 	var killed := horde.damage(e, dmg, dir, knockback, s.ammo, crit, at, explosive)
+	horde.death_override = prev_death
 	if effects:
 		effects.blood_hit(e_pos, dir, false)
 		_ammo_sparks(s.ammo, e_pos, dir)
@@ -617,6 +804,11 @@ func _hit_enemy(slot: int, e: int, dmg: float, dir: Vector2, at: Vector2, knockb
 func _on_kill(slot: int, e: int, dir: Vector2, depth: int) -> void:
 	var s := slots[slot]
 	var at := horde.pos[e]
+	match s.trait_id:
+		"kill_charge":
+			s.charged = true # следующий выстрел «Копья» сильнее
+		"lever":
+			s.cooldown = 0.0 # убийство мгновенно взводит рычаг
 	if s.mod_rank(WeaponDefs.Module.DETONATOR) > 0:
 		var chance := 1.0 if s.prototype == 0 else minf(s.mod_value(WeaponDefs.Module.DETONATOR, [0.25, 0.4, 0.6]), 1.0)
 		if randf() < chance and depth < 3:
@@ -634,7 +826,7 @@ func _on_kill(slot: int, e: int, dir: Vector2, depth: int) -> void:
 ## Взрыв: урон по площади, отброс, гибы. depth ограничивает цепные детонации.
 ## slot >= 0 — взрыв ствола (патроны, детонатор), slot = -1 — «ничей» (граната игрока):
 ## урон без эффектов патронов, любая смерть — гибы.
-func explode(at: Vector2, dmg: float, radius: float, slot := -1, depth := 0) -> void:
+func explode(at: Vector2, dmg: float, radius: float, slot := -1, depth := 0, gibs := false) -> void:
 	_blasts.append([at, radius, 0.0])
 	if sfx:
 		sfx.play("explosions/grenade", at, -2.0)
@@ -668,7 +860,7 @@ func explode(at: Vector2, dmg: float, radius: float, slot := -1, depth := 0) -> 
 		if s == null:
 			if horde.damage(j, dmg * falloff, dir, GRENADE_KNOCK, WeaponDefs.Ammo.STANDARD, false, horde.pos[j], true) and effects:
 				effects.blood_hit(horde.pos[j], dir, false)
-		elif _hit_enemy(slot, j, dmg * falloff, dir, horde.pos[j], s.stats["knock"] * 1.5, true):
+		elif _hit_enemy(slot, j, dmg * falloff, dir, horde.pos[j], s.stats["knock"] * 1.5, true, gibs):
 			if depth < 2 and s.mod_rank(WeaponDefs.Module.DETONATOR) > 0:
 				_on_kill(slot, j, dir, depth)
 	horde.death_override = prev_override
@@ -699,7 +891,7 @@ func _fire_rail(i: int, muzzle: Vector2, dir: Vector2) -> void:
 	var n: int = s.stats["proj"]
 	for k in n:
 		var a := dir.angle() + (k - (n - 1) * 0.5) * deg_to_rad(15.0)
-		_rail_beam(i, muzzle, Vector2.from_angle(a), s.stats["damage"], int(s.mod_value(WeaponDefs.Module.RICOCHET, [1, 2, 3])), PackedInt32Array())
+		_rail_beam(i, muzzle, Vector2.from_angle(a), s.stats["damage"] * s.shot_mult, int(s.mod_value(WeaponDefs.Module.RICOCHET, [1, 2, 3])), PackedInt32Array())
 
 
 func _rail_beam(i: int, from: Vector2, dir: Vector2, dmg: float, bounces: int, hit_uids: PackedInt32Array) -> void:
@@ -739,10 +931,12 @@ func _rail_beam(i: int, from: Vector2, dir: Vector2, dmg: float, bounces: int, h
 		var at := horde.pos[e]
 		if last == -1 and s.mod_rank(WeaponDefs.Module.SPLIT) > 0:
 			_spawn_shards(i, at, dir, dmg, horde.uid[e])
-		if _hit_enemy(i, e, dmg, dir, at, s.stats["knock"]):
+		if _hit_enemy(i, e, dmg, dir, at, s.stats["knock"], false, s.shot_gibs):
 			_on_kill(i, e, dir, 0)
 		last = e
 	var color := Color(0.6, 0.95, 1.0) if s.prototype == 1 else Color(0.55, 0.85, 1.0)
+	if s.shot_charged:
+		color = Color(1.0, 0.72, 0.35) # усиленный луч «Копья» горячий
 	_beams.append([from, to, s.stats["width"], 0.0, color])
 	# рикошет: луч перескакивает с последней цели на ближайшую новую
 	if bounces > 0 and last != -1:
@@ -757,12 +951,13 @@ func _rail_beam(i: int, from: Vector2, dir: Vector2, dmg: float, bounces: int, h
 func _fire_grenades(i: int, muzzle: Vector2, target: Vector2) -> void:
 	var s := slots[i]
 	var n: int = s.stats["proj"]
+	var flags := (G_LAST if s.shot_gibs else 0) | (G_STICKY if s.trait_id == "sticky" else 0)
 	for k in n:
 		var t := target + (Vector2(randf_range(-14, 14), randf_range(-14, 14)) if k > 0 else Vector2.ZERO)
-		_spawn_grenade(muzzle, t, i, s.stats["damage"], s.stats["radius"], false)
+		_spawn_grenade(muzzle, t, i, s.stats["damage"] * s.shot_mult, s.stats["radius"], false, flags)
 
 
-func _spawn_grenade(from: Vector2, to: Vector2, slot: int, dmg: float, radius: float, small: bool) -> void:
+func _spawn_grenade(from: Vector2, to: Vector2, slot: int, dmg: float, radius: float, small: bool, flags := 0) -> void:
 	var d := to - from
 	var spd: float = slots[slot].stats["speed"] if not small else 180.0
 	_gpos.append(from)
@@ -772,6 +967,7 @@ func _spawn_grenade(from: Vector2, to: Vector2, slot: int, dmg: float, radius: f
 	_gdmg.append(dmg)
 	_grad.append(radius)
 	_gsmall.append(1 if small else 0)
+	_gflag.append(flags)
 
 
 func _update_grenades(delta: float) -> void:
@@ -786,13 +982,10 @@ func _update_grenades(delta: float) -> void:
 		if _gleft[i] <= 0.0 or touched:
 			var at := _gpos[i]
 			var slot := _gslot[i]
-			explode(at, _gdmg[i], _grad[i], slot)
-			# сплит у гранатомёта — кассета мини-гранат
-			if _gsmall[i] == 0 and slot < slots.size() and slots[slot].mod_rank(WeaponDefs.Module.SPLIT) > 0:
-				var n := 2 + slots[slot].mod_rank(WeaponDefs.Module.SPLIT)
-				for k in n:
-					var to := at + Vector2.from_angle(TAU * k / n + randf() * 0.5) * randf_range(20.0, 34.0)
-					_spawn_grenade(at, to, slot, _gdmg[i] * 0.4, _grad[i] * 0.6, true)
+			if _gflag[i] & G_STICKY != 0 and _gsmall[i] == 0:
+				_stick(at, slot, _gdmg[i], _grad[i], _gflag[i])
+			else:
+				_detonate(at, slot, _gdmg[i], _grad[i], _gsmall[i] == 1, _gflag[i])
 			_gpos.remove_at(i)
 			_gvel.remove_at(i)
 			_gleft.remove_at(i)
@@ -800,6 +993,79 @@ func _update_grenades(delta: float) -> void:
 			_gdmg.remove_at(i)
 			_grad.remove_at(i)
 			_gsmall.remove_at(i)
+			_gflag.remove_at(i)
+		i -= 1
+
+
+## Взрыв гранаты ствола; сплит у гранатомёта — кассета мини-гранат.
+func _detonate(at: Vector2, slot: int, dmg: float, radius: float, small: bool, flags: int) -> void:
+	explode(at, dmg, radius, slot, 0, flags & G_LAST != 0)
+	if not small and slot < slots.size() and slots[slot].mod_rank(WeaponDefs.Module.SPLIT) > 0:
+		var n := 2 + slots[slot].mod_rank(WeaponDefs.Module.SPLIT)
+		for k in n:
+			var to := at + Vector2.from_angle(TAU * k / n + randf() * 0.5) * randf_range(20.0, 34.0)
+			_spawn_grenade(at, to, slot, dmg * 0.4, radius * 0.6, true)
+
+
+## «Улей»: граната прилипает к врагу (или боссу, иначе к земле) и рвётся через STICKY_FUSE.
+func _stick(at: Vector2, slot: int, dmg: float, radius: float, flags: int) -> void:
+	var carrier := 0
+	var off := Vector2.ZERO
+	var e := horde.find_hit(at, 2.0)
+	if e != -1:
+		carrier = horde.uid[e]
+		off = at - horde.pos[e]
+	elif _boss_active and boss.hit_test(at, 2.0):
+		carrier = BOSS_TARGET
+		off = at - boss.global_position
+	_xpos.append(at)
+	_xuid.append(carrier)
+	_xoff.append(off)
+	_xt.append(WeaponDefs.STICKY_FUSE)
+	_xslot.append(slot)
+	_xdmg.append(dmg)
+	_xrad.append(radius)
+	_xflag.append(flags)
+
+
+func _update_stuck(delta: float) -> void:
+	var i := _xpos.size() - 1
+	while i >= 0:
+		var carrier := _xuid[i]
+		if carrier == BOSS_TARGET:
+			if _boss_active:
+				_xpos[i] = boss.global_position + _xoff[i]
+		elif carrier > 0:
+			var e := horde.uid.find(carrier)
+			if e >= 0 and e < horde.count and horde.dead[e] == 0:
+				_xpos[i] = horde.pos[e] + _xoff[i]
+			else:
+				_xuid[i] = 0 # носитель погиб: граната лежит на месте
+		_xt[i] -= delta
+		if _xt[i] <= 0.0:
+			var at := _xpos[i]
+			var slot := _xslot[i]
+			var dmg := _xdmg[i]
+			var radius := _xrad[i]
+			var flags := _xflag[i]
+			var last := _xpos.size() - 1
+			_xpos[i] = _xpos[last]
+			_xuid[i] = _xuid[last]
+			_xoff[i] = _xoff[last]
+			_xt[i] = _xt[last]
+			_xslot[i] = _xslot[last]
+			_xdmg[i] = _xdmg[last]
+			_xrad[i] = _xrad[last]
+			_xflag[i] = _xflag[last]
+			_xpos.resize(last)
+			_xuid.resize(last)
+			_xoff.resize(last)
+			_xt.resize(last)
+			_xslot.resize(last)
+			_xdmg.resize(last)
+			_xrad.resize(last)
+			_xflag.resize(last)
+			_detonate(at, slot, dmg, radius, false, flags)
 		i -= 1
 
 
@@ -835,6 +1101,12 @@ func _draw() -> void:
 	for g in _gpos.size():
 		draw_rect(Rect2(_gpos[g] - Vector2(1.5, 1.5), Vector2(3, 3)), Color(0.25, 0.28, 0.2))
 		draw_rect(Rect2(_gpos[g] - Vector2(0.5, 0.5), Vector2(1, 1)), Color(1.0, 0.4, 0.2))
+	for x in _xpos.size():
+		# прилипшая граната мигает всё чаще
+		var left := _xt[x] / WeaponDefs.STICKY_FUSE
+		draw_rect(Rect2(_xpos[x] - Vector2(1.5, 1.5), Vector2(3, 3)), Color(0.25, 0.28, 0.2))
+		if int(left * 14.0) % 2 == 0 or left < 0.25:
+			draw_rect(Rect2(_xpos[x] - Vector2(0.5, 0.5), Vector2(1, 1)), Color(1.0, 0.25, 0.15))
 	for beam: Array in _beams:
 		var k: float = 1.0 - beam[3] / 0.14
 		var c: Color = beam[4]

@@ -188,6 +188,11 @@ func _apply_passives(changed: int) -> void:
 			gems.radius = 32.0 * (1.0 + WeaponDefs.PASSIVES[changed]["per_level"] * lv)
 
 
+## Число без хвоста «.0»: 7 → «7», 3.5 → «3.5».
+static func _num(v: float) -> String:
+	return "%d" % roundi(v) if is_equal_approx(v, roundf(v)) else "%.1f" % v
+
+
 # --- тексты карт ----------------------------------------------------------------------------
 
 ## {kind, title, lines, color} для отрисовки карты.
@@ -195,20 +200,26 @@ func describe(card: Dictionary) -> Dictionary:
 	var rare: bool = card.get("rare", false)
 	match card["type"]:
 		"weapon":
-			var d: Dictionary = WeaponDefs.BASES[card["id"]]
-			var st := WeaponDefs.base_stats(card["id"], 1)
-			return {"kind": "НОВЫЙ СТВОЛ", "title": d["name"], "color": C_WEAPON,
-				"lines": [d["desc"], "урон %d · %.1f выстр/с · магазин %d" % [st["damage"], st["rate"], st["mag"]]]}
+			# предлагается избранная модель категории (Meta.model_for): её имя, описание и черта
+			var model: String = card.get("model", Meta.model_for(card["id"]))
+			var m: Dictionary = WeaponDefs.MODELS[model]
+			var st := WeaponDefs.model_stats(model, 1)
+			var lines: Array = [m.get("desc", WeaponDefs.BASES[card["id"]]["desc"])]
+			if m["trait"] != "":
+				lines.append("◆ %s: %s" % [WeaponDefs.TRAITS[m["trait"]]["name"], WeaponDefs.TRAITS[m["trait"]]["text"]])
+			lines.append("урон %s · %.1f выстр/с · магазин %d" % [_num(st["damage"]), st["rate"], st["mag"]])
+			var model_rare: bool = m["rarity"] == WeaponDefs.Rarity.RARE
+			return {"kind": "НОВЫЙ СТВОЛ" + (" · РЕДКИЙ" if model_rare else ""), "title": m["name"], "color": C_RARE if model_rare else C_WEAPON,
+				"lines": lines}
 		"level":
 			var s: Weapons.Slot = weapons.slots[card["slot"]]
-			var d: Dictionary = WeaponDefs.BASES[s.base]
-			var up: Dictionary = d["levels"][s.level]
+			var up: Dictionary = WeaponDefs.level_info(s.model, s.level + 1)
 			var lines: Array = [up["text"]]
 			if WeaponDefs.module_slots(s.level + 1) > WeaponDefs.module_slots(s.level):
 				lines.append("+1 слот модуля")
 			if s.level + 1 == WeaponDefs.MAX_LEVEL:
 				lines.append("ур. 5 открывает прототипы")
-			return {"kind": "УЛУЧШЕНИЕ СТВОЛА", "title": "%s → ур. %d" % [d["short"], s.level + 1], "color": C_COMMON, "lines": lines}
+			return {"kind": "УЛУЧШЕНИЕ СТВОЛА", "title": "%s → ур. %d" % [s.short_name(), s.level + 1], "color": C_COMMON, "lines": lines}
 		"module":
 			var d: Dictionary = WeaponDefs.MODULES[card["id"]]
 			return {"kind": "МОДУЛЬ" + (" · РЕДКИЙ" if rare else ""), "title": d["name"], "color": C_RARE if rare else C_COMMON,

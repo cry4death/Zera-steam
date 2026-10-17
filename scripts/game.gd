@@ -4,6 +4,10 @@ extends Node2D
 ## Бенчмарк: godot --path . -- --bench[=кол-во_зомби] [--shot=путь.png]
 ## Держит 500 зомби, игрок бессмертен и бегает сам; в конце печатает замеры и выходит.
 ##
+## Мета: godot --headless --path . -- --meta-test
+## Сохранение, уровни класса, мастерская, ящики, статы с деревом и черты моделей; итог METATEST ok=true.
+## Все тест-режимы работают на сохранении в памяти (Meta); --meta-preset=maxed и --meta=<json> подставляют мету.
+##
 ## Предметы и граната: godot --path . -- --s3-test --shot=путь.png
 ## Орда, лужи крови, предметы на полу, бросок гранаты; снимки s3_*.png и строки S3TEST.
 ##
@@ -90,11 +94,13 @@ var _no_fire := false
 var _ui_test := false
 var _s3_test := false
 var _weapons_test := false
+var _meta_test := false
 var _wtest_shot := false
 var _wtest_started := 0.0
 var _sim := false
 var _sim_next_report := 60.0
 var _sim_until := 600.0
+var _sim_peak := 0 # пик живых зомби за минуту (отчёт --sim)
 var _alarm := false
 var _alarm_next_print := 0.0
 var _alarm_worst_ms := 0.0
@@ -160,6 +166,8 @@ func _ready() -> void:
 			_no_fire = true # для скриншотов живой орды: не стреляем и стоим на месте
 		elif arg == "--weapons-test":
 			_weapons_test = true
+		elif arg == "--meta-test":
+			_meta_test = true
 		elif arg == "--loadout-w1":
 			_w1_loadout.call_deferred()
 		elif arg == "--loadout":
@@ -266,6 +274,7 @@ func _ready() -> void:
 	player.grenade_landed.connect(_on_grenade_landed)
 	pickups.collected.connect(_on_pickup)
 	player.died.connect(_on_player_died)
+	player.adrenaline_fired.connect(_on_adrenaline)
 	gems.collected.connect(progression.add_xp)
 	credit_drops.collected.connect(_on_credits_collected)
 	progression.level_ready.connect(_on_level_ready)
@@ -274,10 +283,16 @@ func _ready() -> void:
 	trader_ui.closed.connect(_on_trader_closed)
 	weapons.prototype_unlocked.connect(_on_prototype)
 
+	if _meta_test:
+		weapons.process_mode = Node.PROCESS_MODE_DISABLED
+		spawner.enabled = false
+		gems.collected.disconnect(progression.add_xp)
+		_run_meta_test.call_deferred()
 	if _weapons_test:
 		weapons.process_mode = Node.PROCESS_MODE_DISABLED
 		_run_weapons_test.call_deferred()
 	if _sim:
+		print("SIM meta: class_level=%d tree=%d workshop_models=%d owned=%d bonuses=%s models=%s" % [Meta.class_level(), Meta.tree.size(), Meta.workshop.size(), Meta.owned.size(), Meta.run_bonuses(), weapons.slots[0].model])
 		player.god_mode = true
 		player.autopilot = true
 		Engine.time_scale = 4.0
@@ -332,6 +347,9 @@ func _physics_process(delta: float) -> void:
 		if player.auto_target == Vector2.INF:
 			player.auto_target = gems.nearest(player.global_position, 260.0)
 		_sim_grenade()
+		_sim_peak = maxi(_sim_peak, horde.count)
+		if player.adrenaline and weapons.any_reloading():
+			player.try_dash() # «Адреналин» используется как в живой игре: рывок, когда стволы на перезарядке
 	horde.minutes = time / 60.0
 	spawner.time = time
 	blood_alarm.time = time
@@ -415,6 +433,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			horde.death_override += 1
 			if horde.death_override >= Gore.Death.size():
 				horde.death_override = -1
+
+
+## «Адреналин»: рывок зарядил все стволы.
+func _on_adrenaline() -> void:
+	weapons.refill_all()
+	for k in 10:
+		effects.emit(player.global_position, Vector2.from_angle(randf() * TAU) * randf_range(20.0, 70.0), randf_range(0.2, 0.4), Color(1.0, 0.45, 0.7), 1.5, 4.0)
 
 
 func _on_enemy_killed(pos: Vector2, _dir: Vector2, _death: int, _facing: float, _variant: int) -> void:
@@ -760,7 +785,7 @@ func _full_loadout() -> void:
 		if i >= weapons.slots.size():
 			weapons.add_weapon(setup[i][0])
 		var s: Weapons.Slot = weapons.slots[i]
-		s.base = setup[i][0]
+		s.set_model(Meta.model_for(setup[i][0]))
 		s.level = WeaponDefs.MAX_LEVEL
 		s.ammo = setup[i][1]
 		s.ammo_rank = 3
@@ -776,15 +801,16 @@ func _sim_report() -> void:
 		var mods: Array[String] = []
 		for m in s.modules:
 			mods.append("%s%d" % [WeaponDefs.MODULES[m["id"]]["name"].left(4), m["rank"]])
-		parts.append("%s L%d %s%d [%s]" % [WeaponDefs.BASES[s.base]["short"], s.level, WeaponDefs.AMMO[s.ammo]["name"].left(4), s.ammo_rank, ",".join(mods)])
+		parts.append("%s L%d %s%d [%s]" % [s.short_name(), s.level, WeaponDefs.AMMO[s.ammo]["name"].left(4), s.ammo_rank, ",".join(mods)])
 	var alive := [0, 0, 0, 0]
 	var elites := 0
 	for i in horde.count:
 		alive[horde.kind[i]] += 1
 		elites += horde.elite[i]
-	print("SIM %02d:00 level=%d kills=%d xp=%d/%d credits=%d/%d credits_left=%d zombies=%d kinds=%d/%d/%d/%d elites=%d elites_spawned=%d crates=%d nades=%d fps=%d | %s" % [int(time / 60.0), progression.level, kills,
+	print("SIM %02d:00 level=%d kills=%d xp=%d/%d credits=%d/%d credits_left=%d zombies=%d kinds=%d/%d/%d/%d elites=%d elites_spawned=%d crates=%d nades=%d dmg_taken=%d peak=%d fps=%d | %s" % [int(time / 60.0), progression.level, kills,
 		gems.collected_total, gems.spawned_total, credit_drops.collected_total, credit_drops.spawned_total, progression.credits, horde.count,
-		alive[0], alive[1], alive[2], alive[3], elites, spawner.elites_spawned, crates, nades, Engine.get_frames_per_second(), " | ".join(parts)])
+		alive[0], alive[1], alive[2], alive[3], elites, spawner.elites_spawned, crates, nades, roundi(player.damage_taken), _sim_peak, Engine.get_frames_per_second(), " | ".join(parts)])
+	_sim_peak = 0
 	if time >= _sim_until:
 		get_tree().quit()
 
@@ -852,6 +878,11 @@ func _alarm_step(delta: float) -> void:
 			_alarm_peak, _alarm_min_fps, _alarm_worst_ms, Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
 			Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), horde.update_ms])
 		get_tree().quit()
+
+
+func _run_meta_test() -> void:
+	var ok: bool = await MetaTest.run(self)
+	get_tree().quit(0 if ok else 1)
 
 
 func _run_ui_test() -> void:
@@ -1025,7 +1056,7 @@ func _on_boss_died(at: Vector2) -> void:
 func _result_stats(victory: bool) -> Dictionary:
 	var names: Array[String] = []
 	for s in weapons.slots:
-		names.append("%s ур.%d · %s %s" % [WeaponDefs.BASES[s.base]["name"], s.level, WeaponDefs.AMMO[s.ammo]["name"], WeaponDefs.ROMAN[s.ammo_rank]])
+		names.append("%s ур.%d · %s %s" % [WeaponDefs.MODELS[s.model]["name"], s.level, WeaponDefs.AMMO[s.ammo]["name"], WeaponDefs.ROMAN[s.ammo_rank]])
 	var lines: Array[Array] = [["Время × 10", floori(time / 6.0)], ["Убийства / 50", kills / 50], ["Элитки × 5", elites_killed * 5]]
 	var subtotal := 0
 	for line in lines:
@@ -1345,7 +1376,7 @@ func _run_s3_test() -> void:
 func _w1_loadout() -> void:
 	_full_loadout()
 	for i in 4:
-		weapons.slots[i].base = WeaponDefs.Base.PISTOL + i
+		weapons.slots[i].set_model(Meta.model_for(WeaponDefs.Base.PISTOL + i))
 		weapons.refresh(i)
 		weapons.slots[i].mag = weapons.slots[i].stats["mag"]
 
