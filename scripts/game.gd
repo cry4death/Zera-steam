@@ -37,6 +37,31 @@ var game_over := false
 var trader_visit := 0 # следующий визит торговца
 var nades := 0 # брошено гранат (для отчёта --sim)
 var crates := 0 # оружейные ящики, найденные за забег (открываются на базе, M6)
+var military_crates := 0
+var elites_killed := 0
+var boss_phase_flash := 0.0
+var _boss_test := false
+var _boss_hp := -1.0
+var _boss_warned := false
+var _boss_spawned := false
+var _boss_next_print := 595.0
+var _boss_started := 0.0
+var _boss_phase1_shot := false
+var _boss_phase2_shot := false
+var _boss_last_frame := 0
+var _boss_death_worst_ms := 0.0
+var _boss_death_usec := 0
+var _boss_dbg_burst_ms := 0.0
+var _boss_frames_dbg := ""
+var _boss_fight_ms := 0.0
+var _boss_fight_frames := 0
+var _boss_fight_worst_ms := 0.0
+var _boss_death_physics_ms := 0.0
+var _boss_skip_frames := 0
+var _boss_reward_pos := Vector2.INF
+var _boss_reward_age := 0.0
+var _boss_reward: Node2D
+var _boss_crate_tex: Texture2D
 var _alarm_xp := 0
 var _alarm_credits := 0
 
@@ -110,6 +135,8 @@ var _bench_enemies := 0
 @onready var alarm_tint: CanvasModulate = $AlarmTint
 @onready var camera: GameCamera = $Camera
 @onready var screen_blood: Control = $ScreenFX/ScreenBlood
+@onready var boss: Boss = $World/Boss
+@onready var results: RunResults = $Overlay/RunResults
 
 
 func _enter_tree() -> void:
@@ -140,6 +167,11 @@ func _ready() -> void:
 		elif arg == "--alarm":
 			_alarm = true # тревога: старт в 6:55, оружие как --loadout
 			_full_loadout.call_deferred()
+		elif arg == "--boss":
+			_boss_test = true
+			_full_loadout.call_deferred()
+		elif arg.begins_with("--boss-hp="):
+			_boss_hp = arg.trim_prefix("--boss-hp=").to_float() # стартовое HP босса (быстрый тест смерти)
 		elif arg == "--s3-test":
 			_s3_test = true # предметы на кровавом полу и бросок гранаты
 		elif arg == "--ui-test":
@@ -165,6 +197,7 @@ func _ready() -> void:
 	horde.setup(ARENA, player, floor_decals)
 	weapons.player = player
 	weapons.horde = horde
+	weapons.boss = boss
 	weapons.effects = effects
 	weapons.floor_decals = floor_decals
 	weapons.camera = camera
@@ -189,6 +222,27 @@ func _ready() -> void:
 	hazards.floor_decals = floor_decals
 	hazards.effects = effects
 	hazards.camera = camera
+	boss.horde = horde
+	boss.player = player
+	boss.effects = effects
+	boss.floor_decals = floor_decals
+	boss.camera = camera
+	boss.arena = ARENA
+	boss.roar.connect(_on_boss_roar)
+	boss.crushed.connect(_on_boss_crushed)
+	boss.armor_plate.connect(_on_boss_plate)
+	boss.phase_changed.connect(_on_boss_phase)
+	boss.charge_telegraph.connect(func(_from: Vector2, _to: Vector2, _duration: float) -> void: camera.shake(1.8))
+	boss.slam_started.connect(func(at: Vector2) -> void:
+		camera.shake(6.0)
+		sfx.play("explosions/grenade", at, 1.0, 0.02))
+	boss.died.connect(_on_boss_died)
+	results.restart_requested.connect(_restart_run)
+	_boss_crate_tex = PixelArt.tex("military_crate")
+	_boss_reward = Node2D.new()
+	_boss_reward.z_index = 10
+	$World.add_child(_boss_reward)
+	_boss_reward.draw.connect(_draw_boss_reward)
 	blood_alarm.spawner = spawner
 	blood_alarm.player = player
 	blood_alarm.overlay = alarm_overlay
@@ -228,6 +282,16 @@ func _ready() -> void:
 		player.autopilot = true
 		Engine.time_scale = 4.0
 		Engine.max_physics_steps_per_frame = 16
+	if _boss_test:
+		time = 595.0
+		trader_visit = TRADER_TIMES.size()
+		player.god_mode = true
+		player.autopilot = true
+		# Готовый билд проверяется без случайного роста от опыта во время боя.
+		gems.collected.disconnect(progression.add_xp)
+		# Кадры считаем по отрисовке, а не по _process: на хит-стопе игра на паузе, а картинка идёт.
+		_boss_last_frame = Time.get_ticks_usec()
+		RenderingServer.frame_post_draw.connect(_boss_frame_tick)
 	if _alarm:
 		time = BloodAlarm.START - 5.0
 		trader_visit = 1 # лавку 5:00 пропускаем
@@ -256,6 +320,13 @@ func _physics_process(delta: float) -> void:
 	if game_over:
 		return
 	time += delta
+	if not _bench and not _ui_test and not _s3_test and not _weapons_test:
+		_boss_timeline()
+	if _boss_test and boss.is_alive():
+		# Чередуем сближение и отход; автопилот не стоит в упор весь бой.
+		var away := (player.global_position - boss.global_position).normalized()
+		var distance := 160.0 + 100.0 * sin((time - _boss_started) * 0.22)
+		player.auto_target = boss.global_position + away * distance + away.orthogonal() * 70.0
 	if _sim:
 		player.auto_target = pickups.nearest(player.global_position, 400.0)
 		if player.auto_target == Vector2.INF:
@@ -265,10 +336,11 @@ func _physics_process(delta: float) -> void:
 	spawner.time = time
 	blood_alarm.time = time
 	hazards.minutes = time / 60.0
+	boss.minutes = time / 60.0
 	credit_drops.radius = gems.radius # пассивка подбора действует и на кредиты
 	if trader_visit < TRADER_TIMES.size() and time >= TRADER_TIMES[trader_visit]:
 		_open_trader()
-	if _sim and time >= _sim_next_report:
+	if _sim and (time >= _sim_next_report or time >= _sim_until):
 		_sim_next_report += 60.0
 		_sim_report()
 	if _weapons_test and horde.count < 40:
@@ -291,6 +363,12 @@ func _physics_process(delta: float) -> void:
 
 
 func _process(delta: float) -> void:
+	boss_phase_flash = maxf(0.0, boss_phase_flash - delta)
+	if _boss_reward_pos != Vector2.INF:
+		_boss_reward_age += delta
+		_boss_reward.queue_redraw()
+	if _boss_test:
+		_boss_test_step()
 	if _bench:
 		_bench_step(delta)
 	if _alarm:
@@ -337,9 +415,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			horde.death_override += 1
 			if horde.death_override >= Gore.Death.size():
 				horde.death_override = -1
-		KEY_ENTER, KEY_KP_ENTER:
-			if game_over:
-				get_tree().reload_current_scene()
 
 
 func _on_enemy_killed(pos: Vector2, _dir: Vector2, _death: int, _facing: float, _variant: int) -> void:
@@ -362,6 +437,8 @@ func _on_enemy_killed(pos: Vector2, _dir: Vector2, _death: int, _facing: float, 
 
 ## Дроп по типу врага (таблица Horde.KINDS), тревога удваивает опыт и кредиты.
 func _on_enemy_died(pos: Vector2, kind: int, is_elite: bool) -> void:
+	if is_elite:
+		elites_killed += 1
 	var mult := roundi(blood_alarm.reward_mult())
 	var xp_before := gems.spawned_total
 	var credits_before := credit_drops.spawned_total
@@ -453,7 +530,9 @@ func _loot_cards(count: int, with_ammo: bool, all_rare: bool) -> Array:
 
 
 func _open_loot(title: String, sub: String, count: int, with_ammo: bool, all_rare: bool) -> void:
-	if _bench or _sim or _alarm or _weapons_test:
+	if game_over:
+		return
+	if _bench or _sim or _alarm or _weapons_test or _boss_test:
 		var cards := _loot_cards(count, with_ammo, all_rare)
 		if cards.is_empty():
 			return
@@ -509,9 +588,11 @@ func _on_credits_collected(value: int) -> void:
 # --- Level Up ---------------------------------------------------------------------------
 
 func _on_level_ready() -> void:
+	if game_over:
+		return
 	if level_up.visible or trader_ui.visible:
 		return
-	if _bench or _sim or _alarm or _weapons_test:
+	if _bench or _sim or _alarm or _weapons_test or _boss_test:
 		# в бенчмарке и симуляции выбираем сами (случайно), без паузы
 		while progression.pending > 0:
 			var cards := progression.make_cards(time / 60.0)
@@ -565,6 +646,8 @@ func _on_reroll() -> void:
 # --- Торговец ---------------------------------------------------------------------------
 
 func _open_trader() -> void:
+	if game_over:
+		return
 	if level_up.visible:
 		return # награда могла открыться в этом же физическом кадре
 	# F4 может перескочить сразу через оба визита — открываем последний наступивший
@@ -578,7 +661,7 @@ func _open_trader() -> void:
 		var removed := horde.despawn_far(player.global_position, CALM_RADIUS)
 		if _sim:
 			print("CALM %02d:%02d removed=%d left=%d" % [int(time) / 60, int(time) % 60, removed, horde.count - removed])
-	if _bench or _sim or _alarm or _weapons_test:
+	if _bench or _sim or _alarm or _weapons_test or _boss_test:
 		_auto_shop()
 		return
 	get_tree().paused = true
@@ -654,10 +737,15 @@ func _on_player_hurt(_amount: float) -> void:
 
 
 func _on_player_died() -> void:
+	if game_over:
+		return
 	game_over = true
+	spawner.enabled = false
 	camera.shake(6.0)
 	for i in 4:
 		effects.blood_hit(player.global_position, Vector2.from_angle(randf() * TAU), true)
+	await get_tree().create_timer(0.6, false).timeout
+	_open_results(false)
 
 
 ## Отладка: 4 ствола ур.5 с модулями — худший случай для производительности.
@@ -813,8 +901,226 @@ func _run_ui_test() -> void:
 	Input.parse_input_event(key)
 	await get_tree().create_timer(0.3, true).timeout
 	print("UI test trader closed=%s paused=%s dashing=%s" % [not trader_ui.visible, get_tree().paused, player.is_dashing() or player.dash_cd > 0.0])
+	_open_results(false)
+	await get_tree().create_timer(1.5, true).timeout
+	await _boss_screenshot("defeat")
+	results.visible = false
+	military_crates = 1
+	_open_results(true)
+	await get_tree().create_timer(1.5, true).timeout
+	await _boss_screenshot("results")
+	print("UI test results victory=true military=1 dna=%d paused=%s" % [results._stats["dna_total"], get_tree().paused])
 	print("UI test screenshots saved")
 	get_tree().quit()
+
+
+## Последние полминуты сохраняют слабую орду; предупреждение не мешает управлению.
+func _boss_timeline() -> void:
+	if time >= 570.0 and not _boss_warned:
+		_boss_warned = true
+		_announce("ОБЪЕКТ-7 ПРИБЛИЖАЕТСЯ", Color(1.0, 0.34, 0.16))
+		camera.shake(6.0)
+	if time < 600.0 or _boss_spawned:
+		return
+	_boss_spawned = true
+	_boss_started = time
+	var dir := -player.facing.normalized()
+	if dir == Vector2.ZERO:
+		dir = Vector2.LEFT
+	var half := get_viewport().get_visible_rect().size / camera.zoom * 0.5
+	var edge := minf(half.x / maxf(absf(dir.x), 0.0001), half.y / maxf(absf(dir.y), 0.0001))
+	var at := camera.get_screen_center_position() + dir * (edge + Boss.RADIUS + 16.0)
+	boss.start(at)
+	if _boss_test and _boss_hp > 0.0:
+		boss.hp = _boss_hp # --boss-hp=N: быстрый прогон смерти босса
+	_announce("ОБЪЕКТ-7", Color(1.0, 0.34, 0.16))
+	camera.shake(8.0)
+	if _boss_test or _sim:
+		print("BOSS spawn t=%.2f pos=%s hp=%.0f" % [time, boss.global_position, boss.hp])
+
+
+func _on_boss_roar(count: int) -> void:
+	for i in count:
+		var at := boss.global_position + Vector2.from_angle(TAU * i / count) * randf_range(42.0, 70.0)
+		horde.spawn(at.clamp(ARENA.position + Vector2.ONE * 12.0, ARENA.end - Vector2.ONE * 12.0), Horde.Kind.RUNNER)
+
+
+func _on_boss_crushed(at: Vector2, dir: Vector2) -> void:
+	floor_decals.stamp(PixelArt.tex("crushed_%d" % (randi() % 3)), at, dir.angle(), Color.WHITE)
+	effects.blood_burst(at, dir, 12, 140.0, 0.65)
+
+
+func _on_boss_plate(at: Vector2, dir: Vector2) -> void:
+	gore.boss_plate(at, dir)
+	sfx.play("casings/mag_drop", at, -6.0)
+
+
+func _on_boss_phase(_phase: int) -> void:
+	boss_phase_flash = 0.7
+	_announce("БРОНЯ СОРВАНА", Color(1.0, 0.36, 0.18))
+
+
+## Реальные секунды: хит-стоп и замедление не растягивают задержку до итогов.
+func _on_boss_died(at: Vector2) -> void:
+	if game_over:
+		return
+	game_over = true
+	spawner.enabled = false
+	weapons.firing_enabled = false
+	player.set_physics_process(false)
+	player.god_mode = true
+	hazards.clear()
+	hazards.set_physics_process(false)
+	military_crates += 1
+	_boss_reward_pos = at
+	_boss_reward_age = 0.0
+	camera.shake(14.0)
+	_boss_death_usec = Time.get_ticks_usec()
+	gore.boss_burst(at)
+	_boss_dbg_burst_ms = (Time.get_ticks_usec() - _boss_death_usec) / 1000.0
+	sfx.play("explosions/grenade", at, 3.0, 0.02)
+	screen_blood.splash(1.0, (at - player.global_position).normalized())
+	player.add_dirt(15.0)
+	# Индексы орды стабильны до конца физического тика.
+	var previous := horde.death_override
+	horde.death_override = Gore.Death.GIBS
+	for i in horde.query_radius(at, 200.0):
+		if horde.dead[i] == 0:
+			horde.damage(i, 99999.0, (horde.pos[i] - at).normalized(), 250.0, WeaponDefs.Ammo.STANDARD, false, horde.pos[i], true)
+	horde.death_override = previous
+	if _boss_test:
+		print("BOSS death cpu: burst=%.2f ms, total handler=%.2f ms" % [_boss_dbg_burst_ms, (Time.get_ticks_usec() - _boss_death_usec) / 1000.0])
+	_announce("ОБЪЕКТ-7 УНИЧТОЖЕН", Color(1.0, 0.82, 0.35))
+	if _boss_test or _sim:
+		print("BOSS killed fight_s=%.2f military_crates=%d" % [time - _boss_started, military_crates])
+	get_tree().paused = true
+	await get_tree().create_timer(0.15, true, false, true).timeout
+	Engine.time_scale = 0.25
+	get_tree().paused = false
+	await get_tree().create_timer(0.6, true, false, true).timeout
+	Engine.time_scale = 1.0
+	if _boss_test:
+		# Снимок смерти — когда куски долетели и запеклись в пол, перед самым экраном итогов.
+		await get_tree().create_timer(1.15, true, false, true).timeout
+		await _boss_screenshot("death")
+		await get_tree().create_timer(0.6, true, false, true).timeout
+	else:
+		await get_tree().create_timer(1.75, true, false, true).timeout
+	_open_results(true)
+	if _boss_test:
+		await get_tree().create_timer(1.5, true, false, true).timeout
+		await _boss_screenshot("results")
+		print("BOSS summary victory=true fight_s=%.2f death_worst_frame_ms=%.2f death_physics_ms=%.2f fight_avg_frame_ms=%.2f fight_worst_frame_ms=%.2f dna=%d" % [time - _boss_started, _boss_death_worst_ms, _boss_death_physics_ms,
+			_boss_fight_ms / maxi(_boss_fight_frames, 1), _boss_fight_worst_ms, results._stats["dna_total"]])
+		for i in Weapons.GUN_IDS.size():
+			print("BOSS damage %s=%.2f" % [Weapons.GUN_IDS[i], weapons.boss_damage[i]])
+		print("BOSS sources ", weapons.boss_sources)
+		print("BOSS death frames ms (first 1.5 s): ", _boss_frames_dbg)
+		get_tree().quit()
+	elif _sim:
+		_sim_report()
+		get_tree().quit()
+
+
+func _result_stats(victory: bool) -> Dictionary:
+	var names: Array[String] = []
+	for s in weapons.slots:
+		names.append("%s ур.%d · %s %s" % [WeaponDefs.BASES[s.base]["name"], s.level, WeaponDefs.AMMO[s.ammo]["name"], WeaponDefs.ROMAN[s.ammo_rank]])
+	var lines: Array[Array] = [["Время × 10", floori(time / 6.0)], ["Убийства / 50", kills / 50], ["Элитки × 5", elites_killed * 5]]
+	var subtotal := 0
+	for line in lines:
+		subtotal += int(line[1])
+	var mult := 1.5 if victory else 1.0
+	return {"victory": victory, "time": time, "kills": kills, "elites": elites_killed, "best_combo": best_combo,
+		"blood_liters": floor_decals.stamps_total * 0.015, "weapons": names, "crates": crates, "military_crates": military_crates,
+		"dna_lines": lines, "dna_mult": mult, "dna_total": floori(subtotal * mult)}
+
+
+func _open_results(victory: bool) -> void:
+	game_over = true
+	Engine.time_scale = 1.0
+	level_up.close()
+	trader_ui.visible = false
+	alarm_overlay.stop()
+	results.open(_result_stats(victory))
+	get_tree().paused = true
+
+
+func _restart_run() -> void:
+	Engine.time_scale = 1.0
+	get_tree().paused = false
+	get_tree().reload_current_scene()
+
+
+func _draw_boss_reward() -> void:
+	if _boss_reward_pos == Vector2.INF:
+		return
+	var t := clampf(_boss_reward_age / 0.8, 0.0, 1.0)
+	var height := 48.0 * pow(1.0 - t, 2.0) + absf(sin(t * PI * 3.0)) * 5.0 * (1.0 - t)
+	PixelArt.draw_dot(_boss_reward, _boss_reward_pos, 12.0, Color(0.02, 0.02, 0.01, 0.5))
+	_boss_reward.draw_set_transform(_boss_reward_pos - Vector2(0, height), 0.0, Vector2.ONE * PixelArt.ART_SCALE)
+	_boss_reward.draw_texture(_boss_crate_tex, -_boss_crate_tex.get_size() * 0.5)
+	_boss_reward.draw_set_transform(Vector2.ZERO)
+	_boss_reward.draw_string(ThemeDB.fallback_font, _boss_reward_pos + Vector2(-44, -20 - height), "+1 ВОЕННЫЙ ЯЩИК", HORIZONTAL_ALIGNMENT_LEFT, -1, 8, Color(1.0, 0.82, 0.35))
+
+
+## Худший кадр от смерти босса до экрана итогов (кадры сразу после скриншота не считаются).
+func _boss_frame_tick() -> void:
+	var now := Time.get_ticks_usec()
+	var frame_ms := (now - _boss_last_frame) / 1000.0
+	_boss_last_frame = now
+	if _boss_skip_frames > 0:
+		_boss_skip_frames -= 1
+		return
+	if boss.is_alive():
+		_boss_fight_ms += frame_ms
+		_boss_fight_frames += 1
+		_boss_fight_worst_ms = maxf(_boss_fight_worst_ms, frame_ms)
+	if game_over and _boss_death_usec > 0 and not results.visible:
+		_boss_death_worst_ms = maxf(_boss_death_worst_ms, frame_ms)
+		if now - _boss_death_usec < 1500000:
+			_boss_frames_dbg += "%.0f " % frame_ms
+		if frame_ms > 25.0:
+			print("BOSS death frame %.1f ms at +%.2f s (real) process=%.1f physics=%.1f draw_calls=%d gore=%d particles=%d" % [frame_ms, (now - _boss_death_usec) / 1000000.0,
+				Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
+				Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), gore.count, effects.particle_count()])
+		_boss_death_physics_ms = maxf(_boss_death_physics_ms, Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0)
+
+
+func _boss_test_step() -> void:
+	if time >= _boss_next_print:
+		_boss_next_print += 1.0
+		print("BOSS t=%.2f hp=%.0f phase=%d fps=%d" % [time, boss.hp, boss.phase, Engine.get_frames_per_second()])
+	var offset := (boss.global_position - camera.get_screen_center_position()) * camera.zoom
+	var half := get_viewport().get_visible_rect().size * 0.5
+	# Босс ближе к центру кадра: на снимке видны тело, броня и орда рядом.
+	var framed := absf(offset.x) < 500.0 and offset.y > -half.y + 290.0 and offset.y < half.y - 420.0
+	if boss.is_alive() and boss.phase == 1 and boss._flash <= 0.0 and time >= _boss_started + 2.0 and framed and not _boss_phase1_shot:
+		_boss_phase1_shot = true
+		_boss_screenshot("phase1")
+	if boss.phase == 2 and boss._flash <= 0.0 and boss_phase_flash <= 0.0 and framed and not _boss_phase2_shot:
+		_boss_phase2_shot = true
+		_boss_screenshot("phase2")
+	if time > 840.0:
+		print("BOSS timeout hp=%.0f" % boss.hp)
+		get_tree().quit(1)
+
+
+func _boss_screenshot(suffix: String) -> void:
+	if _shot_path.is_empty() or DisplayServer.get_name() == "headless":
+		return
+	_boss_skip_frames = 3
+	await RenderingServer.frame_post_draw
+	if suffix in ["phase1", "phase2"] and boss._flash > 0.0:
+		if suffix == "phase1":
+			_boss_phase1_shot = false
+		else:
+			_boss_phase2_shot = false
+		return
+	var path := _shot_path.get_basename() + "_" + suffix + ".png"
+	get_viewport().get_texture().get_image().save_png(path)
+	_boss_skip_frames = 3
+	print("BOSS screenshot: ", path)
 
 
 ## В --kinds состав не зависит от того, кого первым убило оружие.

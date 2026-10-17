@@ -52,6 +52,8 @@ var _t_meat: Array[int] = []
 var _t_shards: Array[int] = []
 var _splats: Array[Texture2D] = []
 var _sprays: Array[Texture2D] = []
+var _t_boss_gibs: Array[int] = []
+var _t_boss_plates: Array[int] = []
 
 var count := 0
 var _kind := PackedInt32Array()
@@ -70,6 +72,9 @@ var _var := PackedByteArray()
 
 
 func _ready() -> void:
+	for k in 4:
+		_t_boss_gibs.append(_load("boss_gib_%d" % k))
+		_t_boss_plates.append(_load("boss_plate_%d" % k))
 	_kind.resize(MAX_DEBRIS)
 	_tex.resize(MAX_DEBRIS)
 	_pos.resize(MAX_DEBRIS)
@@ -291,6 +296,26 @@ func _crumble(p: Vector2, rot: float) -> void:
 
 
 # --- обломки -------------------------------------------------------------------
+
+## Отлетевшая пластина брони босса.
+func boss_plate(p: Vector2, dir: Vector2) -> void:
+	_add(Kind.GIB, _t_boss_plates.pick_random(), p, dir * randf_range(100.0, 220.0), dir.angle(), randf_range(-12, 12), Color.WHITE, 3.0, false)
+
+
+## Смерть босса: куски летят по всему экрану (дальность = скорость / drag, до ~500 px).
+func boss_burst(p: Vector2) -> void:
+	for i in 80:
+		var dir := Vector2.from_angle(TAU * i / 80.0 + randf_range(-0.12, 0.12))
+		var tex_id: int = _t_boss_gibs[i % 4] if i < 24 else _t_meat.pick_random()
+		_add(Kind.GIB, tex_id, p + dir * 12.0, dir * randf_range(220.0, 800.0), dir.angle(), randf_range(-18, 18), Color.WHITE, 1.5, true)
+	for i in 12:
+		boss_plate(p, Vector2.from_angle(TAU * i / 12.0))
+	for i in 8:
+		var dir := Vector2.from_angle(TAU * i / 8.0 + 0.2)
+		floor_decals.pool(_splats[i % _splats.size()], p + dir * randf_range(30.0, 130.0), dir.angle(), 3.2)
+		floor_decals.blood(_sprays[i % _sprays.size()], p + dir * 55.0, dir.angle(), 3.4, 0.8)
+	effects.blood_burst(p, Vector2.RIGHT, 200, 380.0, PI)
+
 
 ## Труп скользит от удара, затем дёргается timer секунд и запекается.
 func _add_corpse(tex_id: int, p: Vector2, vel: Vector2, rot: float) -> void:

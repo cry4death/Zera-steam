@@ -65,6 +65,7 @@ func _draw() -> void:
 	var total := n * PANEL_W + (n - 1) * 6.0
 	var x0 := (w - total) * 0.5
 	var y0 := h - 50.0
+	_draw_boss_bar(font, w, y0 - 26.0)
 	for i in n:
 		_draw_slot(font, weapons, i, Vector2(x0 + i * (PANEL_W + 6.0), y0))
 
@@ -105,12 +106,24 @@ func _draw() -> void:
 		var ay := 112.0 if game.alarm_overlay.visible else 70.0
 		_text_centered(font, Vector2(w * 0.5, ay) + jitter, game.announce_text, col, fs)
 
-	if game.game_over:
-		draw_rect(Rect2(Vector2.ZERO, Vector2(w, h)), Color(0.25, 0.0, 0.0, 0.45))
-		_text_centered(font, Vector2(w * 0.5, h * 0.5 - 6), "ТЫ ПОГИБ", Color(1.0, 0.85, 0.8), 24)
-		_text_centered(font, Vector2(w * 0.5, h * 0.5 + 16), "продержался %02d:%02d · уровень %d · убито %d · лучшее комбо %d" % [t / 60, t % 60, prog.level, game.kills, game.best_combo], TEXT)
-		_text_centered(font, Vector2(w * 0.5, h * 0.5 + 30), "ящиков: %d" % game.crates, CREDIT_COLOR)
-		_text_centered(font, Vector2(w * 0.5, h * 0.5 + 46), "Enter — заново", DIM)
+
+
+func _draw_boss_bar(font: Font, w: float, y: float) -> void:
+	var boss: Boss = game.boss
+	if not boss.is_alive():
+		if game.time >= 570.0 and game.time < 600.0 and not game.game_over:
+			_text_centered(font, Vector2(w * 0.5, y + 12), "ОБЪЕКТ-7 ПРИБЛИЖАЕТСЯ", Color(1.0, 0.38, 0.19, 0.7 + 0.3 * sin(game.time * 5.0)), 12)
+		return
+	var width := minf(360.0, w - 32.0)
+	var x := (w - width) * 0.5
+	var color := Color(0.75, 0.15, 0.09) if boss.phase == 1 else Color(1.0, 0.28, 0.12)
+	if game.boss_phase_flash > 0.0:
+		color = color.lerp(Color.WHITE, game.boss_phase_flash / 0.7)
+	draw_rect(Rect2(x - 5, y - 10, width + 10, 25), Color(0.035, 0.025, 0.025, 0.9))
+	_text_centered(font, Vector2(w * 0.5, y), "ОБЪЕКТ-7 · " + ("БРОНЯ" if boss.phase == 1 else "БРОНЯ СОРВАНА"), color, 10)
+	_bar(Rect2(x, y + 4, width, 6), boss.hp / Boss.MAX_HP, color)
+	draw_line(Vector2(w * 0.5, y + 3), Vector2(w * 0.5, y + 11), Color(1.0, 0.85, 0.65), 1.0)
+	_text_right(font, Vector2(x + width, y), "%d / %d" % [ceili(boss.hp), int(Boss.MAX_HP)], DIM, 8)
 
 
 ## Активка «граната»: иконка, затемнение-кулдаун сверху вниз, секунды или клавиша.
