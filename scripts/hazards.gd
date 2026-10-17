@@ -9,9 +9,9 @@ const POOL_LIMIT := 64
 const POOL_LOBES := 7
 const FADE_TIME := 0.8
 const BLASTS_PER_FRAME := 8
-const FLASH_TIME := 0.25
-const FLASH_LIMIT := 128 # 8 взрывов × 15 кадров при 60 Гц, с запасом
 
+var explosions: Explosions
+var obstacles: Obstacles
 var horde: Horde
 var player: Player
 var floor_decals: FloorDecals
@@ -47,11 +47,6 @@ var _queue_elite := PackedByteArray()
 var _queue_head := 0
 var _queue_count := 0
 
-var _flash_count := 0
-var _flash_pos := PackedVector2Array()
-var _flash_radius := PackedFloat32Array()
-var _flash_age := PackedFloat32Array()
-
 var _spit_tex: Array[Texture2D] = []
 var _acid_tex: Array[Texture2D] = []
 var _blood_tex: Array[Texture2D] = []
@@ -73,9 +68,6 @@ func _init() -> void:
 	_lobe_radius.resize(POOL_LIMIT * POOL_LOBES)
 	_queue_pos.resize(2048)
 	_queue_elite.resize(2048)
-	_flash_pos.resize(FLASH_LIMIT)
-	_flash_radius.resize(FLASH_LIMIT)
-	_flash_age.resize(FLASH_LIMIT)
 	_spit_tex.resize(3)
 	_acid_tex.resize(3)
 	_blood_tex.resize(8)
@@ -149,7 +141,6 @@ func clear() -> void:
 	var had_visuals := _has_visuals()
 	_shot_count = 0
 	_pool_count = 0
-	_flash_count = 0
 	_queue_count = 0
 	_queue_head = 0
 	_next_pool_order = 0
@@ -173,7 +164,6 @@ func _physics_process(delta: float) -> void:
 	var generation := _generation
 	var pending := mini(_queue_count, BLASTS_PER_FRAME)
 	_time += delta
-	_update_flashes(delta)
 	_update_pools(delta)
 	if generation != _generation:
 		return
@@ -241,30 +231,15 @@ func _update_pools(delta: float) -> void:
 		player.take_damage(dps * ACID_TICK)
 
 
-func _update_flashes(delta: float) -> void:
-	var i := _flash_count - 1
-	while i >= 0:
-		_flash_age[i] += delta
-		if _flash_age[i] >= FLASH_TIME:
-			_flash_count -= 1
-			_flash_pos[i] = _flash_pos[_flash_count]
-			_flash_radius[i] = _flash_radius[_flash_count]
-			_flash_age[i] = _flash_age[_flash_count]
-		i -= 1
-
-
 func _explode(p: Vector2, is_elite: bool) -> void:
 	var generation := _generation
 	var radius := 48.0 * (1.5 if is_elite else 1.0)
-	_add_flash(p, radius)
+	if obstacles:
+		obstacles.blast(p, radius, 40.0)
+	if explosions:
+		explosions.spawn(p, radius, Explosions.Kind.FAT)
 	if effects:
-		effects.blood_burst(p, Vector2.RIGHT, 40, 170.0, PI)
-		for k in randi_range(20, 30):
-			var v := Vector2.from_angle(randf() * TAU) * randf_range(30.0, 135.0)
-			effects.emit(p, v, randf_range(0.2, 0.55), Color(randf_range(0.5, 0.7), 0.65, 0.12), randf_range(1.5, 3.0), 5.0, false)
-		for k in randi_range(8, 10):
-			var v := Vector2.from_angle(randf() * TAU) * randf_range(20.0, 65.0)
-			effects.emit(p, v, randf_range(0.35, 0.7), Color(0.35, 0.025, 0.02), randf_range(3.0, 5.0), 4.0, true)
+		effects.blood_burst(p, Vector2.RIGHT, 16, 170.0, PI)
 	if floor_decals:
 		for k in randi_range(2, 3):
 			var tex: Texture2D = _blood_tex[randi() % 8]
@@ -274,8 +249,6 @@ func _explode(p: Vector2, is_elite: bool) -> void:
 		floor_decals.mark_wet(p, radius * 0.6)
 	if player:
 		var distance := player.global_position.distance_to(p)
-		if camera and distance < 300.0:
-			camera.shake(4.0 if distance <= 150.0 else 4.0 * (300.0 - distance) / 150.0)
 		if not player.is_dead and distance < radius:
 			player.take_damage(30.0 * (1.0 + 0.05 * minutes) * (1.3 if is_elite else 1.0))
 			if generation != _generation:
@@ -298,20 +271,6 @@ func _splash(p: Vector2) -> void:
 	for k in 7:
 		var v := Vector2.from_angle(randf() * TAU) * randf_range(15.0, 50.0)
 		effects.emit(p, v, randf_range(0.12, 0.28), Color(0.62, 0.85, 0.2), randf_range(1.0, 2.0), 6.0, false)
-
-
-func _add_flash(p: Vector2, radius: float) -> void:
-	var i := _flash_count
-	if _flash_count < FLASH_LIMIT:
-		_flash_count += 1
-	else:
-		i = 0
-		for j in range(1, _flash_count):
-			if _flash_age[j] > _flash_age[i]:
-				i = j
-	_flash_pos[i] = p
-	_flash_radius[i] = radius
-	_flash_age[i] = 0.0
 
 
 func _resize_shots(capacity: int) -> void:
@@ -357,19 +316,12 @@ func _remove_pool(i: int) -> void:
 
 
 func _has_visuals() -> bool:
-	return _shot_count > 0 or _pool_count > 0 or _flash_count > 0
+	return _shot_count > 0 or _pool_count > 0
 
 
 func _draw() -> void:
 	for i in _pool_count:
 		_draw_pool(i)
-	for i in _flash_count:
-		var p := to_local(_flash_pos[i])
-		var t := clampf(_flash_age[i] / FLASH_TIME, 0.0, 1.0)
-		var radius := _flash_radius[i]
-		if t < 0.6:
-			PixelArt.draw_dot(self, p, radius * lerpf(0.25, 0.7, t), Color(0.1, 0.09, 0.04, 0.35 * (1.0 - t / 0.6)))
-		draw_arc(p, radius * lerpf(0.3, 1.0, t), 0.0, TAU, 32, Color(0.7, 0.66, 0.18, 0.85 * (1.0 - t)), 1.5)
 	for i in _shot_count:
 		_draw_shot(i)
 

@@ -95,6 +95,8 @@ class Slot:
 
 var player: Player
 var camera: GameCamera
+var explosions: Explosions
+var obstacles: Obstacles
 var horde: Horde
 var boss: Boss
 var firing_enabled := true
@@ -133,6 +135,7 @@ var _bbounce := PackedInt32Array()
 var _bflags := PackedInt32Array()
 var _blast := PackedInt32Array()
 var _bdepth := PackedInt32Array() # глубина цепи
+var _bobstacle := PackedInt32Array()
 
 # гранаты
 var _gpos := PackedVector2Array()
@@ -158,7 +161,6 @@ var _xflag := PackedByteArray()
 
 # эффекты для отрисовки: лучи [от, до, ширина, время, цвет], взрывы [центр, радиус, время]
 var _beams: Array = []
-var _blasts: Array = []
 # Вспышек мало (до четырёх стволов); один общий аддитивный слой.
 const FLASH_KINDS := ["rifle", "shotgun", "rifle", "launcher", "small", "small", "small", "sniper"]
 var _flashes: Array = [] # [позиция, угол, время, основа, тинт, масштаб, поворот, вариант, жизнь]
@@ -762,6 +764,7 @@ func _spawn_bullet(p: Vector2, v: Vector2, life: float, dmg: float, slot: int, p
 		_bflags.resize(b + 128)
 		_blast.resize(b + 128)
 		_bdepth.resize(b + 128)
+		_bobstacle.resize(b + 128)
 	_bpos[b] = p
 	_bvel[b] = v
 	_blife[b] = life
@@ -772,6 +775,7 @@ func _spawn_bullet(p: Vector2, v: Vector2, life: float, dmg: float, slot: int, p
 	_bflags[b] = flags
 	_blast[b] = -1
 	_bdepth[b] = depth
+	_bobstacle[b] = -1
 	bullet_count += 1
 
 
@@ -792,6 +796,16 @@ func _update_bullets(delta: float) -> void:
 			if boss.hit_test(nearest, BULLET_RADIUS) and (hit == -1 or p0.distance_squared_to(nearest) < p0.distance_squared_to(probe)):
 				hit = BOSS_TARGET
 				probe = nearest
+		# Стена проверяется до цели; низкое укрытие пропускает пулю, бочка принимает удар.
+		var obstacle := obstacles.ray_hit(p0, probe if hit != -1 else p1, false, BULLET_RADIUS, _bobstacle[i]) if obstacles else -1
+		if obstacle != -1:
+			var s := slots[_bslot[i]]
+			obstacles.damage(obstacle, _bdmg[i], s.ammo == WeaponDefs.Ammo.INCENDIARY)
+			_bobstacle[i] = obstacle
+			if obstacles.high[obstacle] == 1:
+				_remove_bullet(i)
+				i -= 1
+				continue
 		if hit != -1:
 			if not _bullet_hit(i, hit, probe):
 				_remove_bullet(i)
@@ -879,6 +893,7 @@ func _remove_bullet(i: int) -> void:
 	_bflags[i] = _bflags[j]
 	_blast[i] = _blast[j]
 	_bdepth[i] = _bdepth[j]
+	_bobstacle[i] = _bobstacle[j]
 
 
 # --- попадание: патроны ------------------------------------------------------------------
@@ -1006,21 +1021,13 @@ func _on_kill(slot: int, e: int, dir: Vector2, depth: int) -> void:
 ## slot >= 0 — взрыв ствола (патроны, детонатор), slot = -1 — «ничей» (граната игрока):
 ## урон без эффектов патронов, любая смерть — гибы.
 func explode(at: Vector2, dmg: float, radius: float, slot := -1, depth := 0, gibs := false) -> void:
-	_blasts.append([at, radius, 0.0])
+	if obstacles:
+		obstacles.blast(at, radius, dmg)
+	var kind := Explosions.Kind.GRENADE if slot < 0 else (Explosions.Kind.DETONATOR if depth > 0 else Explosions.Kind.LAUNCHER)
+	if explosions:
+		explosions.spawn(at, radius, kind)
 	if sfx:
 		sfx.play("explosions/grenade", at, -2.0)
-	if effects:
-		effects.flash_light(at, Color(1.0, 0.42, 0.12), radius * 2.5, 1.6, 0.15)
-	if effects:
-		for k in 14:
-			effects.emit(at, Vector2.from_angle(randf() * TAU) * randf_range(30.0, 160.0), randf_range(0.15, 0.4),
-				Color(1.0, randf_range(0.5, 0.9), 0.2), 1.5, 5.0)
-		for k in 6:
-			effects.emit(at, Vector2.from_angle(randf() * TAU) * randf_range(10.0, 40.0), randf_range(0.5, 1.0),
-				Color(0.2, 0.19, 0.18, 0.6), 4.0, 2.0)
-	if floor_decals:
-		# подпалина: лёгкая копоть, чтобы не забивать кровь
-		floor_decals.stamp(PixelArt.tex("blood_%d" % (randi() % 8)), at, randf() * TAU, Color(0.07, 0.06, 0.055, 0.3), radius / 45.0)
 	var s: Slot = slots[slot] if slot >= 0 else null
 	if _boss_active and boss.hit_test(at, radius):
 		var offset := boss.global_position - at
@@ -1043,9 +1050,6 @@ func explode(at: Vector2, dmg: float, radius: float, slot := -1, depth := 0, gib
 			if depth < 2 and s.mod_rank(WeaponDefs.Module.DETONATOR) > 0:
 				_on_kill(slot, j, dir, depth)
 	horde.death_override = prev_override
-	var to_player := player.global_position.distance_to(at)
-	if camera and to_player < 120.0:
-		camera.shake(3.0 * (1.0 - to_player / 120.0))
 
 
 func _ammo_sparks(ammo: int, p: Vector2, dir: Vector2) -> void:
@@ -1078,6 +1082,11 @@ func _rail_beam(i: int, from: Vector2, dir: Vector2, dmg: float, bounces: int, h
 	var length: float = s.stats["range"]
 	var half: float = s.stats["width"] * 0.5 + Horde.RADIUS
 	var to := from + dir * length
+	if obstacles:
+		# Рельса проходит насквозь и повреждает каждую машину на луче.
+		for obstacle in obstacles.count:
+			if obstacles.kind[obstacle] <= Obstacles.Kind.ACID and obstacles._segment(obstacle, from, to, 1.0) < INF:
+				obstacles.damage(obstacle, dmg, s.ammo == WeaponDefs.Ammo.INCENDIARY)
 	# кто на линии: сортируем по расстоянию вдоль луча
 	var hits: Array = []
 	if _boss_active and not hit_uids.has(BOSS_TARGET):
@@ -1139,6 +1148,8 @@ func _fire_grenades(i: int, muzzle: Vector2, target: Vector2) -> void:
 
 
 func _spawn_grenade(from: Vector2, to: Vector2, slot: int, dmg: float, radius: float, small: bool, flags := 0) -> void:
+	if obstacles:
+		to = obstacles.free_point(to, 3.0)
 	var d := to - from
 	var spd: float = slots[slot].stats["speed"] if not small else 180.0
 	_gpos.append(from)
@@ -1180,6 +1191,8 @@ func _update_grenades(delta: float) -> void:
 
 ## Взрыв гранаты ствола; сплит у гранатомёта — кассета мини-гранат.
 func _detonate(at: Vector2, slot: int, dmg: float, radius: float, small: bool, flags: int) -> void:
+	if obstacles:
+		at = obstacles.free_point(at, 3.0)
 	explode(at, dmg, radius, slot, 0, flags & G_LAST != 0)
 	if not small and slot < slots.size() and slots[slot].mod_rank(WeaponDefs.Module.SPLIT) > 0:
 		var n := 2 + slots[slot].mod_rank(WeaponDefs.Module.SPLIT)
@@ -1259,12 +1272,6 @@ func _age_fx(delta: float) -> void:
 		if _beams[k][3] > 0.14:
 			_beams.remove_at(k)
 		k -= 1
-	k = _blasts.size() - 1
-	while k >= 0:
-		_blasts[k][2] += delta
-		if _blasts[k][2] > 0.22:
-			_blasts.remove_at(k)
-		k -= 1
 	var f := _flashes.size() - 1
 	while f >= 0:
 		_flashes[f][2] -= delta
@@ -1297,11 +1304,6 @@ func _draw() -> void:
 		var c: Color = beam[4]
 		draw_line(beam[0], beam[1], Color(c, 0.35 * k), beam[2] * 1.8 * k + 1.0)
 		draw_line(beam[0], beam[1], Color(1, 1, 1, 0.9 * k), maxf(beam[2] * 0.35 * k, 0.6))
-	for bl: Array in _blasts:
-		var k: float = bl[2] / 0.22
-		var r: float = bl[1] * (0.4 + 0.6 * k)
-		draw_arc(bl[0], r, 0.0, TAU, 24, Color(1.0, 0.8, 0.4, 0.8 * (1.0 - k)), 2.0)
-		PixelArt.draw_dot(self, bl[0], r * 0.6 * (1.0 - k), Color(1.0, 0.85, 0.5, 0.6 * (1.0 - k)))
 	# Дым остаётся в обычном смешивании, огонь — в общем аддитивном слое.
 	for fl: Array in _flashes:
 		if fl[3] != WeaponDefs.Base.SNIPER and fl[3] != WeaponDefs.Base.LAUNCHER:

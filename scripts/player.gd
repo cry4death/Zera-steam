@@ -34,6 +34,7 @@ var damage_taken := 0.0 # весь урон, дошедший до бойца (�
 var autopilot := false # для бенчмарка: бегает по кругу сам
 var auto_target := Vector2.INF # симуляция: бежать к образцам
 var effects: Effects
+var obstacles: Obstacles
 var sfx: Sfx
 
 var facing := Vector2.RIGHT
@@ -123,6 +124,8 @@ func _physics_process(delta: float) -> void:
 			effects.ghost(position, sprite.rotation, sprite.texture)
 	else:
 		position += input * move_speed * delta
+	if obstacles:
+		position = obstacles.move_actor(before, position, RADIUS)
 	_walk += position.distance_to(before)
 	_kick *= exp(-delta * 28.0)
 	position = position.clamp(arena.position + Vector2.ONE * 8.0, arena.end - Vector2.ONE * 8.0)
@@ -290,7 +293,8 @@ func grenade_dir() -> Vector2:
 
 ## Точка, куда упадёт граната, брошенная сейчас.
 func grenade_target() -> Vector2:
-	return (position + grenade_dir() * GRENADE_DISTANCE).clamp(arena.position + Vector2.ONE * 8.0, arena.end - Vector2.ONE * 8.0)
+	var at := (position + grenade_dir() * GRENADE_DISTANCE).clamp(arena.position + Vector2.ONE * 8.0, arena.end - Vector2.ONE * 8.0)
+	return obstacles.free_point(at, 3.0) if obstacles else at
 
 
 func _update_grenade(delta: float) -> void:
