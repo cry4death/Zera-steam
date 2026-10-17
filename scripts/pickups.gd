@@ -19,6 +19,7 @@ const FALL_HEIGHT := 90.0
 const MAX_ITEMS := 64
 
 var player: Player
+var obstacles: Obstacles
 var effects: Effects
 var floor_decals: FloorDecals
 var camera: GameCamera
@@ -40,6 +41,8 @@ func _ready() -> void:
 
 ## Кладёт предмет в точку p. Контейнер сначала падает с «неба» и приземляется с тряской.
 func spawn(p: Vector2, kind: int) -> void:
+	if obstacles:
+		p = obstacles.free_point(p, float(TOUCH_RADIUS[kind]))
 	if count >= MAX_ITEMS:
 		# место кончилось: убираем самый старый обычный предмет
 		var oldest := -1

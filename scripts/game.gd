@@ -157,6 +157,9 @@ var _aim_records: Array[Dictionary] = []
 var _audio_lowhp := false
 var horde_audio: HordeAudio
 var pause_menu: PauseMenu
+var obstacles: Obstacles
+var _layout_seed := 81073
+var _obstacles_test := false
 
 @onready var sfx: Sfx = $Sfx
 @onready var player: Player = $World/Player
@@ -263,6 +266,166 @@ func _run_fx_test() -> void:
 	get_tree().quit()
 
 
+## O1: проверка на настоящих packed-строках орды; headless не делает замеров FPS.
+func _run_obstacles_test() -> void:
+	set_physics_process(false)
+	set_process(false)
+	horde.set_physics_process(false)
+	hazards.set_physics_process(false)
+	obstacles.set_physics_process(false)
+	player.god_mode = true
+	var ok := true
+	var layout := ArenaLayout.generate(_layout_seed, ArenaLayout.QUARANTINE)
+	ok = _obstacle_check(layout == ArenaLayout.generate(_layout_seed, ArenaLayout.QUARANTINE), "same_seed") and ok
+	ok = _obstacle_check(layout != ArenaLayout.generate(_layout_seed + 1, ArenaLayout.QUARANTINE), "different_seed") and ok
+	var cars := 0
+	var barrels := 0
+	for row in layout:
+		var k := int(row["kind"])
+		if k <= Obstacles.Kind.TRUCK:
+			cars += 1
+		if k == Obstacles.Kind.RED or k == Obstacles.Kind.ACID:
+			barrels += 1
+		if k < Obstacles.Kind.TIRES:
+			ok = _obstacle_check(Vector2(row["pos"]).distance_to(ARENA.get_center()) > 200.0, "start_clear") and ok
+	ok = _obstacle_check(cars >= 25 and cars <= 40 and barrels == 20, "density") and ok
+	ok = _obstacle_check(obstacles.connected(), "connected_quarantine") and ok
+	for i in obstacles.count:
+		if obstacles.kind[i] >= Obstacles.Kind.TIRES:
+			continue
+		ok = _obstacle_check(not obstacles.contains(obstacles.free_point(obstacles.pos[i], 12.0), 11.99), "free_spawn_drop") and ok
+	print("OBSTEST layout cars=%d barrels=%d objects=%d seed=%d" % [cars, barrels, obstacles.count, _layout_seed])
+	# Разные профили/сиды проверяются отдельно от активного поля боя.
+	for test_seed in 8:
+		obstacles.setup(ARENA, ArenaLayout.generate(test_seed, ArenaLayout.QUARANTINE))
+		ok = _obstacle_check(obstacles.connected(), "connected_seed_%d" % test_seed) and ok
+	var wall: Array[Dictionary] = []
+	for j in 9:
+		wall.append({"kind": Obstacles.Kind.JERSEY, "pos": Vector2(1088 + j * 44, 720), "angle": 0.0})
+	obstacles.setup(ARENA, wall)
+	player.position = Vector2(1280, 890)
+	horde.count = 0
+	horde.far_distance = 5000.0
+	for i in 500:
+		var at := Vector2(1035 + (i % 50) * 10, 450 + (i / 50) * 10)
+		var e := horde.spawn(at, Horde.Kind.SHAMBLER, i % 17 == 0)
+		horde.hp[e] = 100000.0
+		horde.max_hp[e] = 100000.0
+	var penetrations := 0
+	for frame in 3600:
+		obstacles.navigation_step(1.0 / 60.0, player.position)
+		horde._physics_process(1.0 / 60.0)
+		for i in horde.count:
+			if obstacles.contains(horde.pos[i], horde.radius[i] - 0.04):
+				penetrations += 1
+		if frame % 600 == 599:
+			print("OBSTEST simulation seconds=%d alive=%d penetrations=%d" % [(frame + 1) / 60, horde.count, penetrations])
+			await get_tree().process_frame
+	var arrived := 0
+	for i in horde.count:
+		if horde.pos[i].y > 750.0:
+			arrived += 1
+	ok = _obstacle_check(penetrations == 0, "500_no_penetrations_60s") and ok
+	ok = _obstacle_check(arrived == 500, "500_long_wall_arrived") and ok
+	print("OBSTEST wall arrived=%d/500 nav_worst_us=%d" % [arrived, obstacles.nav_worst_usec])
+	# Игрок и быстрый рывок: тонкий забор не туннелируется.
+	var from := Vector2(1280, 675)
+	var to := obstacles.move_actor(from, Vector2(1280, 760), Player.RADIUS)
+	ok = _obstacle_check(to.y < 720 and not obstacles.contains(to, Player.RADIUS - 0.01), "dash_stopped") and ok
+	var demo: Array[Dictionary] = [
+		{"kind": Obstacles.Kind.SEDAN, "pos": Vector2(1280, 720)},
+		{"kind": Obstacles.Kind.RED, "pos": Vector2(1280, 770)},
+		{"kind": Obstacles.Kind.ACID, "pos": Vector2(1400, 770)},
+		{"kind": Obstacles.Kind.BAGS, "pos": Vector2(1500, 720)},
+		{"kind": Obstacles.Kind.WOOD, "pos": Vector2(1560, 720)},
+		{"kind": Obstacles.Kind.JERSEY, "pos": Vector2(1650, 720)}]
+	horde.count = 0
+	obstacles.setup(ARENA, demo)
+	ok = _obstacle_check(obstacles.ray_hit(Vector2(1200, 720), Vector2(1350, 720)) == 0, "high_stops_bullet") and ok
+	ok = _obstacle_check(obstacles.line_clear(Vector2(1450, 720), Vector2(1590, 720)), "low_passes_bullet") and ok
+	ok = _obstacle_check(not obstacles.line_clear(Vector2(1200, 720), Vector2(1350, 720)), "spit_blocked") and ok
+	obstacles.damage(1, 100.0)
+	obstacles._physics_process(1.0 / 60.0)
+	ok = _obstacle_check(obstacles.state[1] == Obstacles.State.GONE and obstacles.state[0] == Obstacles.State.BURNING, "barrel_car_chain_burning") and ok
+	for frame in 420:
+		obstacles._physics_process(1.0 / 60.0)
+	ok = _obstacle_check(obstacles.state[0] == Obstacles.State.WRECK and obstacles.contains(Vector2(1280, 720)), "car_wreck_collision") and ok
+	obstacles.damage(2, 100.0)
+	obstacles._physics_process(1.0 / 60.0)
+	ok = _obstacle_check(hazards.pool_count() > 0 and obstacles.state[2] == Obstacles.State.GONE, "acid_barrel_pool") and ok
+	ok = _obstacle_check(not obstacles.charge(Vector2(1500, 720), Boss.RADIUS) and obstacles.state[3] == Obstacles.State.GONE, "charge_crush_bags") and ok
+	ok = _obstacle_check(not obstacles.charge(Vector2(1560, 720), Boss.RADIUS) and obstacles.state[4] == Obstacles.State.GONE, "charge_crush_wood") and ok
+	ok = _obstacle_check(obstacles.charge(Vector2(1650, 720), Boss.RADIUS), "charge_stops_jersey") and ok
+	obstacles.splatter(Vector2(1280, 740))
+	ok = _obstacle_check(obstacles.blood[0] > 0, "blood_on_object") and ok
+	print("OBSTEST ok=%s penetrations=%d arrived=%d detonations=%d blood_events=%d" % [ok, penetrations, arrived, obstacles.detonations, obstacles.blood_events])
+	if OS.get_cmdline_user_args().has("--obstacles-shots") and DisplayServer.get_name() != "headless":
+		await _obstacle_shots()
+	get_tree().quit(0 if ok else 1)
+
+
+func _obstacle_check(ok: bool, label: String) -> bool:
+	if not ok:
+		push_error("OBSTEST FAILED " + label)
+	return ok
+
+
+func _obstacle_shots() -> void:
+	$HUD.visible = false
+	camera.target = null
+	camera.shake_multiplier = 0.0
+	camera.position_smoothing_enabled = false
+	player.position = ARENA.get_center()
+	camera.position = player.position
+	camera.zoom = Vector2.ONE
+	obstacles.setup(ARENA, ArenaLayout.generate(_layout_seed, ArenaLayout.QUARANTINE))
+	horde.count = 0
+	for i in 500:
+		horde.spawn(Vector2(740 + i % 40 * 25, 360 + i / 40 * 34), i % 4)
+	horde._rebuild_grid()
+	horde._render()
+	await get_tree().create_timer(0.4).timeout
+	await _obstacle_shot("arena")
+	var demo: Array[Dictionary] = [
+		{"kind": Obstacles.Kind.POLICE, "pos": Vector2(1240, 690), "angle": 0.15},
+		{"kind": Obstacles.Kind.JEEP, "pos": Vector2(1360, 750), "angle": -0.12},
+		{"kind": Obstacles.Kind.JERSEY, "pos": Vector2(1260, 790)},
+		{"kind": Obstacles.Kind.JERSEY, "pos": Vector2(1310, 790)},
+		{"kind": Obstacles.Kind.RED, "pos": Vector2(1320, 650)},
+		{"kind": Obstacles.Kind.ACID, "pos": Vector2(1340, 650)}]
+	obstacles.setup(ARENA, demo)
+	camera.zoom = Vector2(3, 3)
+	horde.count = 0
+	for i in 90:
+		var e := horde.spawn(Vector2(1140 + i % 15 * 18, 630 + i / 15 * 29), i % 4)
+		horde.angle[e] = float(i) * 0.7
+	horde._rebuild_grid()
+	horde._render()
+	player.position = Vector2(1170, 820)
+	for i in 26:
+		floor_decals.blood(PixelArt.tex("blood_%d" % (i % 8)), Vector2(1190 + i % 7 * 28, 650 + i / 7 * 35), float(i), 1.5, 0.7)
+	for i in 3:
+		obstacles.splatter(Vector2(1250, 735))
+	await get_tree().create_timer(0.3).timeout
+	await _obstacle_shot("blood")
+	obstacles.damage(0, 200.0)
+	await get_tree().create_timer(0.3).timeout
+	await _obstacle_shot("burning")
+	obstacles._detonate(0)
+	obstacles._burning.clear()
+	explosions.set_process(false)
+	explosions.advance(0.12)
+	explosions.set_process(false)
+	await _obstacle_shot("blast")
+
+
+func _obstacle_shot(suffix: String) -> void:
+	await RenderingServer.frame_post_draw
+	var path := "res://design/tasks/reports/o1_%s.png" % suffix
+	var err := get_viewport().get_texture().get_image().save_png(path)
+	print("OBSTEST screenshot=%s error=%d" % [path, err])
+
+
 func _fx_perf() -> void:
 	# Орда 500: те же визуальные вызовы, без урона/старых кругов и без снимков.
 	seed(81073)
@@ -361,7 +524,11 @@ func _ready() -> void:
 		get_tree().quit(1)
 		return
 	for arg in OS.get_cmdline_user_args():
-		if arg == "--aim-test":
+		if arg == "--obstacles-test":
+			_obstacles_test = true
+		elif arg.begins_with("--layout-seed="):
+			_layout_seed = arg.trim_prefix("--layout-seed=").to_int()
+		elif arg == "--aim-test":
 			_aim_test = true
 		elif arg == "--audio-test":
 			_audio_test = true
@@ -407,6 +574,9 @@ func _ready() -> void:
 			_gore_stress = true # 120 убийств/с со случайным типом смерти
 		elif arg.begins_with("--zoom="):
 			_zoom = arg.trim_prefix("--zoom=").to_float()
+	# Случайность боя не зависит от локального RNG генератора карты.
+	if _bench or _obstacles_test or Array(OS.get_cmdline_user_args()).any(func(a: String) -> bool: return a.begins_with("--layout-seed=")):
+		seed(_layout_seed)
 
 	ground.setup(ARENA)
 	floor_decals.setup(ARENA)
@@ -415,6 +585,8 @@ func _ready() -> void:
 	explosions.effects = effects
 	explosions.camera = camera
 	explosions.player = player
+	weapons.explosions = explosions
+	hazards.explosions = explosions
 	effects.sfx = sfx
 	player.sfx = sfx
 	weapons.sfx = sfx
@@ -450,6 +622,28 @@ func _ready() -> void:
 	hazards.floor_decals = floor_decals
 	hazards.effects = effects
 	hazards.camera = camera
+	if not OS.get_cmdline_user_args().has("--no-obstacles"):
+		obstacles = Obstacles.new()
+		obstacles.name = "Obstacles"
+		$World.add_child(obstacles)
+		$World.move_child(obstacles, $World/Horde.get_index())
+		obstacles.player = player
+		obstacles.horde = horde
+		obstacles.hazards = hazards
+		obstacles.explosions = explosions
+		obstacles.sfx = sfx
+		if not mission_config.is_empty() and not Array(OS.get_cmdline_user_args()).any(func(a: String) -> bool: return a.begins_with("--layout-seed=")):
+			_layout_seed = int(mission_config["seed"])
+		obstacles.setup(ARENA, ArenaLayout.generate(_layout_seed, ArenaLayout.QUARANTINE))
+		player.obstacles = obstacles
+		horde.obstacles = obstacles
+		weapons.obstacles = obstacles
+		hazards.obstacles = obstacles
+		pickups.obstacles = obstacles
+		boss.obstacles = obstacles
+		horde.enemy_killed.connect(obstacles.splatter)
+		while obstacles.nav_completed == 0:
+			obstacles.navigation_step(0.0, player.position)
 	boss.horde = horde
 	boss.player = player
 	boss.effects = effects
@@ -550,6 +744,14 @@ func _ready() -> void:
 		_run_weapons_test.call_deferred()
 	if OS.get_cmdline_user_args().has("--fx-test"):
 		_run_fx_test.call_deferred()
+	if _obstacles_test:
+		spawner.enabled = false
+		weapons.firing_enabled = false
+		weapons.set_physics_process(false)
+		player.god_mode = true
+		player.set_physics_process(false)
+		gems.collected.disconnect(progression.add_xp)
+		_run_obstacles_test.call_deferred()
 	if _sim:
 		print("SIM meta: class_level=%d tree=%d workshop_models=%d owned=%d bonuses=%s models=%s" % [Meta.class_level(), Meta.tree.size(), Meta.workshop.size(), Meta.owned.size(), Meta.run_bonuses(), weapons.slots[0].model])
 		player.god_mode = true
@@ -977,6 +1179,8 @@ func _on_enemy_killed(pos: Vector2, _dir: Vector2, _death: int, _facing: float, 
 
 ## Дроп по типу врага (таблица Horde.KINDS), тревога удваивает опыт и кредиты.
 func _on_enemy_died(pos: Vector2, kind: int, is_elite: bool) -> void:
+	if obstacles:
+		pos = obstacles.free_point(pos, 4.0)
 	if is_elite:
 		elites_killed += 1
 	var mult := roundi(blood_alarm.reward_mult())
@@ -1847,9 +2051,9 @@ func _on_boss_died(at: Vector2) -> void:
 	military_crates += 1
 	_boss_reward_pos = at
 	_boss_reward_age = 0.0
-	camera.shake(14.0)
 	_boss_death_usec = Time.get_ticks_usec()
 	gore.boss_burst(at)
+	explosions.spawn(at, 180.0, Explosions.Kind.BOSS)
 	_boss_dbg_burst_ms = (Time.get_ticks_usec() - _boss_death_usec) / 1000.0
 	sfx.play("explosions/grenade", at, 3.0, 0.02)
 	screen_blood.splash(1.0, (at - player.global_position).normalized())
@@ -2352,8 +2556,8 @@ func _run_aim_test() -> void:
 	while not weapons._gpos.is_empty():
 		await get_tree().physics_frame
 	await get_tree().process_frame
-	var explosion_ok := not weapons._blasts.is_empty() and Vector2(weapons._blasts.back()[0]).distance_to(expected) < 5.0
-	var explosion_error := Vector2(weapons._blasts.back()[0]).distance_to(expected) if not weapons._blasts.is_empty() else INF
+	var explosion_error := explosions.last_at.distance_to(expected)
+	var explosion_ok := explosion_error < 5.0
 	print("AIMTEST launcher explosion_error_px=%.3f" % explosion_error)
 	_aim_check(explosion_ok, "launcher_explosion_at_cursor")
 	await _aim_move(Vector2(260, -35))

@@ -53,11 +53,18 @@ var _grid_h := 0
 var _wet_time := PackedFloat32Array()
 
 var _print_tex: Texture2D
+var _scorch_layer: Node2D
+var _scorches: Array = []
+var _scorch_cursor := 0
 
 
 func setup(rect: Rect2) -> void:
 	process_priority = 100 # после всех, кто штампует в этом кадре
 	_origin = rect.position
+	# Подпалины отдельным ограниченным пакетом под кровью, без третьего viewport.
+	_scorch_layer = Node2D.new()
+	_scorch_layer.draw.connect(_draw_scorches)
+	add_child(_scorch_layer)
 
 	# слой крови (под декалями)
 	_blood_vp = _make_viewport(rect)
@@ -120,6 +127,28 @@ func _make_view(vp: SubViewport, rect: Rect2) -> Sprite2D:
 ## Сразу в слой декалей (трупы, гибы, пепел, лёд).
 func stamp(tex: Texture2D, pos: Vector2, rot: float, color: Color, scale_factor := 1.0) -> void:
 	_stamps.append([tex, pos - _origin, rot, scale_factor * PixelArt.ART_SCALE, color])
+
+
+func scorch(tex: Texture2D, pos: Vector2, rot: float, scale_factor: float) -> void:
+	var stamp_data := [tex, pos, rot, scale_factor * PixelArt.ART_SCALE]
+	if _scorches.size() < 256:
+		_scorches.append(stamp_data)
+	else:
+		_scorches[_scorch_cursor] = stamp_data
+		_scorch_cursor = (_scorch_cursor + 1) % 256
+	_scorch_layer.queue_redraw()
+
+
+func _draw_scorches() -> void:
+	# Три текстуры рисуются группами: старые подпалины не дробят пакет.
+	for variant_index in 3:
+		for s: Array in _scorches:
+			var tex: Texture2D = s[0]
+			if not tex.resource_path.ends_with("_%d.png" % variant_index):
+				continue
+			_scorch_layer.draw_set_transform(s[1], s[2], Vector2.ONE * float(s[3]))
+			_scorch_layer.draw_texture(tex, -tex.get_size() * 0.5)
+	_scorch_layer.draw_set_transform(Vector2.ZERO)
 
 
 # --- кровь -------------------------------------------------------------------------------

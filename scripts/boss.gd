@@ -27,6 +27,7 @@ signal armor_plate(pos: Vector2, dir: Vector2)
 
 var horde: Horde
 var player: Player
+var obstacles: Obstacles
 var effects: Effects
 var floor_decals: FloorDecals
 var camera: GameCamera
@@ -112,6 +113,8 @@ func start(p: Vector2) -> void:
 	_slam_hit = false
 	_slam_wave = false
 	global_position = _bounded(p)
+	if obstacles:
+		global_position = obstacles.free_point(global_position, RADIUS)
 	visible = true
 	queue_redraw()
 
@@ -260,7 +263,15 @@ func _begin_telegraph() -> void:
 
 func _charge(delta: float) -> void:
 	var from := global_position
-	_move_to(from.move_toward(_charge_target, CHARGE_SPEED * delta))
+	var intended := from.move_toward(_charge_target, CHARGE_SPEED * delta)
+	if obstacles and obstacles.charge(intended, RADIUS):
+		_move_to(obstacles.move_actor(from, intended, RADIUS))
+		_charges_left = 0
+		_charge_cd = CHARGE_COOLDOWN
+		_recover_time = 0.7
+		_enter(State.RECOVER)
+		return
+	_move_to(intended)
 	var to := global_position
 	if not _charge_hit:
 		var nearest := Geometry2D.get_closest_point_to_segment(player.global_position, from, to)
@@ -343,6 +354,8 @@ func _enter(state: State) -> void:
 
 func _move_to(p: Vector2) -> void:
 	var before := global_position
+	if obstacles:
+		p = obstacles.move_actor(before, p, RADIUS)
 	global_position = _bounded(p)
 	var step := global_position - before
 	_walk += step.length()

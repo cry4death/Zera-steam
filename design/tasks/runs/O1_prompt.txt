@@ -1,0 +1,13 @@
+Задача: O1 (уровень high)
+
+Ты исполнитель в проекте игры на Godot 4.7.2. Рабочая папка — C:\Users\Dev\Desktop\zera-o1 (git worktree, ветка task/o1). Работаешь автономно, вопросов не задаёшь, доводишь до конца.
+
+1. Прочитай целиком: design/tasks/README.md, design/tasks/CONTRACTS.md, свою задачу design/tasks/M8/O1_obstacles.md, design/tasks/reports/E1.md (раздел «Подключение E1b»), design/tasks/reviews/P1.md. Разделы design/IDEAS.md §3–4 и design/GDD.md по ссылкам из задачи.
+2. Изучи код, который задача разрешает трогать, и пиши в его стиле (GDScript со статической типизацией, табы, комментарии по-русски, packed-массивы, без нод на массовые сущности, без draw_circle в массовой отрисовке).
+3. Трогай только файлы из списка «Можно трогать». Нужно что-то вне списка — опиши в отчёте.
+4. Godot: C:\Users\Dev\Desktop\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64_console.exe. Сначала --headless --path . --import. Python (numpy, Pillow): C:\Users\Dev\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe.
+5. Каждый оконный запуск и каждый замер — только через bash C:/Users/Dev/Desktop/zera-assets/locks/godot_exclusive.sh (см. README). Замер с other_godot_processes>0 — повтори. Не запускай фоновых циклов бенчмарков и не оставляй открытых окон Godot.
+6. Git-коммиты не делай (песочница не пишет в .git) — коммитит ревьюер. В отчёте перечисли, какие правки относятся к шагу 0 (E1b).
+7. Скриншоты и лист арта посмотри сам и доработай, если плохо. Производительность — главный критерий: не уложился в допуск — профилируй и чини.
+8. Отчёт design/tasks/reports/O1.md по шаблону design/tasks/templates/report.md: что сделано, файлы, вывод проверок дословно, таблица замеров, отступления и почему.
+9. В конце коротко: что сделано и что не получилось.

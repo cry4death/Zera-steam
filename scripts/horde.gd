@@ -46,6 +46,7 @@ const VARIANT_WEIGHTS := [0.4, 0.2, 0.2, 0.2]
 
 var arena := Rect2()
 var player: Player
+var obstacles: Obstacles
 var floor_decals: FloorDecals
 var minutes := 0.0
 var update_ms := 0.0
@@ -185,6 +186,8 @@ func spawn(p: Vector2, k := Kind.SHAMBLER, is_elite := false) -> int:
 	spit_cd[i] = randf_range(SPIT_WINDUP, SPIT_COOLDOWN) if k == Kind.SPITTER else 0.0
 	spit_windup[i] = 0.0
 	pos[i] = p.clamp(arena.position + Vector2.ONE * radius[i], arena.end - Vector2.ONE * radius[i])
+	if obstacles:
+		pos[i] = obstacles.free_point(pos[i], radius[i])
 	knock[i] = Vector2.ZERO
 	hp[i] = KINDS[k]["hp"] * (1.0 + hp_growth_per_min * minutes) * (ELITE_HP if is_elite else 1.0)
 	max_hp[i] = hp[i]
@@ -434,6 +437,10 @@ func _physics_process(delta: float) -> void:
 	_move(delta)
 	_rebuild_grid()
 	_separate()
+	if obstacles:
+		for i in count:
+			if obstacles.near_head[obstacles.cell_at(pos[i])] != -1:
+				pos[i] = obstacles.resolve(pos[i], radius[i])
 	_render()
 	queue_redraw()
 	update_ms = (Time.get_ticks_usec() - t0) / 1000.0
@@ -487,21 +494,25 @@ func _move(delta: float) -> void:
 		if dead[i] == 1: # огонь мог убить в этом кадре
 			continue
 		var move_dir := dir
+		if obstacles:
+			move_dir = obstacles.steering(p, dir)
 		if kind[i] == Kind.SPITTER:
 			spit_cd[i] = maxf(spit_cd[i] - delta, 0.0)
-			move_dir = -dir if d < 130.0 else (dir if d > 170.0 else Vector2.ZERO)
+			move_dir = -dir if d < 130.0 else (move_dir if d > 170.0 else Vector2.ZERO)
 			if not frozen:
 				if spit_windup[i] > 0.0:
 					spit_windup[i] = maxf(spit_windup[i] - delta, 0.0)
 					move_dir = Vector2.ZERO
 					if spit_windup[i] == 0.0:
-						if d >= 90.0 and d <= 260.0:
+						if d >= 90.0 and d <= 260.0 and (obstacles == null or obstacles.line_clear(p, ppos)):
 							spit_fired.emit(p, ppos, 10.0 * damage_scale * (ELITE_DAMAGE if elite[i] == 1 else 1.0))
 				elif spit_cd[i] <= 0.0 and d >= 90.0 and d <= 260.0:
 					spit_windup[i] = SPIT_WINDUP
 					spit_cd[i] = SPIT_COOLDOWN
 					move_dir = Vector2.ZERO
 		p += move_dir * spd * delta + k * delta
+		if obstacles and obstacles.near_head[obstacles.cell_at(p)] != -1:
+			p = obstacles.move_actor(old, p, radius[i])
 		knock[i] = k * decay
 		# игрок «тяжёлый»: выталкивает зомби из себя
 		var away := p - ppos
