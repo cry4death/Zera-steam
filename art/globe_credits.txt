@@ -1,0 +1,5 @@
+Natural Earth 1:50m land — public domain.
+https://www.naturalearthdata.com/about/terms-of-use/
+GeoJSON: https://github.com/nvkelso/natural-earth-vector
+Source: ne_50m_land.geojson; downloaded 2026-10-17.
+Raster styling: Z.E.R.A., tools/gen_art_campaign.py (Pillow).

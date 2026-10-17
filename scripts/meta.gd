@@ -14,7 +14,7 @@ extends Node
 
 const SAVE_VERSION := 3
 const DEFAULT_SETTINGS := {"master": 1.0, "weapons": 1.0, "world": 1.0, "ui": 1.0,
-	"gore": 2, "shake": 1.0, "fullscreen": true, "auto_fire": true}
+	"gore": 2, "shake": 1.0, "fullscreen": true, "auto_fire": true, "reduce_motion": false}
 signal settings_changed
 var settings: Dictionary = DEFAULT_SETTINGS.duplicate()
 const SAVE_PATH := "user://zera_save.json"
@@ -84,7 +84,7 @@ func _ready() -> void:
 	reset()
 	var args := OS.get_cmdline_user_args()
 	# Эти проверки никогда не читают профиль, даже с --save-file.
-	if args.has("--base-test") or args.has("--campaign-test"):
+	if args.has("--base-test") or args.has("--campaign-test") or args.has("--globe-test"):
 		persist = false
 		return
 	var custom := ""
@@ -109,7 +109,7 @@ func clean_settings(value: Variant) -> Dictionary:
 		return out
 	for key: String in out:
 		var v: Variant = value.get(key)
-		if key in ["fullscreen", "auto_fire"]:
+		if key in ["fullscreen", "auto_fire", "reduce_motion"]:
 			if v is bool:
 				out[key] = v
 		elif _is_num(v) and is_finite(float(v)):
