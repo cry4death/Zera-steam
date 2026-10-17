@@ -189,3 +189,65 @@ func open(stats: Dictionary) -> void
 
 - Работает на паузе (`PROCESS_MODE_ALWAYS`), рисуется в «игровых пикселях», как `level_up.gd`.
 - `R`/`Enter`/`Space`/клик по кнопке «ЕЩЁ РАЗ» → `restart_requested`. Перезапуск сцены делает игра.
+
+---
+
+# W — огнестрел, звук, отдача, свет (после M4, до S4)
+
+## 9. Звуки (создают **A1**, **A2**; играет **W1** через `Sfx`)
+
+Источник — CC0 «The Free Firearm Sound Library» (Still North Media): реальные записи
+стволов. Исходники вне репозитория: `C:\Users\Dev\Desktop\zera-assets\firearm_cc0\`
+(`extracted\Prepared SFX Library\` — сведённые выстрелы; `raw_master_tracks.zip` — сырые
+дорожки с механикой, опись `master_sheet.xlsx`). В репозиторий попадают только нарезанные файлы.
+
+Генератор `zera/tools/prep_sfx.py` (Python 3 + numpy, детерминирован) пишет в `zera/sfx/`
+**WAV 48 кГц 16 бит**. Выстрелы стерео, всё остальное моно. Файлы именуются `<id>_<n>.wav`,
+`n` = 0..k (варианты). `id` — путь без индекса:
+
+| id | Что | Источник |
+|---|---|---|
+| `weapons/<gun>/shot` | одиночный выстрел, вид «у стрелка», хвост ≤ 1.2 с (sniper/shotgun/revolver ≤ 2.5 с), 3–6 вариантов | Prepared, near |
+| `weapons/<gun>/mag_out`, `mag_in` | отстегнуть / вставить магазин | Raw (A2) |
+| `weapons/<gun>/rack` | досылание: затвор, затворная рама, цевьё помпы | Raw (A2) |
+| `weapons/<gun>/dry` | сухой щелчок | Raw (A2) |
+| `weapons/revolver/cyl_open`, `cyl_close`, `eject`, `load` | барабан, выброс гильз, заряжание | Raw (A2) |
+| `weapons/shotgun/shell_in` | патрон в трубчатый магазин (по одному) | Raw (A2) |
+| `casings/brass_small`, `brass_rifle`, `shell` | падение гильзы на асфальт (2–3 отскока), моно, ≥ 6 вариантов | синтез (A1) |
+| `casings/mag_drop` | пустой магазин упал на пол | синтез (A1) или Raw (A2) |
+| `explosions/grenade` | взрыв гранаты/гранатомёта, ≥ 4 варианта | синтез (A1) |
+| `weapons/launcher/shot` | хлопок подствольного гранатомёта | синтез из выстрела дробовика (A1) |
+| `weapons/rail/shot` | рельса (единственная «не реальная» пушка) | синтез (A1) |
+
+`<gun>` и запись-источник:
+
+| gun | Ствол в игре | Запись |
+|---|---|---|
+| `pistol` | Пистолет «Кольт» | 1911 (.45) — `A_*` |
+| `revolver` | Револьвер «Бульдог» | S&W 642 (.38) — `V_*` |
+| `smg` | ПП «ППШ» | PPSh (7.62×25) — `P_*` |
+| `rifle` | Автомат «АК-С» (есть) | AK-47 (7.62×39) — `C_*` |
+| `sniper` | Винтовка «Мосинка» | Mosin Nagant (7.62×54R) — `M_*` |
+| `shotgun` | Дробовик «Мясник» (есть) | Benelli Nova, помпа (12 к) — `O_*` |
+
+Громкость: пик ≤ −1 dBFS, выстрелы выровнены по ощущению калибра
+(sniper ≥ shotgun ≥ rifle ≥ revolver ≥ pistol ≥ smg), механика тише выстрелов на ~12 дБ.
+`zera/sfx/CREDITS.md` — источник, лицензия CC0, авторы (Ben Jaszczak, Brian Nelson, Kevin Heras,
+Matthew Nanney / Still North Media), таблица «файл ← исходник».
+
+## 10. Sfx — проигрыватель (создаёт **W1**)
+
+```gdscript
+class_name Sfx
+extends Node
+
+## Грузит все res://sfx/**/<id>_<n>.wav при старте. Нет файлов — тихо ничего не делает.
+## pos = Vector2.INF — без позиционирования (оружие игрока), иначе AudioStreamPlayer2D в точке.
+func play(id: String, pos := Vector2.INF, volume_db := 0.0, pitch_jitter := 0.05) -> void
+func has(id: String) -> bool
+```
+
+- Пул голосов (не нода на звук), лимит полифонии и минимальный интервал на `id`
+  (ППШ 15 выстр./с не забивает микс), вытеснение самого старого.
+- Шины: `Master` (лимитер), `Weapons`, `World` — в `default_bus_layout.tres`.
+- `--headless` и тесты работают без звука и без ошибок.
