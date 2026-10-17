@@ -23,11 +23,27 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	var cursor_mode := Input.MOUSE_MODE_HIDDEN if combat_cursor_visible() else Input.MOUSE_MODE_VISIBLE
+	if Input.mouse_mode != cursor_mode:
+		Input.mouse_mode = cursor_mode
 	if not get_tree().paused:
 		var target := 0.0 if game.player.is_dead else clampf(1.0 - game.player.hp / game.player.max_hp / 0.3, 0.0, 1.0)
 		_danger = lerpf(_danger, target, 1.0 - exp(-delta * 4.0))
 		_heartbeat_phase = fposmod(_heartbeat_phase + delta, 1.0)
 	queue_redraw()
+
+
+func combat_cursor_visible() -> bool:
+	return not get_tree().paused and not game.game_over and not game.player.is_dead
+
+
+func _exit_tree() -> void:
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+func _input(event: InputEvent) -> void:
+	if get_tree().paused:
+		game.player._input(event) # после меню прицел сразу следует за последним устройством
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -82,9 +98,13 @@ func _draw() -> void:
 	var total := n * PANEL_W + (n - 1) * 6.0
 	var x0 := (w - total) * 0.5
 	var y0 := h - 50.0
-	_draw_boss_bar(font, w, y0 - 26.0)
+	_draw_boss_bar(font, w, y0 - 32.0)
 	for i in n:
 		_draw_slot(font, weapons, i, Vector2(x0 + i * (PANEL_W + 6.0), y0))
+	var aim_hint := "АВТО · ПКМ — свой прицел" if Meta.settings["auto_fire"] else "РУЧНОЙ · ЛКМ — огонь"
+	if player.aim_gamepad:
+		aim_hint = "АВТО · правый стик — свой прицел" if Meta.settings["auto_fire"] else "РУЧНОЙ · RT — огонь"
+	_text_centered(font, Vector2(w * 0.5, h - 3), aim_hint + "   ·   " + ("RB" if player.aim_gamepad else "G / СКМ") + " — граната", DIM, 8)
 
 	# пассивки — под уровнем
 	var py := 46.0
@@ -108,7 +128,7 @@ func _draw() -> void:
 		]
 		for i in lines.size():
 			_text_right(font, Vector2(w - 8, 15 + i * 11), lines[i], DIM)
-		_text_right(font, Vector2(w - 8, h - 4), "F1 +100 · F2 бессм. · F3 отладка · F4 +1 мин · F5 патроны · F6 смерть · F7 бегуны · F8 толстяк · F9 плевальщик · F10 элитка", Color(0.5, 0.5, 0.48), 7)
+		_text_right(font, Vector2(w - 8, h - 54), "F1 +100 · F2 бессм. · F3 отладка · F4 +1 мин · F5 патроны · F6 смерть · F7 бегуны · F8 толстяк · F9 плевальщик · F10 элитка", Color(0.5, 0.5, 0.48), 7)
 
 	# комбо и надписи
 	if game.combo >= 5:
@@ -122,6 +142,20 @@ func _draw() -> void:
 		# пока на экране тревога (заголовок, полоса, «ТРЕВОГА ОТБИТА»), анонсы идут ниже неё
 		var ay := 112.0 if game.alarm_overlay.visible else 70.0
 		_text_centered(font, Vector2(w * 0.5, ay) + jitter, game.announce_text, col, fs)
+	if combat_cursor_visible():
+		_draw_crosshair(player)
+
+
+## Короткие штрихи с просветом и тёмной обводкой видны и на крови, и на асфальте.
+func _draw_crosshair(player: Player) -> void:
+	var p := player.aim_mouse_position / _ui
+	if player.aim_gamepad:
+		p = (player.get_canvas_transform() * player.aim_point) / _ui
+	p = p.round()
+	var color := Color(1.0, 0.94, 0.70) if player.manual_aim else Color(0.65, 0.67, 0.65)
+	for dir: Vector2 in [Vector2.LEFT, Vector2.RIGHT, Vector2.UP, Vector2.DOWN]:
+		draw_line(p + dir * 2.0, p + dir * 4.0, Color(0.015, 0.012, 0.01, 0.95), 3.0)
+		draw_line(p + dir * 2.0, p + dir * 4.0, color, 1.0)
 
 
 

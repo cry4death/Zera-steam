@@ -120,6 +120,9 @@ var _bench_horde_ms := 0.0
 var _bench_physics_ms := 0.0
 var _bench_enemies := 0
 var _audio_test := false
+var _aim_test := false
+var _aim_failures := 0
+var _aim_records: Array[Dictionary] = []
 var _audio_lowhp := false
 var horde_audio: HordeAudio
 var pause_menu: PauseMenu
@@ -165,7 +168,9 @@ func _enter_tree() -> void:
 
 func _ready() -> void:
 	for arg in OS.get_cmdline_user_args():
-		if arg == "--audio-test":
+		if arg == "--aim-test":
+			_aim_test = true
+		elif arg == "--audio-test":
 			_audio_test = true
 		elif arg == "--bench":
 			_bench = true
@@ -318,6 +323,12 @@ func _ready() -> void:
 	results.sfx = sfx
 	Meta.settings_changed.connect(_apply_settings)
 	_apply_settings()
+	player.force_auto_aim = Meta.is_test_run() and not _aim_test
+	if _aim_test:
+		spawner.enabled = false
+		player.god_mode = true
+		gems.collected.disconnect(progression.add_xp)
+		_run_aim_test.call_deferred()
 	if _audio_test:
 		spawner.enabled = false
 		player.god_mode = true
@@ -1494,7 +1505,13 @@ static func _setup_input() -> void:
 	_add_action("move_down", [_key(KEY_S), _key(KEY_DOWN), _axis(JOY_AXIS_LEFT_Y, 1.0)])
 	_add_action("dash", [_key(KEY_SPACE), _key(KEY_SHIFT), _button(JOY_BUTTON_A)])
 	_add_action("reload", [_key(KEY_R), _button(JOY_BUTTON_X)])
-	_add_action("grenade", [_key(KEY_G), _mouse(MOUSE_BUTTON_RIGHT), _button(JOY_BUTTON_RIGHT_SHOULDER)])
+	_add_action("grenade", [_key(KEY_G), _mouse(MOUSE_BUTTON_MIDDLE), _button(JOY_BUTTON_RIGHT_SHOULDER)])
+	_add_action("aim_override", [_mouse(MOUSE_BUTTON_RIGHT)])
+	_add_action("fire", [_mouse(MOUSE_BUTTON_LEFT), _axis(JOY_AXIS_TRIGGER_RIGHT, 1.0)])
+	_add_action("aim_left", [_axis(JOY_AXIS_RIGHT_X, -1.0)])
+	_add_action("aim_right", [_axis(JOY_AXIS_RIGHT_X, 1.0)])
+	_add_action("aim_up", [_axis(JOY_AXIS_RIGHT_Y, -1.0)])
+	_add_action("aim_down", [_axis(JOY_AXIS_RIGHT_Y, 1.0)])
 
 
 static func _add_action(action: StringName, events: Array) -> void:
@@ -1528,6 +1545,305 @@ static func _button(button: JoyButton) -> InputEventJoypadButton:
 	var e := InputEventJoypadButton.new()
 	e.button_index = button
 	return e
+
+
+## --aim-test: настоящий маршрут ввода и выстрела, сохранение только в tmp/.
+func _aim_check(ok: bool, label: String) -> void:
+	if not ok:
+		_aim_failures += 1
+	print("AIMTEST %s=%s" % [label, ok])
+
+
+func _aim_mouse(button: MouseButton, pressed: bool) -> void:
+	var event := _mouse(button)
+	event.pressed = pressed
+	event.position = player.aim_mouse_position
+	event.global_position = event.position
+	Input.parse_input_event(event)
+	await get_tree().create_timer(0.04).timeout
+
+
+func _aim_axis(axis: JoyAxis, value: float) -> void:
+	var event := _axis(axis, value)
+	Input.parse_input_event(event)
+	await get_tree().create_timer(0.04).timeout
+
+
+func _aim_stick(value: Vector2) -> void:
+	Input.parse_input_event(_axis(JOY_AXIS_RIGHT_X, value.x))
+	Input.parse_input_event(_axis(JOY_AXIS_RIGHT_Y, value.y))
+	await get_tree().create_timer(0.04).timeout
+
+
+func _aim_move(offset: Vector2) -> void:
+	var screen := player.get_canvas_transform() * (player.global_position + offset)
+	var event := InputEventMouseMotion.new()
+	event.position = screen
+	event.global_position = screen
+	event.relative = Vector2(2, 0)
+	get_viewport().push_input(event, true)
+	await get_tree().create_timer(0.06).timeout
+
+
+func _aim_refill() -> void:
+	weapons.clear_projectiles()
+	weapons.refill_all()
+	for slot: Weapons.Slot in weapons.slots:
+		slot.cooldown = 0.0
+		slot.heat = 0.0
+		slot.fan_left = 0
+	_aim_records.clear()
+
+
+## Снимаем направление уже созданных снарядов, а не только вычисленный aim_dir.
+func _aim_on_shot(base: int) -> void:
+	var slot: Weapons.Slot
+	for s: Weapons.Slot in weapons.slots:
+		if s.base == base:
+			slot = s
+			break
+	var angle := player.aim_dir.angle()
+	var cursor_angle := (player.aim_point - player.global_position).angle()
+	var worst := 0.0
+	var spread_limit := (float(slot.stats.get("spread", 0.0)) + slot.heat) * 0.5
+	if base not in [WeaponDefs.Base.RAIL, WeaponDefs.Base.LAUNCHER]:
+		if base != WeaponDefs.Base.SHOTGUN:
+			spread_limit += (int(slot.stats["proj"]) - 1) * 2.5
+		for b in range(weapons.bullet_count - int(slot.stats["proj"]), weapons.bullet_count):
+			var actual := weapons._bvel[b].angle()
+			worst = maxf(worst, absf(angle_difference(angle, actual)))
+	elif base == WeaponDefs.Base.RAIL:
+		spread_limit = (int(slot.stats["proj"]) - 1) * 7.5
+		var beam: Array = weapons._beams.back()
+		worst = absf(angle_difference(angle, (beam[1] - beam[0]).angle()))
+	_aim_records.append({"model": slot.model, "base": base, "angle": rad_to_deg(angle),
+		"cursor": rad_to_deg(cursor_angle), "error": rad_to_deg(worst),
+		"limit": spread_limit,
+		"manual": player.manual_aim})
+
+
+func _aim_verify_shots(label: String, count: int) -> void:
+	var models := {}
+	var ok := true
+	for shot: Dictionary in _aim_records:
+		models[shot["model"]] = true
+		ok = ok and shot["manual"] and absf(angle_difference(deg_to_rad(shot["angle"]), deg_to_rad(shot["cursor"]))) < 0.001
+		ok = ok and float(shot["error"]) <= float(shot["limit"]) + 0.01
+		if not models.get(shot["model"] + "_printed", false):
+			print("AIMTEST %s model=%s shot_deg=%.3f cursor_deg=%.3f projectile_error_deg=%.3f spread_limit_deg=%.3f" % [label, shot["model"], shot["angle"], shot["cursor"], shot["error"], shot["limit"]])
+			models[shot["model"] + "_printed"] = true
+	_aim_check(ok and models.size() == count * 2, label + "_all_guns_to_cursor")
+
+
+func _run_aim_test() -> void:
+	get_window().mode = Window.MODE_WINDOWED
+	get_window().size = Vector2i(1280, 720)
+	Meta.settings["fullscreen"] = false
+	$HUD/Hud.show_debug = false
+	weapons.firing_enabled = false
+	await get_tree().create_timer(0.15).timeout
+	_aim_check(not Meta.persist and Meta.save_path == Meta.SAVE_PATH, "temporary_save")
+	# Старый v2 с настройками S7, без нового ключа; прогресс остаётся прежним.
+	var saved := Meta.to_dict()
+	var legacy := saved.duplicate(true)
+	legacy["dna"] = 123
+	legacy["settings"].erase("auto_fire")
+	Meta.save_path = "res://tmp/s8_settings.json"
+	Meta.persist = true
+	var migration_ok := Meta._write_atomic(Meta.save_path, JSON.stringify(legacy)) and Meta.load_save()
+	migration_ok = migration_ok and Meta.settings["auto_fire"] and Meta.dna == 123
+	Meta.set_setting("auto_fire", false)
+	var roundtrip_ok: bool = Meta.load_save() and not Meta.settings["auto_fire"] and Meta.dna == 123
+	_aim_check(migration_ok and roundtrip_ok and Meta.clean_settings({"auto_fire": "bad"})["auto_fire"], "settings_migration_roundtrip")
+	DirAccess.remove_absolute(Meta.save_path)
+	Meta.persist = false
+	Meta.save_path = Meta.SAVE_PATH
+	Meta.from_dict(saved)
+	Meta.set_setting("auto_fire", true)
+	Meta.set_setting("shake", 0.0)
+	weapons.slots.clear()
+	for base: int in [WeaponDefs.Base.RIFLE, WeaponDefs.Base.SHOTGUN, WeaponDefs.Base.RAIL, WeaponDefs.Base.LAUNCHER]:
+		weapons.add_weapon(base)
+	# Пули видны веером, без изменения баланса реального забега.
+	weapons.slots[0].modules = [{"id": WeaponDefs.Module.TWIN, "rank": 3, "rare": false}]
+	weapons.refresh(0)
+	var nearest := horde.spawn(player.position + Vector2(-80, 0))
+	horde.hp[nearest] = 1000000.0
+	horde.speed[nearest] = 0.0
+	var farther := horde.spawn(player.position + Vector2(-160, 45))
+	horde.hp[farther] = 1000000.0
+	horde.speed[farther] = 0.0
+	for k in 22:
+		floor_decals.stamp(PixelArt.tex("blood_%d" % (k % 8)), player.position + Vector2(randf_range(30, 170), randf_range(-90, 80)), randf() * TAU, Color(0.36, 0.012, 0.008, 0.85))
+	weapons.shot_fired.connect(_aim_on_shot)
+	await _aim_move(Vector2(130, -35))
+	_aim_refill()
+	weapons.firing_enabled = true
+	await get_tree().create_timer(0.22).timeout
+	_aim_check(not player.manual_aim and player.aim_dir.x < -0.9 and weapons._nearest_target(player.position, 300) == nearest, "auto_nearest")
+	await _audio_shot("auto")
+	var nades_before := nades
+	await _aim_mouse(MOUSE_BUTTON_RIGHT, true)
+	_aim_refill()
+	await get_tree().create_timer(0.18).timeout
+	_aim_verify_shots("override", 4)
+	_aim_check(nades == nades_before and player.sprite.rotation == player.aim_dir.angle(), "rmb_aim_no_grenade_rotation")
+	await _audio_shot("override")
+	await _aim_mouse(MOUSE_BUTTON_RIGHT, false)
+	_aim_refill()
+	await get_tree().create_timer(0.12).timeout
+	_aim_check(not player.manual_aim and player.aim_dir.x < -0.9 and not _aim_records.is_empty(), "release_returns_auto")
+	Meta.set_setting("auto_fire", false)
+	_aim_refill()
+	var before := weapons.shots.duplicate()
+	await get_tree().create_timer(2.0).timeout
+	_aim_check(weapons.shots == before, "manual_idle_2s_zero_shots")
+	floor_decals.stamp(PixelArt.tex("blood_3"), player.aim_point, 0.3, Color(0.45, 0.012, 0.008), 1.5)
+	await _aim_mouse(MOUSE_BUTTON_LEFT, true)
+	await get_tree().create_timer(0.18).timeout
+	_aim_verify_shots("manual", 4)
+	await _audio_shot("manual")
+	await _aim_mouse(MOUSE_BUTTON_LEFT, false)
+	before = weapons.shots.duplicate()
+	await get_tree().create_timer(0.3).timeout
+	_aim_check(weapons.shots == before, "release_lmb_stops_all")
+	# Отдельно измеряем реальную точку взрыва и ограничение дальности гранатомёта.
+	weapons.slots.clear()
+	weapons.add_weapon(WeaponDefs.Base.LAUNCHER)
+	await _aim_move(Vector2(110, -35))
+	_aim_refill()
+	await _aim_mouse(MOUSE_BUTTON_LEFT, true)
+	await _aim_mouse(MOUSE_BUTTON_LEFT, false)
+	var expected := player.aim_point
+	while not weapons._gpos.is_empty():
+		await get_tree().physics_frame
+	await get_tree().process_frame
+	var explosion_ok := not weapons._blasts.is_empty() and Vector2(weapons._blasts.back()[0]).distance_to(expected) < 5.0
+	var explosion_error := Vector2(weapons._blasts.back()[0]).distance_to(expected) if not weapons._blasts.is_empty() else INF
+	print("AIMTEST launcher explosion_error_px=%.3f" % explosion_error)
+	_aim_check(explosion_ok, "launcher_explosion_at_cursor")
+	await _aim_move(Vector2(260, -35))
+	_aim_refill()
+	await _aim_mouse(MOUSE_BUTTON_LEFT, true)
+	await _aim_mouse(MOUSE_BUTTON_LEFT, false)
+	var endpoint := weapons._gpos[0] + weapons._gvel[0].normalized() * weapons._gleft[0]
+	_aim_check(absf(endpoint.distance_to(player.position) - float(weapons.slots[0].stats["range"])) < 0.01, "launcher_range_clamp")
+	# Остальные категории и все модели из ящиков, включая прерываемый ручной веер Ковбоя.
+	for batch in 3:
+		weapons.slots.clear()
+		var ids: Array = ["colt", "bulldog", "ppsh", "mosin"] if batch == 0 else (["m4", "shkval", "spear", "hive"] if batch == 1 else ["guard", "cowboy", "osa", "winchester"])
+		for id: String in ids:
+			weapons.add_weapon(WeaponDefs.MODELS[id]["base"], id)
+		_aim_refill()
+		await _aim_mouse(MOUSE_BUTTON_LEFT, true)
+		await get_tree().create_timer(0.15).timeout
+		_aim_verify_shots("models_%d" % batch, 4)
+		await _aim_mouse(MOUSE_BUTTON_LEFT, false)
+		before = weapons.shots.duplicate()
+		await get_tree().create_timer(0.6).timeout
+		_aim_check(weapons.shots == before, "models_%d_release_stops" % batch)
+	Meta.set_setting("auto_fire", true)
+	_aim_refill()
+	await _aim_axis(JOY_AXIS_RIGHT_X, 0.3)
+	_aim_check(not player.manual_aim, "stick_deadzone")
+	await _aim_stick(Vector2(0.8, 0.6))
+	_aim_refill()
+	await get_tree().create_timer(0.15).timeout
+	_aim_verify_shots("gamepad_override", 4)
+	_aim_check(player.aim_gamepad and player.aim_dir.is_equal_approx(Vector2(0.8, 0.6)), "gamepad_axis_override")
+	await _aim_stick(Vector2.ZERO)
+	_aim_check(not player.manual_aim, "stick_release_auto")
+	Meta.set_setting("auto_fire", false)
+	_aim_refill()
+	before = weapons.shots.duplicate()
+	await get_tree().create_timer(0.2).timeout
+	_aim_check(weapons.shots == before and player.aim_dir.is_equal_approx(Vector2(0.8, 0.6)), "gamepad_manual_idle_last_direction")
+	await _aim_axis(JOY_AXIS_TRIGGER_RIGHT, 1.0)
+	await get_tree().create_timer(0.15).timeout
+	_aim_verify_shots("gamepad_trigger", 4)
+	await _aim_axis(JOY_AXIS_TRIGGER_RIGHT, 0.0)
+	before = weapons.shots.duplicate()
+	await get_tree().create_timer(0.2).timeout
+	_aim_check(weapons.shots == before, "trigger_release_stops")
+	# Смену устройства, близкий курсор и неподвижный прицел при движении камеры тоже проверяем.
+	await _aim_move(Vector2.ZERO)
+	_aim_check(player.aim_dir.is_finite() and player.aim_dir.length() > 0.99 and not player.aim_gamepad, "mouse_returns_close_cursor_valid")
+	await _aim_move(Vector2(120, -55))
+	var cursor_world := player.get_canvas_transform().affine_inverse() * player.aim_mouse_position
+	_aim_check(player.aim_point.distance_to(cursor_world) < 0.01, "camera_world_coordinates")
+	# Граната на G / СКМ / RB; ПКМ уже проверена отдельно.
+	var grenade_ok := true
+	for control in 3:
+		player.grenade_cd = 0.0
+		player._gren_t = -1.0
+		var old_nades := nades
+		if control == 0:
+			Input.parse_input_event(_aim_pressed_key(KEY_G, true))
+			await get_tree().create_timer(0.04).timeout
+			Input.parse_input_event(_aim_pressed_key(KEY_G, false))
+		elif control == 1:
+			await _aim_mouse(MOUSE_BUTTON_MIDDLE, true)
+			await _aim_mouse(MOUSE_BUTTON_MIDDLE, false)
+		else:
+			var event := _button(JOY_BUTTON_RIGHT_SHOULDER)
+			event.pressed = true
+			Input.parse_input_event(event)
+			await get_tree().create_timer(0.04).timeout
+			event.pressed = false
+			Input.parse_input_event(event)
+		await get_tree().create_timer(0.5).timeout
+		grenade_ok = grenade_ok and nades == old_nades + 1
+	_aim_check(grenade_ok, "grenade_g_mmb_rb")
+	# Попадания ручной пули, рельсы и гранаты по живому боссу через обычную физику.
+	boss.start(player.position + Vector2(100, -20))
+	boss.set_physics_process(false)
+	var boss_ok := true
+	for base: int in [WeaponDefs.Base.RIFLE, WeaponDefs.Base.RAIL, WeaponDefs.Base.LAUNCHER]:
+		weapons.slots.clear()
+		weapons.add_weapon(base)
+		_aim_refill()
+		await _aim_move(boss.position - player.position)
+		var hp_before := boss.hp
+		await _aim_mouse(MOUSE_BUTTON_LEFT, true)
+		await _aim_mouse(MOUSE_BUTTON_LEFT, false)
+		await get_tree().create_timer(0.7).timeout
+		boss_ok = boss_ok and boss.hp < hp_before
+	_aim_check(boss_ok, "manual_boss_bullet_rail_explosion")
+	weapons.firing_enabled = false
+	Meta.set_setting("auto_fire", true)
+	pause_menu.open(true)
+	await get_tree().create_timer(0.04).timeout
+	_aim_check(Input.mouse_mode == Input.MOUSE_MODE_VISIBLE and not $HUD/Hud.combat_cursor_visible(), "pause_system_cursor")
+	await _audio_shot("settings")
+	await _aim_move(Vector2(90, 65))
+	pause_menu._selected = 7
+	pause_menu._change(1)
+	_aim_check(not Meta.settings["auto_fire"], "settings_menu_toggle")
+	pause_menu.close()
+	await get_tree().create_timer(0.04).timeout
+	_aim_check(Input.mouse_mode == Input.MOUSE_MODE_HIDDEN and $HUD/Hud.combat_cursor_visible(), "combat_crosshair")
+	_aim_check(player.aim_mouse_position.distance_to(player.get_canvas_transform() * (player.position + Vector2(90, 65))) < 0.01, "menu_mouse_position_kept")
+	# На базе используется тот же PauseMenu без владельца паузы.
+	var base_settings := PauseMenu.new()
+	$Overlay.add_child(base_settings)
+	base_settings.open(true)
+	base_settings._selected = 7
+	base_settings._change(1)
+	_aim_check(Meta.settings["auto_fire"] and not get_tree().paused, "base_settings_shared_toggle")
+	base_settings.close()
+	base_settings.queue_free()
+	Meta.set_setting("auto_fire", false)
+	player.force_auto_aim = true
+	player._update_aim()
+	_aim_check(not player.manual_aim and player.fire_requested, "autopilot_forced_auto")
+	print("AIMTEST ok=%s failures=%d" % [_aim_failures == 0, _aim_failures])
+	get_tree().quit(0 if _aim_failures == 0 else 1)
+
+
+func _aim_pressed_key(code: Key, pressed: bool) -> InputEventKey:
+	var event := _key(code)
+	event.pressed = pressed
+	return event
 
 
 ## --s3-test: кровавый пол, предметы, граната. Печатает S3TEST, снимки — s3_items/s3_fly/s3_boom.

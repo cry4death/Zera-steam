@@ -11,8 +11,8 @@ var _selected := 0
 var _ui := 3.0
 var _rows: Array[Rect2] = []
 var _drag := -1
-const KEYS := ["master", "weapons", "world", "ui", "gore", "shake", "fullscreen"]
-const LABELS := ["Общая", "Оружие", "Мир", "Интерфейс", "Жестокость", "Тряска экрана", "Полный экран"]
+const KEYS := ["master", "weapons", "world", "ui", "gore", "shake", "fullscreen", "auto_fire"]
+const LABELS := ["Общая", "Оружие", "Мир", "Интерфейс", "Жестокость", "Тряска экрана", "Полный экран", "Автострельба"]
 const GOLD := Color(1.0, 0.82, 0.35)
 const WHITE := Color(0.92, 0.90, 0.85)
 const DIM := Color(0.60, 0.60, 0.57)
@@ -84,7 +84,7 @@ func _input(event: InputEvent) -> void:
 		_back()
 	elif code in [KEY_UP, KEY_DOWN, KEY_TAB] or button in [JOY_BUTTON_DPAD_UP, JOY_BUTTON_DPAD_DOWN]:
 		var step := -1 if code == KEY_UP or button == JOY_BUTTON_DPAD_UP else 1
-		_selected = posmod(_selected + step, 8 if settings_open else (2 if confirming else 3))
+		_selected = posmod(_selected + step, KEYS.size() + 1 if settings_open else (2 if confirming else 3))
 		_sound("click")
 	elif code in [KEY_LEFT, KEY_RIGHT] or button in [JOY_BUTTON_DPAD_LEFT, JOY_BUTTON_DPAD_RIGHT]:
 		_change(-1 if code == KEY_LEFT or button == JOY_BUTTON_DPAD_LEFT else 1)
@@ -130,9 +130,9 @@ func _change(direction: int) -> void:
 	var key: String = KEYS[_selected]
 	if key == "gore":
 		Meta.set_setting(key, posmod(int(Meta.settings[key]) + direction, 3))
-	elif key == "fullscreen":
+	elif key in ["fullscreen", "auto_fire"]:
 		Meta.set_setting(key, not Meta.settings[key])
-		if DisplayServer.get_name() != "headless":
+		if key == "fullscreen" and DisplayServer.get_name() != "headless":
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if Meta.settings[key] else DisplayServer.WINDOW_MODE_WINDOWED)
 	else:
 		Meta.set_setting(key, float(Meta.settings[key]) + direction * 0.05)
@@ -142,7 +142,7 @@ func _change(direction: int) -> void:
 func _activate(i: int) -> void:
 	_sound("confirm")
 	if settings_open:
-		if i == 7:
+		if i == KEYS.size():
 			_back()
 		else:
 			_change(1)
@@ -167,7 +167,7 @@ func _draw() -> void:
 	_ui = maxf(1.0, floorf(size.y / 360.0))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE * _ui)
 	var view := size / _ui
-	var dimensions := Vector2(350, 316) if settings_open else Vector2(280, 208)
+	var dimensions := Vector2(350, 348) if settings_open else Vector2(280, 208)
 	var panel := Rect2((view - dimensions) * 0.5, dimensions)
 	var p := panel.position
 	draw_rect(Rect2(Vector2.ZERO, view), Color(0.025, 0.02, 0.02, 0.78))
@@ -180,8 +180,8 @@ func _draw() -> void:
 	_rows.clear()
 	if settings_open:
 		_text(p + Vector2(18, 64), "ГРОМКОСТЬ", DIM, 8)
-		for i in 7:
-			var r := Rect2(p + Vector2(18, 70 + i * 28), Vector2(314, 25))
+		for i in KEYS.size():
+			var r := Rect2(p + Vector2(18, 70 + i * 26), Vector2(314, 24))
 			_rows.append(r)
 			if i == _selected:
 				draw_rect(r, Color(0.18, 0.15, 0.10))
@@ -195,8 +195,9 @@ func _draw() -> void:
 				_text(r.position + Vector2(281, 16), str(roundi(float(value) * 100)), GOLD, 9)
 			else:
 				_text(r.position + Vector2(148, 16), ["Мало", "Средне", "Максимум"][int(value)] if i == 4 else ("Вкл." if value else "Выкл."), GOLD, 10)
-		_text(p + Vector2(22, 275), "Мало: меньше крови и гибов, без брызг на экране", DIM, 8)
-		_button(Rect2(p + Vector2(18, 285), Vector2(314, 22)), "НАЗАД", 7)
+		_text(p + Vector2(22, 286), "ПКМ — свой прицел · правый стик — прицел" if Meta.settings["auto_fire"] else "ЛКМ / правый курок — огонь · мышь / стик — прицел", GOLD, 8)
+		_text(p + Vector2(22, 300), "Мало: меньше крови и гибов, без брызг на экране", DIM, 8)
+		_button(Rect2(p + Vector2(18, 316), Vector2(314, 22)), "НАЗАД", KEYS.size())
 	else:
 		if confirming:
 			_text(p + Vector2(18, 69), "Забег будет засчитан как смерть.", WHITE, 10)
