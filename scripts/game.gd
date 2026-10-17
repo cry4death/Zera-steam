@@ -3,6 +3,10 @@ extends Node2D
 ##
 ## Бенчмарк: godot --path . -- --bench[=кол-во_зомби] [--shot=путь.png]
 ## Держит 500 зомби, игрок бессмертен и бегает сам; в конце печатает замеры и выходит.
+##
+## Тревога: godot --path . -- --alarm [--no-fire] [--shot=путь.png]
+## Старт в 6:55, оружие как --loadout, бессмертие; раз в секунду печатает ALARM t=..,
+## в конце — худший кадр. С --no-fire зомби не убиваются (пик 500 живых).
 
 const ARENA := Rect2(0, 0, 2560, 1440)
 const BENCH_TARGET := 500
@@ -15,6 +19,7 @@ const COMBO_TITLES := {10: "РЕЗНЯ!", 25: "МЯСОРУБКА!", 50: "КРО
 const MULTIKILL_WINDOW := 0.15
 const DIRT_RADIUS := 48.0
 const CREDIT_CHANCE := 0.06 # шаркающий: 6% × 1 кредит (BALANCE.md §2.1)
+const CALM_RADIUS := 200.0 # затишье 9:00: зомби дальше этого от игрока убираются
 const TRADER_TIMES := [300.0, 540.0] # визиты торговца: 5:00 и 9:00 (BALANCE.md §9.2)
 
 var time := 0.0
@@ -46,6 +51,16 @@ var _ui_test := false
 var _sim := false
 var _sim_next_report := 60.0
 var _sim_until := 600.0
+var _alarm := false
+var _alarm_next_print := 0.0
+var _alarm_worst_ms := 0.0
+var _alarm_min_fps := 9999
+var _alarm_peak := 0
+var _alarm_shot_done := false
+var _alarm_chain_done := false
+var _alarm_chain_frames: Array[float] = []
+var _alarm_end_t := -1.0
+var _alarm_skip_frames := 0 # кадры вокруг снимка экрана в замер не идут
 var _bench_frames := 0
 var _bench_frame_ms := 0.0
 var _bench_worst_ms := 0.0
@@ -66,6 +81,10 @@ var _bench_enemies := 0
 @onready var gore: Gore = $World/Gore
 @onready var ground: Node2D = $World/Ground
 @onready var spawner: Spawner = $Spawner
+@onready var hazards: Hazards = $World/Hazards
+@onready var blood_alarm: BloodAlarm = $BloodAlarm
+@onready var alarm_overlay: AlarmOverlay = $AlarmLayer/AlarmOverlay
+@onready var alarm_tint: CanvasModulate = $AlarmTint
 @onready var camera: GameCamera = $Camera
 @onready var screen_blood: Control = $ScreenFX/ScreenBlood
 
@@ -91,6 +110,9 @@ func _ready() -> void:
 			_no_fire = true # для скриншотов живой орды: не стреляем и стоим на месте
 		elif arg == "--loadout":
 			_full_loadout.call_deferred() # бенчмарк с полным арсеналом
+		elif arg == "--alarm":
+			_alarm = true # тревога: старт в 6:55, оружие как --loadout
+			_full_loadout.call_deferred()
 		elif arg == "--ui-test":
 			_ui_test = true # снимки экрана Level Up и выбора ствола
 		elif arg == "--sim" or arg.begins_with("--sim="):
@@ -126,6 +148,16 @@ func _ready() -> void:
 	trader.player = player
 	spawner.horde = horde
 	spawner.player = player
+	hazards.horde = horde
+	hazards.player = player
+	hazards.floor_decals = floor_decals
+	hazards.effects = effects
+	hazards.camera = camera
+	blood_alarm.spawner = spawner
+	blood_alarm.player = player
+	blood_alarm.overlay = alarm_overlay
+	blood_alarm.tint = alarm_tint
+	blood_alarm.verbose = _sim or _alarm
 	camera.setup(ARENA, player)
 	get_viewport().size_changed.connect(_update_view)
 	_update_view()
@@ -134,13 +166,9 @@ func _ready() -> void:
 	horde.enemy_killed.connect(gore.on_enemy_killed)
 	horde.enemy_wounded.connect(gore.on_enemy_wounded)
 	horde.enemy_hit.connect(gore.on_enemy_hit)
-	# До S2 только журнал, без снарядов и взрывов Hazards.
-	horde.spit_fired.connect(func(from: Vector2, to: Vector2, damage: float) -> void:
-		if _sim:
-			print("spit_fired from=%s to=%s damage=%.2f" % [from, to, damage]))
-	horde.fat_burst.connect(func(pos: Vector2, is_elite: bool) -> void:
-		if _sim:
-			print("fat_burst pos=%s elite=%s" % [pos, is_elite]))
+	horde.spit_fired.connect(hazards.spit)
+	horde.fat_burst.connect(hazards.fat_explosion)
+	blood_alarm.container_dropped.connect(_on_container_dropped)
 	gore.splatter.connect(_on_splatter)
 	horde.player_touched.connect(player.take_damage)
 	player.hurt.connect(_on_player_hurt)
@@ -158,6 +186,14 @@ func _ready() -> void:
 		player.autopilot = true
 		Engine.time_scale = 4.0
 		Engine.max_physics_steps_per_frame = 16
+	if _alarm:
+		time = BloodAlarm.START - 5.0
+		trader_visit = 1 # лавку 5:00 пропускаем
+		player.god_mode = true
+		player.autopilot = not _no_fire
+		_alarm_prefill()
+		if _no_fire:
+			weapons.process_mode = Node.PROCESS_MODE_DISABLED
 	if _ui_test:
 		_run_ui_test()
 	if _bench:
@@ -182,6 +218,8 @@ func _physics_process(delta: float) -> void:
 		_sim_report()
 	horde.minutes = time / 60.0
 	spawner.time = time
+	blood_alarm.time = time
+	hazards.minutes = time / 60.0
 	credit_drops.radius = gems.radius # пассивка подбора действует и на кредиты
 	if trader_visit < TRADER_TIMES.size() and time >= TRADER_TIMES[trader_visit]:
 		_open_trader()
@@ -202,6 +240,8 @@ func _physics_process(delta: float) -> void:
 func _process(delta: float) -> void:
 	if _bench:
 		_bench_step(delta)
+	if _alarm:
+		_alarm_step(delta)
 	_combo_timer -= delta
 	if _combo_timer <= 0.0:
 		combo = 0
@@ -265,9 +305,17 @@ func _on_enemy_killed(pos: Vector2, _dir: Vector2, _death: int, _facing: float, 
 	_burst_t = time
 	if pos.distance_to(player.global_position) < DIRT_RADIUS:
 		player.add_dirt(1.0)
-	gems.spawn(pos, 1)
+	var mult := roundi(blood_alarm.reward_mult()) # тревога: опыт и кредиты ×2
+	gems.spawn(pos, mult)
 	if randf() < CREDIT_CHANCE:
-		credit_drops.spawn(pos, 1)
+		credit_drops.spawn(pos, mult)
+
+
+## Контейнер тревоги: подбор и выбор модулей делает S3, пока только журнал.
+func _on_container_dropped(pos: Vector2) -> void:
+	_alarm_end_t = time
+	if _sim or _alarm:
+		print("CONTAINER dropped pos=%s time=%02d:%02d" % [pos, int(time) / 60, int(time) % 60])
 
 
 func _on_credits_collected(value: int) -> void:
@@ -279,7 +327,7 @@ func _on_credits_collected(value: int) -> void:
 func _on_level_ready() -> void:
 	if level_up.visible or trader_ui.visible:
 		return
-	if _bench or _sim:
+	if _bench or _sim or _alarm:
 		# в бенчмарке и симуляции выбираем сами (случайно), без паузы
 		while progression.pending > 0:
 			var cards := progression.make_cards(time / 60.0)
@@ -324,7 +372,12 @@ func _open_trader() -> void:
 	var index := trader_visit
 	trader_visit += 1
 	trader.start_visit(index, time / 60.0)
-	if _bench or _sim:
+	if index == 1:
+		# затишье 9:00: дальних зомби тихо убираем, чтобы после лавки не выйти в стену мяса
+		var removed := horde.despawn_far(player.global_position, CALM_RADIUS)
+		if _sim:
+			print("CALM %02d:%02d removed=%d left=%d" % [int(time) / 60, int(time) % 60, removed, horde.count - removed])
+	if _bench or _sim or _alarm:
 		_auto_shop()
 		return
 	get_tree().paused = true
@@ -433,9 +486,72 @@ func _sim_report() -> void:
 		for m in s.modules:
 			mods.append("%s%d" % [WeaponDefs.MODULES[m["id"]]["name"].left(4), m["rank"]])
 		parts.append("%s L%d %s%d [%s]" % [WeaponDefs.BASES[s.base]["short"], s.level, WeaponDefs.AMMO[s.ammo]["name"].left(4), s.ammo_rank, ",".join(mods)])
-	print("SIM %02d:00 level=%d kills=%d xp=%d/%d credits=%d/%d zombies=%d fps=%d | %s" % [int(time / 60.0), progression.level, kills,
-		gems.collected_total, gems.spawned_total, credit_drops.collected_total, credit_drops.spawned_total, horde.count, Engine.get_frames_per_second(), " | ".join(parts)])
+	var alive := [0, 0, 0, 0]
+	var elites := 0
+	for i in horde.count:
+		alive[horde.kind[i]] += 1
+		elites += horde.elite[i]
+	print("SIM %02d:00 level=%d kills=%d xp=%d/%d credits=%d/%d zombies=%d kinds=%d/%d/%d/%d elites=%d elites_spawned=%d fps=%d | %s" % [int(time / 60.0), progression.level, kills,
+		gems.collected_total, gems.spawned_total, credit_drops.collected_total, credit_drops.spawned_total, horde.count,
+		alive[0], alive[1], alive[2], alive[3], elites, spawner.elites_spawned, Engine.get_frames_per_second(), " | ".join(parts)])
 	if time >= _sim_until:
+		get_tree().quit()
+
+
+## --alarm: к 6:55 на поле уже ~300 зомби (350 — лимит 6:00), доли как в строке 6:00.
+func _alarm_prefill() -> void:
+	for j in 300:
+		var r := randf()
+		var k := Horde.Kind.SHAMBLER if r < 0.6 else (Horde.Kind.RUNNER if r < 0.8 else (Horde.Kind.FAT if r < 0.9 else Horde.Kind.SPITTER))
+		horde.spawn(player.global_position + Vector2.from_angle(randf() * TAU) * randf_range(90.0, 330.0), k)
+
+
+func _alarm_step(delta: float) -> void:
+	var ms := delta * 1000.0
+	_alarm_skip_frames -= 1
+	var t_rel := time - BloodAlarm.START # 0 = начало предупреждения
+	if ms > 40.0:
+		print("HITCH %.1f ms t=%.2f zombies=%d level=%d" % [ms, t_rel, horde.count, progression.level])
+	if t_rel >= -3.0 and _alarm_skip_frames <= 0:
+		_alarm_worst_ms = maxf(_alarm_worst_ms, ms)
+		_alarm_min_fps = mini(_alarm_min_fps, Engine.get_frames_per_second())
+		_alarm_peak = maxi(_alarm_peak, horde.count)
+	if time >= _alarm_next_print:
+		_alarm_next_print = floorf(time) + 1.0
+		print("ALARM t=%.0f phase=%s zombies=%d fps=%d worst_ms=%.1f pools=%d spits=%d" % [t_rel, BloodAlarm.Phase.keys()[blood_alarm.phase],
+			horde.count, Engine.get_frames_per_second(), _alarm_worst_ms, hazards.pool_count(), hazards.projectile_count()])
+	# цепной взрыв толстяков: 12 штук кучей, лопаем одного, два шага замеряем худший кадр
+	if not _alarm_chain_done and t_rel >= BloodAlarm.WARN_TIME + 10.0:
+		_alarm_chain_done = true
+		var at := player.global_position + Vector2(70.0, 0.0)
+		var first := -1
+		for j in 12:
+			var idx := horde.spawn(at + Vector2(randf_range(-14.0, 14.0), randf_range(-14.0, 14.0)), Horde.Kind.FAT)
+			if first == -1:
+				first = idx
+		_alarm_chain_frames.clear()
+		horde.damage(first, 9999.0, Vector2.RIGHT, 0.0)
+		print("CHAIN fats spawned, first burst queued, alive=%d" % horde.count)
+	if _alarm_chain_done and t_rel < BloodAlarm.WARN_TIME + 12.5 and t_rel >= BloodAlarm.WARN_TIME + 10.0:
+		_alarm_chain_frames.append(ms)
+	elif _alarm_chain_done and not _alarm_chain_frames.is_empty() and _alarm_chain_frames[0] >= 0.0:
+		var worst := 0.0
+		for f in _alarm_chain_frames:
+			worst = maxf(worst, f)
+		print("CHAIN worst_frame_ms=%.1f frames=%d" % [worst, _alarm_chain_frames.size()])
+		_alarm_chain_frames[0] = -1.0
+	if not _alarm_shot_done and t_rel >= BloodAlarm.WARN_TIME + 15.0:
+		_alarm_shot_done = true
+		if _shot_path != "":
+			await RenderingServer.frame_post_draw
+			get_viewport().get_texture().get_image().save_png(_shot_path)
+			print("ALARM screenshot: ", _shot_path)
+			_alarm_skip_frames = 3
+	if _alarm_end_t >= 0.0 and time >= _alarm_end_t + 2.0:
+		_alarm = false
+		print("ALARM summary peak_zombies=%d min_fps=%d worst_frame_ms=%.1f physics_ms=%.2f process_ms=%.2f draw_calls=%d horde_ms=%.2f" % [
+			_alarm_peak, _alarm_min_fps, _alarm_worst_ms, Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
+			Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), horde.update_ms])
 		get_tree().quit()
 
 

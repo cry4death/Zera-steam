@@ -1,4 +1,4 @@
-[gd_scene load_steps=18 format=3]
+[gd_scene load_steps=21 format=3]
 
 [ext_resource type="Script" path="res://scripts/game.gd" id="1_game"]
 [ext_resource type="Script" path="res://scripts/ground.gd" id="2_ground"]
@@ -17,6 +17,9 @@
 [ext_resource type="Script" path="res://scripts/level_up.gd" id="15_level_up"]
 [ext_resource type="Script" path="res://scripts/trader.gd" id="16_trader"]
 [ext_resource type="Script" path="res://scripts/trader_ui.gd" id="17_trader_ui"]
+[ext_resource type="Script" path="res://scripts/hazards.gd" id="18_hazards"]
+[ext_resource type="Script" path="res://scripts/alarm_overlay.gd" id="19_alarm_overlay"]
+[ext_resource type="Script" path="res://scripts/blood_alarm.gd" id="20_blood_alarm"]
 
 [node name="Main" type="Node2D"]
 script = ExtResource("1_game")
@@ -31,6 +34,9 @@ script = ExtResource("10_floor")
 
 [node name="Gore" type="Node2D" parent="World"]
 script = ExtResource("11_gore")
+
+[node name="Hazards" type="Node2D" parent="World"]
+script = ExtResource("18_hazards")
 
 [node name="Gems" type="Node2D" parent="World"]
 script = ExtResource("13_gems")
@@ -57,6 +63,11 @@ script = ExtResource("6_weapons")
 [node name="Spawner" type="Node" parent="."]
 script = ExtResource("7_spawner")
 
+[node name="BloodAlarm" type="Node" parent="."]
+script = ExtResource("20_blood_alarm")
+
+[node name="AlarmTint" type="CanvasModulate" parent="."]
+
 [node name="Progression" type="Node" parent="."]
 script = ExtResource("14_progression")
 
@@ -77,6 +88,18 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("12_screen")
+
+[node name="AlarmLayer" type="CanvasLayer" parent="."]
+
+[node name="AlarmOverlay" type="Control" parent="AlarmLayer"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("19_alarm_overlay")
 
 [node name="HUD" type="CanvasLayer" parent="."]
 layer = 2

@@ -215,6 +215,18 @@ static func _pick_variant() -> int:
 	return 0
 
 
+## Тихо убирает живых дальше r от center: без сигналов смерти, гибов и дропа (затишье 9:00).
+## Возвращает, сколько убрано; сами строки вычистит _compact().
+func despawn_far(center: Vector2, r: float) -> int:
+	var removed := 0
+	var r2 := r * r
+	for i in count:
+		if dead[i] == 0 and pos[i].distance_squared_to(center) > r2:
+			dead[i] = 1
+			removed += 1
+	return removed
+
+
 ## Точка на кольце за краем экрана, внутри арены.
 func spawn_point(center: Vector2) -> Vector2:
 	var inner := arena.grow(-RADIUS * 2.0)
