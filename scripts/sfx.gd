@@ -8,6 +8,7 @@ var dropped := 0
 var played_by_id: Dictionary = {}
 var _silent := false
 var _bank: Dictionary = {}
+var _scan_list: Array = []
 var _last: Dictionary = {}
 var _when: Dictionary = {}
 var _flat: Array[AudioStreamPlayer] = []
@@ -40,6 +41,7 @@ func _ready() -> void:
 	if OS.get_cmdline_user_args().has("--weapons-test"):
 		AudioServer.set_bus_mute(0, true)
 	_scan("res://sfx", "")
+	_finish_scan()
 	if _silent:
 		return
 	for i in VOICES:
@@ -154,9 +156,23 @@ func _scan(path: String, prefix: String) -> void:
 		if cut < 0 or not stem.substr(cut + 1).is_valid_int():
 			continue
 		var id := prefix + stem.left(cut)
+		var full := path.path_join(file)
+		# P1: 290 файлов (20 МБ) грузим пачкой в потоках — раньше по одному, ~0.3–0.7 с заморозки на старте
+		ResourceLoader.load_threaded_request(full)
+		_scan_list.append([id, full])
+
+
+## Забирает загруженное в прежнем порядке файлов (варианты одного звука — по номеру).
+func _finish_scan() -> void:
+	for e: Array in _scan_list:
+		# ждём без блокирующего get: он прогоняет очередь сообщений и рисует недособранные узлы
+		while ResourceLoader.load_threaded_get_status(e[1]) == ResourceLoader.THREAD_LOAD_IN_PROGRESS:
+			OS.delay_usec(300)
+		var id: String = e[0]
 		if not _bank.has(id):
 			_bank[id] = []
-		_bank[id].append(load(path.path_join(file)))
+		_bank[id].append(ResourceLoader.load_threaded_get(e[1]))
+	_scan_list.clear()
 
 
 func has(id: String) -> bool:

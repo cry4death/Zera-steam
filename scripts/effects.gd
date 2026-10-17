@@ -27,7 +27,25 @@ var _cage := PackedFloat32Array()
 var _ckind := PackedByteArray()
 var _cbounce := PackedByteArray()
 var _ctex: Array[Texture2D] = []
-var _lights: Array[PointLight2D] = []
+# Свет вспышек (P1): вместо шести PointLight2D — аддитивные радиальные пятна в одном слое.
+# PointLight2D заставлял каждый пиксель двух экранных слоёв пола считать цикл по источникам (~1.7 мс GPU на встроенной).
+class Glow:
+	var layer: Node2D
+	var enabled := false:
+		set(value):
+			if enabled != value and layer != null:
+				layer.queue_redraw()
+			enabled = value
+	var position := Vector2.ZERO
+	var color := Color.WHITE
+	var texture_scale := 1.0 # радиус = 64 × масштаб, как у PointLight2D
+	var energy := 0.0
+
+const GLOW_GAIN := 0.24 # подобран по скриншотам: аддитивное пятно ≈ прежняя подсветка асфальта
+var _lights: Array[Glow] = []
+var _glow_layer: Node2D
+var _glow_tex: Texture2D
+var _glow_drawn := false
 var _light_t := PackedFloat32Array()
 var _light_duration := PackedFloat32Array()
 var _light_energy := PackedFloat32Array()
@@ -187,17 +205,30 @@ func _setup_lights() -> void:
 		for x in 128:
 			var d := Vector2(x - 63.5, y - 63.5).length() / 64.0
 			img.set_pixel(x, y, Color(1, 1, 1, pow(maxf(0.0, 1.0 - d), 2.0)))
-	var tex := ImageTexture.create_from_image(img)
+	_glow_tex = ImageTexture.create_from_image(img)
+	_glow_layer = Node2D.new()
+	var mat := CanvasItemMaterial.new()
+	mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	_glow_layer.material = mat
+	_glow_layer.draw.connect(_draw_glow)
+	add_child(_glow_layer)
 	for i in 6:
-		var light := PointLight2D.new()
-		light.texture = tex
-		light.enabled = false
-		light.shadow_enabled = false
-		add_child(light)
-		_lights.append(light)
+		var glow := Glow.new()
+		glow.layer = _glow_layer
+		_lights.append(glow)
 		_light_t.append(0.0)
 		_light_duration.append(0.0)
 		_light_energy.append(0.0)
+
+
+func _draw_glow() -> void:
+	for g in _lights:
+		if not g.enabled:
+			continue
+		var r := g.texture_scale * 64.0
+		var c := Color(g.color.r, g.color.g, g.color.b, 1.0) * (g.energy * GLOW_GAIN)
+		c.a = 1.0
+		_glow_layer.draw_texture_rect(_glow_tex, Rect2(g.position.x - r, g.position.y - r, r * 2.0, r * 2.0), false, c)
 
 
 func flash_light(p: Vector2, color: Color, radius: float, energy: float, duration := 0.06) -> void:
@@ -219,6 +250,7 @@ func flash_light(p: Vector2, color: Color, radius: float, energy: float, duratio
 	light.texture_scale = radius / 64.0
 	light.energy = energy
 	light.enabled = true
+	_glow_layer.queue_redraw()
 	_light_t[i] = duration
 	_light_duration[i] = duration
 	_light_energy[i] = energy
@@ -230,12 +262,20 @@ func flash_light(p: Vector2, color: Color, radius: float, energy: float, duratio
 
 
 func _update_lights(delta: float) -> void:
+	if _lights.is_empty():
+		return
+	var any := false
 	for i in _lights.size():
 		_light_t[i] = maxf(0.0, _light_t[i] - delta)
 		_lights[i].enabled = _light_t[i] > 0.0
 		if _light_t[i] > 0.0:
+			any = true
 			var k := _light_t[i] / _light_duration[i]
 			_lights[i].energy = _light_energy[i] * k * (0.9 + 0.1 * sin(_light_t[i] * 370.0))
+	# слой перерисовываем, пока есть вспышки (и один раз, чтобы стереть последнюю)
+	if any or _glow_drawn:
+		_glow_layer.queue_redraw()
+	_glow_drawn = any
 
 
 func ghost(p: Vector2, rot: float, tex: Texture2D) -> void:
@@ -279,7 +319,11 @@ func _physics_process(delta: float) -> void:
 
 
 func _draw() -> void:
+	var view := PixelArt.view_rect(self, 24.0)
+	var dot := PixelArt.dot()
 	for i in _n:
+		if not view.has_point(_pos[i]):
+			continue # вне экрана не рисуем
 		var c := _col[i]
 		if _bake[i] == 0:
 			c.a *= clampf(_life[i] / 0.5, 0.0, 1.0) # затухание в последние полсекунды
@@ -290,10 +334,13 @@ func _draw() -> void:
 			if v.length_squared() > 0.25:
 				draw_line(_pos[i] - v, _pos[i], c, s * 0.55)
 			else:
-				PixelArt.draw_dot(self, _pos[i], s * 0.35, c)
+				var r := s * 0.35
+				draw_texture_rect(dot, Rect2(_pos[i].x - r, _pos[i].y - r, r * 2.0, r * 2.0), false, c)
 		else:
-			draw_rect(Rect2(_pos[i] - Vector2(s, s) * 0.3, Vector2(s, s) * 0.6), c)
+			draw_rect(Rect2(_pos[i].x - s * 0.3, _pos[i].y - s * 0.3, s * 0.6, s * 0.6), c)
 	for i in _cn:
+		if not view.has_point(_cp[i]):
+			continue
 		PixelArt.draw_dot(self, _cp[i], 1.2 if _ckind[i] < 3 else 2.5, Color(0, 0, 0, 0.3))
 		var tex := _ctex[_ckind[i]]
 		draw_set_transform(_cp[i] - Vector2(0, _cz[i]), _cr[i], Vector2.ONE * PixelArt.ART_SCALE)

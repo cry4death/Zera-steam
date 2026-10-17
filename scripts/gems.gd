@@ -113,7 +113,10 @@ func _remove(i: int) -> void:
 
 func _draw() -> void:
 	var k := PixelArt.ART_SCALE
+	var view := PixelArt.view_rect(self)
 	for i in count:
+		if not view.has_point(_pos[i]):
+			continue # вне экрана не рисуем
 		var v := _val[i]
 		var tier := 0 if v < 5 else (1 if v < 25 else 2)
 		var tex := _tex[tier]
