@@ -405,6 +405,216 @@
       "sha256": "fbd7292ecabc1e31f24233d7fcf6804be74be2ab933709c2d94560b0808e3e5a",
       "rate": 192000,
       "channels": 2
+    },
+    "zombies_cc0/zombies/zombie-1.wav": {
+      "sha256": "dad8280256985cadc5745f407c53ebdcf428d55e6369a70847e5b83d60e98c17",
+      "seconds": 0.8542,
+      "kept_s": 0.7891
+    },
+    "zombies_cc0/zombies/zombie-2.wav": {
+      "sha256": "b8833b90e2f929cb28ce067e10dacc6e807f47f92393b8f2e6fd17d34f207efe",
+      "seconds": 0.7083,
+      "kept_s": 0.6779
+    },
+    "zombies_cc0/zombies/zombie-3.wav": {
+      "sha256": "8097e5c1da76b30ae5a1dca0b85d70fab0e1386170a03acc77f9492047ac4e84",
+      "seconds": 0.5833,
+      "kept_s": 0.5468
+    },
+    "zombies_cc0/zombies/zombie-7.wav": {
+      "sha256": "8e63e327c960bfe76d0402f7a54f7629272e6346e5c6b84ac35ad52b9597dec8",
+      "seconds": 0.5833,
+      "kept_s": 0.5582
+    },
+    "zombies_cc0/zombies/zombie-8.wav": {
+      "sha256": "98dadef79f3cdbf120277e24e95919dfc2e853a45a7d72273a1d3c2cbc1ea823",
+      "seconds": 0.8333,
+      "kept_s": 0.7956
+    },
+    "zombies_cc0/zombies/zombie-14.wav": {
+      "sha256": "b1fffbf93fd9cf353a9dd0d519b6cd6e739bd3fb28853a580e018ac73efdda4b",
+      "seconds": 0.6667,
+      "kept_s": 0.6442
+    },
+    "zombies_cc0/zombies/zombie-15.wav": {
+      "sha256": "19d0955dfcca86939dbce76388dad5d3ad4dd8ed70bf7ce457d9a46b555e220b",
+      "seconds": 0.875,
+      "kept_s": 0.824
+    },
+    "zombies_cc0/zombies/zombie-18.wav": {
+      "sha256": "91c33adaf9efa32d87c364eb2a679833a24ac5586c52f675f3e9cf8cedfde199",
+      "seconds": 1.1041,
+      "kept_s": 1.0758
+    },
+    "zombies_cc0/zombies/zombie-20.wav": {
+      "sha256": "3a962ea1d8517ad4c2fea8221e6a0e622dcad3ba34bae5a436d4f0971774b56d",
+      "seconds": 0.9583,
+      "kept_s": 0.9221
+    },
+    "zombies_cc0/zombies/zombie-21.wav": {
+      "sha256": "d58c26ae8df808238becc3434cf46778fca4582e9fcda138bdc01f720ecbbefc",
+      "seconds": 1.0833,
+      "kept_s": 1.0528
+    },
+    "zombies_cc0/zombies/zombie-22.wav": {
+      "sha256": "3224f8e3e9e446e5e424a9f6ce11ee78784ebd7bdc2db535306b337c973e6e02",
+      "seconds": 0.6667,
+      "kept_s": 0.6224
+    },
+    "zombies_cc0/zombies/zombie-23.wav": {
+      "sha256": "d467553c380b0c2fb04cd5e5583ec53d0d3620902cf3b90e6aa64438f3e5e84c",
+      "seconds": 0.8125,
+      "kept_s": 0.7401
+    },
+    "zombies_cc0/zombies/zombie-4.wav": {
+      "sha256": "36b6376649969e11112361afb00e6d161a2433f9db045273d9ed40d6e9b06ab0",
+      "seconds": 0.7292,
+      "kept_s": 0.7157
+    },
+    "zombies_cc0/zombies/zombie-17.wav": {
+      "sha256": "c954b6173399ed574c1c1350b8da4a5b465e0454cc810d6e49779fe121fafa34",
+      "seconds": 1.5833,
+      "kept_s": 1.535
+    },
+    "zombies_cc0/zombies/zombie-24.wav": {
+      "sha256": "3776a39a471c215f26115290837012084fc07f37e20b4808ce76f5dafe98f2fb",
+      "seconds": 0.3333,
+      "kept_s": 0.3041
+    },
+    "zombies_cc0/zombies/zombie-5.wav": {
+      "sha256": "6920b559f953d19737f65a9da5b31f7bb3e1421c48552f52d7a57399d507574b",
+      "seconds": 0.5,
+      "kept_s": 0.466
+    },
+    "zombies_cc0/zombies/zombie-11.wav": {
+      "sha256": "edbe930f09f61f034c90b80a6f5b06757fbea2a8f2b9ccdc263ed9246b33a400",
+      "seconds": 0.5,
+      "kept_s": 0.4881
+    },
+    "zombies_cc0/zombies/zombie-13.wav": {
+      "sha256": "b8a64c3a557d7ce0b69492717bc1a88706b69c499a2714f02527d822a8462545",
+      "seconds": 0.5625,
+      "kept_s": 0.5286
+    },
+    "zombies_cc0/monsters/Monster-Sounds-Volume-2/Monster-5.wav": {
+      "sha256": "b6043984a93b2a571f2a0d299c3968f6331736aa674608f6f69d8d2caa77cfbf",
+      "seconds": 0.4479,
+      "kept_s": 0.4369
+    },
+    "zombies_cc0/monsters/Monster-Sounds-Volume-2/Monster-7.wav": {
+      "sha256": "ff1a392b9eb36c037e93cedc940146fbbdf26484607b090dd87e4c3cb047b103",
+      "seconds": 0.375,
+      "kept_s": 0.3408
+    },
+    "zombies_cc0/zombies/zombie-12.wav": {
+      "sha256": "2b1984e3485715642a1195393fd35227eadc27b8f7eeb968956e18f4e8cb9400",
+      "seconds": 0.7917,
+      "kept_s": 0.7667
+    },
+    "zombies_cc0/zombies/zombie-19.wav": {
+      "sha256": "79fa7bb077c0b5c46837a63299a1df3269a2310f25b6a3055dd27a4700c74789",
+      "seconds": 0.9792,
+      "kept_s": 0.9232
+    },
+    "zombies_cc0/zombies/zombie-9.wav": {
+      "sha256": "938c9a75828cda0ec78482e7a969cebc8f989968dcde15326e8c5a2f437fd468",
+      "seconds": 0.875,
+      "kept_s": 0.8212
+    },
+    "zombies_cc0/zombies/zombie-10.wav": {
+      "sha256": "be9223a5c65ad1c1444e6e2153918d8c2a2a1dee59efeb36fa5bbb060c2bfed8",
+      "seconds": 0.6875,
+      "kept_s": 0.646
+    },
+    "zombies_cc0/zombies/zombie-6.wav": {
+      "sha256": "2ad9acaccc9bc29f77f89581767699c3ed8d9630c19a11a8bbf6332ce89686a2",
+      "seconds": 0.5417,
+      "kept_s": 0.4749
+    },
+    "zombies_cc0/monsters/Monster-Sounds-Volume-2/Monster-1.wav": {
+      "sha256": "ac042cd669d74d5fa92187f17f7ef0ab024f89f8fd9be9e854ccf248270f921a",
+      "seconds": 0.75,
+      "kept_s": 0.6263
+    },
+    "zombies_cc0/monsters/Monster-Sounds-Volume-2/Monster-2.wav": {
+      "sha256": "fd0c97cd0a5be99ed21617eab2373e2180825bb1329664080a7b7a095da3337b",
+      "seconds": 0.875,
+      "kept_s": 0.8351
+    },
+    "zombies_cc0/monsters/Monster-Sounds-Volume-2/Monster-3.wav": {
+      "sha256": "29aed55a2b146098fc00d88d273c7958d42d9f873c15226dac4b9522b0b0b772",
+      "seconds": 0.6875,
+      "kept_s": 0.6145
+    },
+    "zombies_cc0/monsters/Monster-Sounds-Volume-2/Monster-4.wav": {
+      "sha256": "9bad9e38aa312416ea4b9913feb1e25e899c2120070f358ed60d7ba5eaf6eca6",
+      "seconds": 0.375,
+      "kept_s": 0.2897
+    },
+    "zombies_cc0/monsters/Monster-Sounds-Volume-2/Monster-6.wav": {
+      "sha256": "a54488ece4de9bea31c14a1f5858d92ad4d7edd0b14f59892ca0b3ba32ee2e7f",
+      "seconds": 0.4792,
+      "kept_s": 0.4473
+    },
+    "zombies_cc0/monsters/Monster-Sounds-Volume-2/Monster-8.wav": {
+      "sha256": "e7fc1c4a831c429f27f55722a102520038f764d0c01b867197d05469a7e39224",
+      "seconds": 0.2792,
+      "kept_s": 0.2241
+    },
+    "zombies_cc0/monsters/Monster-Sounds-Volume-2/monster-16.wav": {
+      "sha256": "e320fc6914b5af0465425806ec1865c07fab00c4e1d60a3d2502e8a78cd4ec55",
+      "seconds": 0.4792,
+      "kept_s": 0.4487
+    },
+    "zombies_cc0/monsters/Monster-Sounds-Volume-2/monster-18.wav": {
+      "sha256": "8bc44b7846dd71adf30aa29b722b705062dc9fc2074367e09376bf9f6159c80d",
+      "seconds": 0.375,
+      "kept_s": 0.3512
+    },
+    "zombies_cc0/monsters/Monster-Sounds-Volume-2/monster-11.wav": {
+      "sha256": "d03dc3c190ceed07b46400fc13c7e0d514a6871bfad9d0132f7000b8f212403f",
+      "seconds": 0.5625,
+      "kept_s": 0.5171
+    },
+    "zombies_cc0/monsters/Monster-Sounds-Volume-2/monster-12.wav": {
+      "sha256": "ee196e95205ab470ee929938b47fd24f63fa4bb4a089188839d12edb497842c1",
+      "seconds": 0.5,
+      "kept_s": 0.4824
+    },
+    "zombies_cc0/monsters/Monster-Sounds-Volume-2/monster-13.wav": {
+      "sha256": "4143d375cb67565a3dd7cf90d73f8336076b5577aae8b36e624fe837189fb6db",
+      "seconds": 0.5,
+      "kept_s": 0.4454
+    },
+    "zombies_cc0/monsters/Monster-Sounds-Volume-2/monster-14.wav": {
+      "sha256": "7f474ff6c2705cc930333ae5023486fbb28ff932337020ced62943254942c532",
+      "seconds": 0.625,
+      "kept_s": 0.5055
+    },
+    "zombies_cc0/monsters/Monster-Sounds-Volume-2/monster-15.wav": {
+      "sha256": "c9723aaa9072f735930a72971fceaf68d2fe6c95534a2143acfe67bc9d736b44",
+      "seconds": 0.5417,
+      "kept_s": 0.4051
+    },
+    "zombies_cc0/zombies/zombie-16.wav": {
+      "sha256": "637f8d26b186005246a279fb19def56c81eebcf144c2346460ac1e4fc0075fc7",
+      "seconds": 1.4375,
+      "kept_s": 1.4079
+    },
+    "zombies_cc0/monsters/Monster-Sounds-Volume-2/monster-9.wav": {
+      "sha256": "fda82c20c26e9e4d8d4154983df1cd151c3a5a68cb0f899f21ca057e738dc343",
+      "seconds": 0.3401,
+      "kept_s": 0.3331
+    },
+    "zombies_cc0/monsters/Monster-Sounds-Volume-2/monster-10.wav": {
+      "sha256": "9f8967357f20dc564bbe3fd5d80e81e80bbe7c9b7dc9645a49678d2bdeaa50df",
+      "seconds": 0.3125,
+      "kept_s": 0.2602
+    },
+    "zombies_cc0/monsters/Monster-Sounds-Volume-2/monster-17.wav": {
+      "sha256": "d1b24ef7b588deb608d49091162b4580c6663e946b7a1435df4d77d226a46a6f",
+      "seconds": 0.4375,
+      "kept_s": 0.3802
     }
   },
   "files": [
@@ -2988,6 +3198,595 @@
       "file": "weapons/hive/stick_3.wav",
       "source": "synthesis: wet slap, 170 Hz thud, squelch, three rising bubble pops",
       "seed": 109732
+    },
+    {
+      "file": "zombies/groan_0.wav",
+      "source": "zombies/zombie-1.wav",
+      "pitch_ratio": 1.0,
+      "peak_db": -14
+    },
+    {
+      "file": "zombies/groan_1.wav",
+      "source": "zombies/zombie-2.wav",
+      "pitch_ratio": 0.95,
+      "peak_db": -14
+    },
+    {
+      "file": "zombies/groan_2.wav",
+      "source": "zombies/zombie-3.wav",
+      "pitch_ratio": 1.06,
+      "peak_db": -14
+    },
+    {
+      "file": "zombies/groan_3.wav",
+      "source": "zombies/zombie-7.wav",
+      "pitch_ratio": 0.92,
+      "peak_db": -14
+    },
+    {
+      "file": "zombies/groan_4.wav",
+      "source": "zombies/zombie-8.wav",
+      "pitch_ratio": 1.0,
+      "peak_db": -14
+    },
+    {
+      "file": "zombies/groan_5.wav",
+      "source": "zombies/zombie-14.wav",
+      "pitch_ratio": 1.09,
+      "peak_db": -14
+    },
+    {
+      "file": "zombies/groan_6.wav",
+      "source": "zombies/zombie-15.wav",
+      "pitch_ratio": 0.9,
+      "peak_db": -14
+    },
+    {
+      "file": "zombies/groan_7.wav",
+      "source": "zombies/zombie-18.wav",
+      "pitch_ratio": 1.03,
+      "peak_db": -14
+    },
+    {
+      "file": "zombies/groan_8.wav",
+      "source": "zombies/zombie-20.wav",
+      "pitch_ratio": 0.96,
+      "peak_db": -14
+    },
+    {
+      "file": "zombies/groan_9.wav",
+      "source": "zombies/zombie-21.wav",
+      "pitch_ratio": 1.07,
+      "peak_db": -14
+    },
+    {
+      "file": "zombies/groan_10.wav",
+      "source": "zombies/zombie-22.wav",
+      "pitch_ratio": 0.87,
+      "peak_db": -14
+    },
+    {
+      "file": "zombies/groan_11.wav",
+      "source": "zombies/zombie-23.wav",
+      "pitch_ratio": 1.12,
+      "peak_db": -14
+    },
+    {
+      "file": "zombies/groan_12.wav",
+      "source": "zombies/zombie-4.wav",
+      "pitch_ratio": 0.8,
+      "peak_db": -14
+    },
+    {
+      "file": "zombies/groan_13.wav",
+      "source": "zombies/zombie-17.wav",
+      "pitch_ratio": 1.18,
+      "peak_db": -14
+    },
+    {
+      "file": "zombies/attack_0.wav",
+      "source": "zombies/zombie-24.wav",
+      "pitch_ratio": 1.0,
+      "peak_db": -9,
+      "seed": 134829
+    },
+    {
+      "file": "zombies/attack_1.wav",
+      "source": "zombies/zombie-5.wav",
+      "pitch_ratio": 1.06,
+      "peak_db": -9,
+      "seed": 134830
+    },
+    {
+      "file": "zombies/attack_2.wav",
+      "source": "zombies/zombie-11.wav",
+      "pitch_ratio": 0.94,
+      "peak_db": -9,
+      "seed": 134831
+    },
+    {
+      "file": "zombies/attack_3.wav",
+      "source": "zombies/zombie-13.wav + synthesized bite",
+      "pitch_ratio": 1.0,
+      "peak_db": -9,
+      "seed": 134832
+    },
+    {
+      "file": "zombies/attack_4.wav",
+      "source": "monsters/Monster-Sounds-Volume-2/Monster-5.wav + synthesized bite",
+      "pitch_ratio": 0.9,
+      "peak_db": -9,
+      "seed": 134833
+    },
+    {
+      "file": "zombies/attack_5.wav",
+      "source": "monsters/Monster-Sounds-Volume-2/Monster-7.wav + synthesized bite",
+      "pitch_ratio": 0.85,
+      "peak_db": -9,
+      "seed": 134834
+    },
+    {
+      "file": "zombies/death_0.wav",
+      "source": "zombies/zombie-12.wav (pitch glide down) + drips",
+      "pitch_ratio": 0.95,
+      "peak_db": -9,
+      "seed": 134929
+    },
+    {
+      "file": "zombies/death_1.wav",
+      "source": "zombies/zombie-19.wav (pitch glide down) + drips",
+      "pitch_ratio": 1.0,
+      "peak_db": -9,
+      "seed": 134930
+    },
+    {
+      "file": "zombies/death_2.wav",
+      "source": "zombies/zombie-9.wav (pitch glide down) + drips",
+      "pitch_ratio": 0.92,
+      "peak_db": -9,
+      "seed": 134931
+    },
+    {
+      "file": "zombies/death_3.wav",
+      "source": "zombies/zombie-10.wav (pitch glide down) + drips",
+      "pitch_ratio": 1.0,
+      "peak_db": -9,
+      "seed": 134932
+    },
+    {
+      "file": "zombies/death_4.wav",
+      "source": "zombies/zombie-6.wav (pitch glide down) + drips",
+      "pitch_ratio": 0.96,
+      "peak_db": -9,
+      "seed": 134933
+    },
+    {
+      "file": "zombies/death_5.wav",
+      "source": "monsters/Monster-Sounds-Volume-2/Monster-1.wav (pitch glide down) + drips",
+      "pitch_ratio": 0.9,
+      "peak_db": -9,
+      "seed": 134934
+    },
+    {
+      "file": "zombies/death_6.wav",
+      "source": "monsters/Monster-Sounds-Volume-2/Monster-2.wav (pitch glide down) + drips",
+      "pitch_ratio": 0.86,
+      "peak_db": -9,
+      "seed": 134935
+    },
+    {
+      "file": "zombies/death_7.wav",
+      "source": "monsters/Monster-Sounds-Volume-2/Monster-3.wav (pitch glide down) + drips",
+      "pitch_ratio": 1.0,
+      "peak_db": -9,
+      "seed": 134936
+    },
+    {
+      "file": "zombies/runner_0.wav",
+      "source": "monsters/Monster-Sounds-Volume-2/Monster-4.wav (pitch up, saturation, tremolo)",
+      "pitch_ratio": 1.36,
+      "peak_db": -10,
+      "seed": 135029
+    },
+    {
+      "file": "zombies/runner_1.wav",
+      "source": "monsters/Monster-Sounds-Volume-2/Monster-6.wav (pitch up, saturation, tremolo)",
+      "pitch_ratio": 1.3,
+      "peak_db": -10,
+      "seed": 135030
+    },
+    {
+      "file": "zombies/runner_2.wav",
+      "source": "monsters/Monster-Sounds-Volume-2/Monster-7.wav (pitch up, saturation, tremolo)",
+      "pitch_ratio": 1.46,
+      "peak_db": -10,
+      "seed": 135031
+    },
+    {
+      "file": "zombies/runner_3.wav",
+      "source": "monsters/Monster-Sounds-Volume-2/Monster-8.wav (pitch up, saturation, tremolo)",
+      "pitch_ratio": 1.26,
+      "peak_db": -10,
+      "seed": 135032
+    },
+    {
+      "file": "zombies/runner_4.wav",
+      "source": "monsters/Monster-Sounds-Volume-2/monster-16.wav (pitch up, saturation, tremolo)",
+      "pitch_ratio": 1.4,
+      "peak_db": -10,
+      "seed": 135033
+    },
+    {
+      "file": "zombies/runner_5.wav",
+      "source": "monsters/Monster-Sounds-Volume-2/monster-18.wav (pitch up, saturation, tremolo)",
+      "pitch_ratio": 1.3,
+      "peak_db": -10,
+      "seed": 135034
+    },
+    {
+      "file": "zombies/fat_0.wav",
+      "source": "monsters/Monster-Sounds-Volume-2/monster-11.wav (pitch down) + gurgles + sub",
+      "pitch_ratio": 0.68,
+      "peak_db": -10,
+      "seed": 135129
+    },
+    {
+      "file": "zombies/fat_1.wav",
+      "source": "monsters/Monster-Sounds-Volume-2/monster-12.wav (pitch down) + gurgles + sub",
+      "pitch_ratio": 0.72,
+      "peak_db": -10,
+      "seed": 135130
+    },
+    {
+      "file": "zombies/fat_2.wav",
+      "source": "monsters/Monster-Sounds-Volume-2/monster-13.wav (pitch down) + gurgles + sub",
+      "pitch_ratio": 0.62,
+      "peak_db": -10,
+      "seed": 135131
+    },
+    {
+      "file": "zombies/fat_3.wav",
+      "source": "monsters/Monster-Sounds-Volume-2/monster-14.wav (pitch down) + gurgles + sub",
+      "pitch_ratio": 0.7,
+      "peak_db": -10,
+      "seed": 135132
+    },
+    {
+      "file": "zombies/fat_4.wav",
+      "source": "monsters/Monster-Sounds-Volume-2/monster-15.wav (pitch down) + gurgles + sub",
+      "pitch_ratio": 0.66,
+      "peak_db": -10,
+      "seed": 135133
+    },
+    {
+      "file": "zombies/fat_5.wav",
+      "source": "zombies/zombie-16.wav (pitch down) + gurgles + sub",
+      "pitch_ratio": 0.68,
+      "peak_db": -10,
+      "seed": 135134
+    },
+    {
+      "file": "zombies/spit_0.wav",
+      "source": "synthesis: spray, thud, drips + monsters/Monster-Sounds-Volume-2/monster-9.wav fragment",
+      "pitch_ratio": 1.15,
+      "peak_db": -11,
+      "seed": 135229
+    },
+    {
+      "file": "zombies/spit_1.wav",
+      "source": "synthesis: spray, thud, drips + monsters/Monster-Sounds-Volume-2/monster-10.wav fragment",
+      "pitch_ratio": 1.2,
+      "peak_db": -11,
+      "seed": 135230
+    },
+    {
+      "file": "zombies/spit_2.wav",
+      "source": "synthesis: spray, thud, drips + monsters/Monster-Sounds-Volume-2/monster-17.wav fragment",
+      "pitch_ratio": 1.25,
+      "peak_db": -11,
+      "seed": 135231
+    },
+    {
+      "file": "zombies/spit_3.wav",
+      "source": "synthesis: spray, thud, drips + monsters/Monster-Sounds-Volume-2/monster-14.wav fragment",
+      "pitch_ratio": 1.3,
+      "peak_db": -11,
+      "seed": 135232
+    },
+    {
+      "file": "zombies/boss_roar_0.wav",
+      "source": "monsters/Monster-Sounds-Volume-2/Monster-2.wav + zombies/zombie-17.wav + monsters/Monster-Sounds-Volume-2/Monster-1.wav (3 layers, pitch x0.5-0.8, saturation, sub 40 Hz)",
+      "pitch_ratio": 0.55,
+      "peak_db": -3,
+      "seed": 135329
+    },
+    {
+      "file": "zombies/boss_roar_1.wav",
+      "source": "monsters/Monster-Sounds-Volume-2/Monster-3.wav + zombies/zombie-16.wav + monsters/Monster-Sounds-Volume-2/Monster-7.wav (3 layers, pitch x0.5-0.8, saturation, sub 40 Hz)",
+      "pitch_ratio": 0.52,
+      "peak_db": -3,
+      "seed": 135330
+    },
+    {
+      "file": "zombies/boss_roar_2.wav",
+      "source": "monsters/Monster-Sounds-Volume-2/Monster-1.wav + zombies/zombie-18.wav + monsters/Monster-Sounds-Volume-2/Monster-2.wav (3 layers, pitch x0.5-0.8, saturation, sub 40 Hz)",
+      "pitch_ratio": 0.5,
+      "peak_db": -3,
+      "seed": 135331
+    },
+    {
+      "file": "gore/hit_0.wav",
+      "source": "synthesis: bandpass flesh slap, 70-125 Hz thud, snap, drips",
+      "seed": 135729,
+      "peak_db": -12
+    },
+    {
+      "file": "gore/hit_1.wav",
+      "source": "synthesis: bandpass flesh slap, 70-125 Hz thud, snap, drips",
+      "seed": 135730,
+      "peak_db": -12
+    },
+    {
+      "file": "gore/hit_2.wav",
+      "source": "synthesis: bandpass flesh slap, 70-125 Hz thud, snap, drips",
+      "seed": 135731,
+      "peak_db": -12
+    },
+    {
+      "file": "gore/hit_3.wav",
+      "source": "synthesis: bandpass flesh slap, 70-125 Hz thud, snap, drips",
+      "seed": 135732,
+      "peak_db": -12
+    },
+    {
+      "file": "gore/hit_4.wav",
+      "source": "synthesis: bandpass flesh slap, 70-125 Hz thud, snap, drips",
+      "seed": 135733,
+      "peak_db": -12
+    },
+    {
+      "file": "gore/hit_5.wav",
+      "source": "synthesis: bandpass flesh slap, 70-125 Hz thud, snap, drips",
+      "seed": 135734,
+      "peak_db": -12
+    },
+    {
+      "file": "gore/hit_6.wav",
+      "source": "synthesis: bandpass flesh slap, 70-125 Hz thud, snap, drips",
+      "seed": 135735,
+      "peak_db": -12
+    },
+    {
+      "file": "gore/hit_7.wav",
+      "source": "synthesis: bandpass flesh slap, 70-125 Hz thud, snap, drips",
+      "seed": 135736,
+      "peak_db": -12
+    },
+    {
+      "file": "gore/hit_8.wav",
+      "source": "synthesis: bandpass flesh slap, 70-125 Hz thud, snap, drips",
+      "seed": 135737,
+      "peak_db": -12
+    },
+    {
+      "file": "gore/hit_9.wav",
+      "source": "synthesis: bandpass flesh slap, 70-125 Hz thud, snap, drips",
+      "seed": 135738,
+      "peak_db": -12
+    },
+    {
+      "file": "gore/splat_0.wav",
+      "source": "synthesis: slap + sub thud, bubbling gush, chunk slaps, drip tail + monster gurgle fragment (monsters/Monster-Sounds-Volume-2/monster-14.wav)",
+      "seed": 136729,
+      "peak_db": -8
+    },
+    {
+      "file": "gore/splat_1.wav",
+      "source": "synthesis: slap + sub thud, bubbling gush, chunk slaps, drip tail + monster gurgle fragment (monsters/Monster-Sounds-Volume-2/monster-10.wav)",
+      "seed": 136730,
+      "peak_db": -8
+    },
+    {
+      "file": "gore/splat_2.wav",
+      "source": "synthesis: slap + sub thud, bubbling gush, chunk slaps, drip tail + monster gurgle fragment (monsters/Monster-Sounds-Volume-2/monster-12.wav)",
+      "seed": 136731,
+      "peak_db": -8
+    },
+    {
+      "file": "gore/splat_3.wav",
+      "source": "synthesis: slap + sub thud, bubbling gush, chunk slaps, drip tail + monster gurgle fragment (monsters/Monster-Sounds-Volume-2/monster-14.wav)",
+      "seed": 136732,
+      "peak_db": -8
+    },
+    {
+      "file": "gore/splat_4.wav",
+      "source": "synthesis: slap + sub thud, bubbling gush, chunk slaps, drip tail + monster gurgle fragment (monsters/Monster-Sounds-Volume-2/monster-10.wav)",
+      "seed": 136733,
+      "peak_db": -8
+    },
+    {
+      "file": "gore/splat_5.wav",
+      "source": "synthesis: slap + sub thud, bubbling gush, chunk slaps, drip tail + monster gurgle fragment (monsters/Monster-Sounds-Volume-2/monster-14.wav)",
+      "seed": 136734,
+      "peak_db": -8
+    },
+    {
+      "file": "gore/splat_6.wav",
+      "source": "synthesis: slap + sub thud, bubbling gush, chunk slaps, drip tail + monster gurgle fragment (monsters/Monster-Sounds-Volume-2/monster-13.wav)",
+      "seed": 136735,
+      "peak_db": -8
+    },
+    {
+      "file": "gore/splat_7.wav",
+      "source": "synthesis: slap + sub thud, bubbling gush, chunk slaps, drip tail + monster gurgle fragment (monsters/Monster-Sounds-Volume-2/monster-15.wav)",
+      "seed": 136736,
+      "peak_db": -8
+    },
+    {
+      "file": "gore/gib_0.wav",
+      "source": "synthesis: wet burst + sub, tearing, bone crack series, chunk slaps 50-300 ms, drips",
+      "seed": 137729,
+      "peak_db": -5
+    },
+    {
+      "file": "gore/gib_1.wav",
+      "source": "synthesis: wet burst + sub, tearing, bone crack series, chunk slaps 50-300 ms, drips",
+      "seed": 137730,
+      "peak_db": -5
+    },
+    {
+      "file": "gore/gib_2.wav",
+      "source": "synthesis: wet burst + sub, tearing, bone crack series, chunk slaps 50-300 ms, drips",
+      "seed": 137731,
+      "peak_db": -5
+    },
+    {
+      "file": "gore/gib_3.wav",
+      "source": "synthesis: wet burst + sub, tearing, bone crack series, chunk slaps 50-300 ms, drips",
+      "seed": 137732,
+      "peak_db": -5
+    },
+    {
+      "file": "gore/gib_4.wav",
+      "source": "synthesis: wet burst + sub, tearing, bone crack series, chunk slaps 50-300 ms, drips",
+      "seed": 137733,
+      "peak_db": -5
+    },
+    {
+      "file": "gore/gib_5.wav",
+      "source": "synthesis: wet burst + sub, tearing, bone crack series, chunk slaps 50-300 ms, drips",
+      "seed": 137734,
+      "peak_db": -5
+    },
+    {
+      "file": "gore/bone_0.wav",
+      "source": "synthesis: stepped crack series (three broad noise resonances), knock",
+      "seed": 138729,
+      "peak_db": -9
+    },
+    {
+      "file": "gore/bone_1.wav",
+      "source": "synthesis: stepped crack series (three broad noise resonances), knock",
+      "seed": 138730,
+      "peak_db": -9
+    },
+    {
+      "file": "gore/bone_2.wav",
+      "source": "synthesis: stepped crack series (three broad noise resonances), knock",
+      "seed": 138731,
+      "peak_db": -9
+    },
+    {
+      "file": "gore/bone_3.wav",
+      "source": "synthesis: stepped crack series (three broad noise resonances), knock",
+      "seed": 138732,
+      "peak_db": -9
+    },
+    {
+      "file": "gore/bone_4.wav",
+      "source": "synthesis: stepped crack series (three broad noise resonances), knock",
+      "seed": 138733,
+      "peak_db": -9
+    },
+    {
+      "file": "gore/bone_5.wav",
+      "source": "synthesis: stepped crack series (three broad noise resonances), knock",
+      "seed": 138734,
+      "peak_db": -9
+    },
+    {
+      "file": "ambience/horde_0.wav",
+      "source": "synthesis: 26 groans of zombies/groan (pitch .7-1.12, distance lowpass, pan) + rumble + murmur + 7 shuffling walkers, mono, circular layers + 100 ms crossfade",
+      "seed": 141729,
+      "rms_db": -34.0,
+      "loop": true
+    },
+    {
+      "file": "ambience/horde_1.wav",
+      "source": "synthesis: 76 groans of zombies/groan (pitch .7-1.12, distance lowpass, pan) + rumble + murmur + 22 shuffling walkers, mono, circular layers + 100 ms crossfade",
+      "seed": 141730,
+      "rms_db": -26.0,
+      "loop": true
+    },
+    {
+      "file": "player/hurt_0.wav",
+      "source": "synthesis: glottal harmonic source through vowel formants + breath, saturation, body-hit layer",
+      "seed": 143729,
+      "peak_db": -6
+    },
+    {
+      "file": "player/hurt_1.wav",
+      "source": "synthesis: glottal harmonic source through vowel formants + breath, saturation, body-hit layer",
+      "seed": 143730,
+      "peak_db": -6
+    },
+    {
+      "file": "player/hurt_2.wav",
+      "source": "synthesis: glottal harmonic source through vowel formants + breath, saturation, body-hit layer",
+      "seed": 143731,
+      "peak_db": -6
+    },
+    {
+      "file": "player/hurt_3.wav",
+      "source": "synthesis: glottal harmonic source through vowel formants + breath, saturation, body-hit layer",
+      "seed": 143732,
+      "peak_db": -6
+    },
+    {
+      "file": "player/hurt_4.wav",
+      "source": "synthesis: glottal harmonic source through vowel formants + breath, saturation, body-hit layer",
+      "seed": 143733,
+      "peak_db": -6
+    },
+    {
+      "file": "player/hurt_5.wav",
+      "source": "synthesis: glottal harmonic source through vowel formants + breath, saturation, body-hit layer",
+      "seed": 143734,
+      "peak_db": -6
+    },
+    {
+      "file": "player/heartbeat_0.wav",
+      "source": "synthesis: lub-dub, noisy sub thuds + muffled valve click, exactly 1.000 s loop",
+      "seed": 142729,
+      "peak_db": -9,
+      "loop": true
+    },
+    {
+      "file": "ui/click_0.wav",
+      "source": "weapons/pistol/dry_0.wav x0.96 (A2 mechanics), lowpass 4.5 kHz, soft attack",
+      "pitch_ratio": 0.96
+    },
+    {
+      "file": "ui/click_1.wav",
+      "source": "weapons/pistol/dry_1.wav x1.06 (A2 mechanics), lowpass 4.5 kHz, soft attack",
+      "pitch_ratio": 1.06
+    },
+    {
+      "file": "ui/click_2.wav",
+      "source": "weapons/smg/dry_0.wav x1.0 (A2 mechanics), lowpass 4.5 kHz, soft attack",
+      "pitch_ratio": 1.0
+    },
+    {
+      "file": "ui/confirm_0.wav",
+      "source": "weapons/pistol/dry_1.wav + weapons/smg/dry_0.wav x1.28 (A2 mechanics), two clicks 75 ms apart",
+      "pitch_ratio": 1.28
+    },
+    {
+      "file": "ui/confirm_1.wav",
+      "source": "weapons/rifle/dry_0.wav + weapons/pistol/dry_0.wav x1.28 (A2 mechanics), two clicks 75 ms apart",
+      "pitch_ratio": 1.28
+    },
+    {
+      "file": "ui/deny_0.wav",
+      "source": "weapons/revolver/dry_0.wav x0.6 (A2 mechanics), lowpass 1.1 kHz + dull thud, two soft knocks",
+      "pitch_ratio": 0.6,
+      "seed": 144229
+    },
+    {
+      "file": "ui/deny_1.wav",
+      "source": "weapons/revolver/dry_0.wav x0.52 (A2 mechanics), lowpass 1.1 kHz + dull thud, two soft knocks",
+      "pitch_ratio": 0.52,
+      "seed": 144230
     }
   ]
 }
