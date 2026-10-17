@@ -1,0 +1,8 @@
+A1 HASHES: PASS; 138 protected files unchanged; only permitted CREDITS.md extended
+DETERMINISM: PASS; 48 WAV hashes and all provenance match second build
+FORMAT: PASS; PCM16 / 48000 Hz / mono; endpoints zero; DC < 2e-6; final 1 ms < -60 dBFS
+LEVELS: peak -21.329..-6.746 dBFS; loudest RMS100 minus shot RMS100: -12.000..-12.000 dB; clipped=0
+RACK sniper: [0.597979, 0.598] s
+RACK shotgun: [0.41775, 0.411562] s
+SIZE: A2 WAVs 1209732 bytes; sfx total 7304265 bytes
+VISUALS: a2_waveforms.png (all 24 _0); a2_detail.png (both Mosin/pump/eject variants)

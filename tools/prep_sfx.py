@@ -293,7 +293,120 @@ def mechanics(builder: Builder) -> None:
     Use builder.emit() to retain A1 provenance and shared credit generation.
     Do not regenerate/replace A1 casings/mag_drop unless the task requests it.
     """
-    pass
+    import zipfile
+
+    # Only the selected raw tracks are cached, inside this worktree.
+    root = Path(__file__).resolve().parents[1]
+    cache = root / "tmp"
+    cache.mkdir(exist_ok=True)
+    (cache / ".gdignore").write_text("", encoding="utf-8")
+    archive = DEFAULT_SRC.parents[1] / "raw_master_tracks.zip"
+    # Windows are reviewed takes, not individual peaks of a compound action.
+    # Each take may contain several parts; Mosin gaps are shortened, not omitted.
+    specs = {
+        "pistol": ("1911", {
+            "mag_out": ("A_3", [[(1.12, 1.45)]]),
+            "mag_in": ("A_4", [[(.87, 1.01)], [(2.93, 3.08)]]),
+            "rack": ("A_11", [[(.72, .86)], [(2.55, 2.70)]]),
+            "dry": ("A_19", [[(.68, .77)]])}),
+        "smg": ("PPSh", {
+            "mag_out": ("P_7", [[(.14, .23)], [(.54, .66)]]),
+            "mag_in": ("P_6", [[(.28, .63)], [(2.20, 2.63)]]),
+            "rack": ("P_8", [[(.75, 1.10)], [(2.73, 3.04)]]),
+            "dry": ("P_1", [[(.95, 1.05)], [(4.04, 4.14)]])}),
+        "rifle": ("AK-47", {
+            "mag_out": ("C_11", [[(.27, .38)]]),
+            "mag_in": ("C_10", [[(.20, .39)]]),
+            "rack": ("C_14", [[(.23, .66)], [(1.15, 1.61)]]),
+            "dry": ("C_7", [[(.31, .41)]])}),
+        "sniper": ("Mosin Nagant", {
+            "rack": ("M_14", [
+                [(.61, .74), (.87, 1.04), (1.13, 1.36), (1.47, 1.60)],
+                [(3.09, 3.34), (3.42, 3.60), (3.69, 3.91), (4.07, 4.15)]]),
+            "mag_in": ("M_1", [[(.93, 1.44)], [(3.15, 4.10)]]),
+            "mag_out": ("M_8", [[(.60, .90)], [(3.71, 4.05)]]),
+            "dry": ("M_10", [[(1.18, 1.29)]])}),
+        "shotgun": ("Nova", {
+            "rack": ("O_6", [[(.98, 1.49)]]),
+            "shell_in": ("O_3", [[(1.28, 1.93)], [(6.88, 7.44)]]),
+            "dry": ("O_8", [[(.23, .36)]])}),
+        "revolver": ("Smith & Wesson 642", {
+            "cyl_open": ("V_9", [[(1.23, 1.59)]]),
+            "eject": ("V_3", [[(1.14, 1.25)]]),
+            "load": ("V_18", [[(1.30, 1.51), (3.46, 3.60), (5.22, 5.39),
+                                  (7.51, 7.63), (9.54, 9.74)]]),
+            "cyl_close": ("V_10", [[(1.44, 1.63)]]),
+            "dry": ("V_5", [[(1.52, 1.62)]])}),
+    }
+    with zipfile.ZipFile(archive) as master:
+        for gun, (folder, events) in specs.items():
+            for event, (track, takes) in events.items():
+                source = f"Master Tracks/{folder}/{track}.wav"
+                path = cache / source
+                expected_hash = hashlib.sha256(master.read(source)).hexdigest()
+                if not path.exists() or hashlib.sha256(path.read_bytes()).hexdigest() != expected_hash:
+                    master.extract(source, cache)
+                raw, rate = read_pcm(path)
+                original_rate = rate
+                mono = raw.mean(axis=1, keepdims=True)
+                # Actual Raw masters are 192 kHz (Prepared A1 was 96 kHz).
+                if rate == 192000:
+                    mono = lowpass(mono, 43000, rate)[::2].copy()
+                    rate = 96000
+                audio = resample_48k(mono, rate)
+                builder.source_info[source] = {"sha256": expected_hash, "rate": original_rate,
+                                               "channels": raw.shape[1]}
+                for variant in range(2):
+                    take = variant % len(takes)
+                    parts, cuts = [], []
+                    for lo, hi in takes[take]:
+                        start, end = round(lo * RATE), round(hi * RATE)
+                        window = audio[start:end]
+                        # Keep quiet internal mechanics; trim only the edges.
+                        threshold = max(float(np.abs(window).max()) * .025, 1e-5)
+                        active = np.flatnonzero(np.abs(window[:, 0]) > threshold)
+                        if not len(active):
+                            raise ValueError(f"No event: {source} {lo}-{hi}")
+                        left = max(0, int(active[0]) - round(.002 * RATE))
+                        right = min(len(window), int(active[-1]) + round(.016 * RATE) + 1)
+                        parts.append(finish(window[left:right], .012))
+                        cuts.append([round((start + left) / RATE, 6), round((start + right) / RATE, 6)])
+                    gap = np.zeros((round((.05 if event == "load" else .008) * RATE), 1))
+                    clip = np.concatenate([part for i, block in enumerate(parts)
+                                           for part in ((gap, block) if i else (block,))])
+                    ratio = 1.015 if len(takes) == 1 and variant else 1.0
+                    limit = .6 if gun == "sniper" and event == "rack" else .5 if gun == "shotgun" and event == "rack" else None
+                    if limit:
+                        ratio = max(ratio, len(clip) / (RATE * (limit - .002)))
+                    if ratio != 1.0:
+                        clip = pitch(clip, ratio)
+                    layer_seed = None
+                    if event == "eject":
+                        # V_3 records the extractor, without audible falling brass.
+                        # Add five irregular brass contacts, reusing A1's synthesis
+                        # function with independent seeds; never write A1 assets.
+                        layer_seed = SEED + 3000 + variant * 10
+                        scatter = np.zeros((round(.78 * RATE), 1))
+                        scatter[:len(clip)] += clip
+                        for i, delay in enumerate((.045, .081, .139, .202, .283)):
+                            ring = casing(np.random.default_rng(layer_seed + i), "brass_small")[:round(.40 * RATE)]
+                            ring *= (.70, .52, .63, .38, .32)[i] * np.abs(clip).max() / max(np.abs(ring).max(), 1e-12)
+                            offset = round(delay * RATE)
+                            scatter[offset:offset + len(ring), 0] += ring
+                        clip = scatter
+                    target = SHOT_LEVELS[gun] - 12
+                    clip = finish(clip, .018)
+                    # Compound motions can start with quiet handling. Calibrate
+                    # their loudest 100 ms to A1 shot RMS100 minus 12 dB.
+                    power = np.pad(clip[:, 0] ** 2, (0, max(0, RATE // 10 - len(clip))))
+                    energy = np.concatenate(([0.0], np.cumsum(power)))
+                    loudest = np.sqrt(np.max(energy[RATE // 10:] - energy[:-RATE // 10]) / (RATE // 10))
+                    first = np.sqrt(np.mean(clip[:RATE // 10] ** 2))
+                    clip = normalize(clip, target + 20 * np.log10(first / loudest), True)
+                    builder.emit(f"weapons/{gun}/{event}_{variant}.wav", clip, source,
+                                 take=take + 1, crop_start_s=cuts[0][0], crop_end_s=cuts[-1][1],
+                                 segments_s=cuts, pitch_ratio=ratio,
+                                 rmsmax100_target_db=target, scatter_seed=layer_seed)
 
 
 def metadata(builder: Builder) -> None:
