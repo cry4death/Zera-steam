@@ -92,6 +92,7 @@ func _draw() -> void:
 	var t := int(game.time)
 	_text_centered(font, Vector2(w * 0.5, 17), "%02d:%02d" % [t / 60, t % 60], TEXT, 12)
 	_text_centered(font, Vector2(w * 0.5, 29), "убито: %d" % game.kills, DIM)
+	_draw_operation(font, w)
 
 	# стволы
 	var n := weapons.slots.size()
@@ -133,7 +134,7 @@ func _draw() -> void:
 	# комбо и надписи
 	if game.combo >= 5:
 		_text_right(font, Vector2(w - 8, h * 0.5), "×%d" % game.combo, Color(0.95, 0.5, 0.4))
-	if game.announce_t > 0.0 and not game.level_up.visible:
+	if game.announce_t > 0.0 and not game.level_up.visible and game.mission_banner_t <= 0.0:
 		var k: float = game.announce_t / 1.4
 		var fs := int(lerpf(18.0, 26.0, clampf((k - 0.85) / 0.15, 0.0, 1.0))) # «удар» при появлении
 		var col: Color = game.announce_color
@@ -159,6 +160,44 @@ func _draw_crosshair(player: Player) -> void:
 
 
 
+## Короткая радиосводка и постоянная строка. Значки читаются без цвета.
+func _draw_operation(font: Font, w: float) -> void:
+	if game.mission_config.is_empty() or game.game_over:
+		return
+	var color := Color(0.65, 0.82, 0.83)
+	_text_centered(font, Vector2(w * 0.5, 42), "ОП: " + game.mission_title, color, 9)
+	var count: int = game.mission_modifiers.size()
+	for i in count:
+		var p := Vector2(w * 0.5 + (i - (count - 1) * 0.5) * 19.0, 52)
+		draw_rect(Rect2(p - Vector2(7, 6), Vector2(14, 12)), Color(0.035, 0.065, 0.07, 0.9))
+		var id: String = game.mission_modifiers[i]
+		match id:
+			"runner_surge":
+				for dx in [-3.0, 1.0]:
+					draw_polyline(PackedVector2Array([p + Vector2(dx - 2, -3), p + Vector2(dx + 1, 0), p + Vector2(dx - 2, 3)]), color, 1.0)
+			"elite_hunt":
+				draw_polyline(PackedVector2Array([p + Vector2(0, -4), p + Vector2(4, 0), p + Vector2(0, 4), p + Vector2(-4, 0), p + Vector2(0, -4)]), color, 1.0)
+			"acid_rain":
+				draw_polyline(PackedVector2Array([p + Vector2(0, -4), p + Vector2(3, 2), p + Vector2(0, 4), p + Vector2(-3, 2), p + Vector2(0, -4)]), color, 1.0)
+			"blood_frenzy":
+				draw_polyline(PackedVector2Array([p + Vector2(-5, 0), p + Vector2(-2, 0), p + Vector2(0, -4), p + Vector2(2, 4), p + Vector2(3, 0), p + Vector2(5, 0)]), color, 1.0)
+			"hardened_boss":
+				draw_polyline(PackedVector2Array([p + Vector2(-4, -3), p + Vector2(4, -3), p + Vector2(3, 2), p + Vector2(0, 4), p + Vector2(-3, 2), p + Vector2(-4, -3)]), color, 1.0)
+			"resource_cache":
+				draw_rect(Rect2(p - Vector2(4, 3), Vector2(8, 6)), color, false, 1.0)
+				draw_line(p + Vector2(-4, 0), p + Vector2(4, 0), color)
+	if game.mission_banner_t <= 0.0 or game.level_up.visible or game.trader_ui.visible:
+		return
+	var width := minf(420.0, w - 24.0)
+	var x := (w - width) * 0.5
+	draw_rect(Rect2(x, 70, width, 73), Color(0.018, 0.035, 0.04, 0.96))
+	draw_line(Vector2(x, 70), Vector2(x + width, 70), color, 1.0)
+	_text(font, Vector2(x + 12, 82), "Z.E.R.A. / ДИСПЕТЧЕР / ОПЕРАЦИЯ", color, 8)
+	_text(font, Vector2(x + 12, 101), game.mission_config["name"].to_upper(), TEXT, 15)
+	_text(font, Vector2(x + 12, 116), game.mission_region, color, 9)
+	_text(font, Vector2(x + 12, 132), game.mission_mod_names, DIM, 9)
+
+
 func _draw_boss_bar(font: Font, w: float, y: float) -> void:
 	var boss: Boss = game.boss
 	if not boss.is_alive():
@@ -172,9 +211,10 @@ func _draw_boss_bar(font: Font, w: float, y: float) -> void:
 		color = color.lerp(Color.WHITE, game.boss_phase_flash / 0.7)
 	draw_rect(Rect2(x - 5, y - 10, width + 10, 25), Color(0.035, 0.025, 0.025, 0.9))
 	_text_centered(font, Vector2(w * 0.5, y), "ОБЪЕКТ-7 · " + ("БРОНЯ" if boss.phase == 1 else "БРОНЯ СОРВАНА"), color, 10)
-	_bar(Rect2(x, y + 4, width, 6), boss.hp / Boss.MAX_HP, color)
-	draw_line(Vector2(w * 0.5, y + 3), Vector2(w * 0.5, y + 11), Color(1.0, 0.85, 0.65), 1.0)
-	_text_right(font, Vector2(x + width, y), "%d / %d" % [ceili(boss.hp), int(Boss.MAX_HP)], DIM, 8)
+	_bar(Rect2(x, y + 4, width, 6), boss.hp / boss.max_hp, color)
+	var threshold := x + width * boss.armor_threshold
+	draw_line(Vector2(threshold, y + 3), Vector2(threshold, y + 11), Color(1.0, 0.85, 0.65), 1.0)
+	_text_right(font, Vector2(x + width, y), "%d / %d" % [ceili(boss.hp), int(boss.max_hp)], DIM, 8)
 
 
 ## Активка «граната»: иконка, затемнение-кулдаун сверху вниз, секунды или клавиша.

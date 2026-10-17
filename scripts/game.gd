@@ -97,9 +97,19 @@ var _s3_test := false
 var _weapons_test := false
 var _meta_test := false
 var mission_config: Dictionary = {} # Неизменяемый профиль для C2.
+var mission_banner_t := 0.0
+var mission_title := ""
+var mission_region := ""
+var mission_mod_names := ""
+var mission_modifiers: Array = []
+var _run_peak := 0
+const MISSION_MOD_NAMES := {"runner_surge": "Прорыв бегунов", "elite_hunt": "Охота элиток",
+	"acid_rain": "Кислотные выбросы", "blood_frenzy": "Кровавая вспышка",
+	"hardened_boss": "Бронированная особь", "resource_cache": "Склад"}
 var _wtest_shot := false
 var _wtest_started := 0.0
 var _sim := false
+var _mortal := false # Только отдельная проверка выживаемости с уклонением.
 var _sim_next_report := 60.0
 var _sim_until := 600.0
 var _sim_peak := 0 # пик живых зомби за минуту (отчёт --sim)
@@ -172,17 +182,9 @@ func _ready() -> void:
 		var ok: bool = await CampaignTest.run(self)
 		get_tree().quit(0 if ok else 1)
 		return
-	for arg: String in OS.get_cmdline_user_args():
-		if arg.begins_with("--campaign-op=") and Campaign.enabled():
-			var id := arg.trim_prefix("--campaign-op=")
-			if id == "first":
-				id = Campaign.offers()[0]["id"]
-			if Campaign.pending().is_empty():
-				if Campaign.start_operation(id).is_empty():
-					push_error("Campaign: операция недоступна: " + id)
-					get_tree().quit(1)
-					return
-	mission_config = Campaign.pending()
+	if not _read_mission():
+		get_tree().quit(1)
+		return
 	for arg in OS.get_cmdline_user_args():
 		if arg == "--aim-test":
 			_aim_test = true
@@ -294,6 +296,7 @@ func _ready() -> void:
 	blood_alarm.overlay = alarm_overlay
 	blood_alarm.tint = alarm_tint
 	blood_alarm.verbose = _sim or _alarm
+	_apply_mission()
 	camera.setup(ARENA, player)
 	get_viewport().size_changed.connect(_update_view)
 	_update_view()
@@ -402,12 +405,218 @@ func _ready() -> void:
 		if _no_fire:
 			player.autopilot = false
 			weapons.process_mode = Node.PROCESS_MODE_DISABLED
+	if OS.get_cmdline_user_args().has("--mortal") and (_sim or _boss_test):
+		_mortal = true
+		player.god_mode = false # Отдельный прогон выживаемости, без изменения старых тестов.
+	if not mission_config.is_empty() and _shot_path != "":
+		_mission_screenshot.call_deferred()
+	if OS.get_cmdline_user_args().has("--c2-checks"):
+		_mission_checks.call_deferred()
+
+
+## C1 отключает commit для старых тестов. Явный --campaign-op даёт им только снимок боя.
+func _read_mission() -> bool:
+	mission_config = Campaign.pending()
+	var forced := ""
+	for arg: String in OS.get_cmdline_user_args():
+		if arg.begins_with("--campaign-op="):
+			forced = arg.trim_prefix("--campaign-op=")
+	if forced.is_empty():
+		return true
+	if mission_config.is_empty():
+		var offers := Campaign.offers()
+		if forced == "first":
+			forced = offers[0]["id"]
+		if Campaign.enabled():
+			mission_config = Campaign.start_operation(forced)
+		else:
+			for op: Dictionary in offers:
+				if op["id"] == forced:
+					mission_config = CampaignRules.mission(Campaign.world(), op, 0)
+	if mission_config.is_empty():
+		push_error("Campaign: операция недоступна: " + forced)
+		return false
+	# Отладочные переопределения меняют только локальную копию, не сохранённый pending.
+	for arg: String in OS.get_cmdline_user_args():
+		if arg.begins_with("--threat="):
+			var value := arg.trim_prefix("--threat=")
+			if not value.is_valid_int() or int(value) < 1 or int(value) > 5:
+				push_error("Campaign: --threat ожидает 1..5")
+				return false
+			mission_config["threat"] = int(value)
+		elif arg.begins_with("--mods="):
+			var mods: Array[String] = []
+			for value: String in arg.trim_prefix("--mods=").split(",", false):
+				if not CampaignCatalog.MODIFIERS.has(value) or mods.has(value):
+					push_error("Campaign: неизвестный или повторный модификатор: " + value)
+					return false
+				mods.append(value)
+			if mods.size() > 2 or not CampaignCatalog.compatible(mods):
+				push_error("Campaign: несовместимые модификаторы (максимум два)")
+				return false
+			mission_config["modifiers"] = mods
+	seed(int(mission_config["seed"])) # Воспроизводимые сравнения явной CLI-операции.
+	return true
+
+
+func _apply_mission() -> void:
+	var profile := Spawner.combat_profile(mission_config)
+	spawner.set_profile(profile)
+	if profile.is_empty():
+		return
+	hazards.acid_life_mul = float(profile["acid_life_mul"])
+	boss.set_mission_profile(float(profile["boss_hp_mul"]), float(profile["boss_shed"]))
+	blood_alarm.set_extra_alarm(profile["extra_alarm"])
+	mission_modifiers = mission_config["modifiers"].duplicate()
+	var names: Array[String] = []
+	for id: String in mission_modifiers:
+		names.append(MISSION_MOD_NAMES[id])
+	mission_mod_names = " · ".join(names) if not names.is_empty() else "Стандартный протокол"
+	mission_title = "%s · %s" % [mission_config["name"], ["I", "II", "III", "IV", "V"][int(mission_config["threat"]) - 1]]
+	mission_region = "%s / УГРОЗА %s" % [mission_config["region_name"], ["I", "II", "III", "IV", "V"][int(mission_config["threat"]) - 1]]
+	mission_banner_t = 2.5
+	print("MISSION threat=%d modifiers=%s seed=%d profile=%s commit=%s persist=%s" % [mission_config["threat"], mission_modifiers, mission_config["seed"], profile, Campaign.enabled(), Meta.persist])
+
+
+func _mission_screenshot() -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	await get_tree().create_timer(0.5).timeout
+	var debug_before: bool = $HUD/Hud.show_debug
+	$HUD/Hud.show_debug = false
+	$HUD/Hud.queue_redraw()
+	await get_tree().process_frame
+	await _boss_screenshot("operation")
+	await get_tree().create_timer(2.2).timeout
+	await _boss_screenshot("hud")
+	$HUD/Hud.show_debug = debug_before
+
+
+## Проверяем боевую границу и настоящие переходы тревоги, не только коэффициенты.
+func _mission_checks() -> void:
+	assert(not Meta.persist)
+	var probe := Spawner.new()
+	probe.set_profile({})
+	for row: Array in Spawner.CURVE:
+		probe.time = float(row[0])
+		assert(probe.current_row() == row)
+	var normal := mission_config.duplicate(true)
+	normal["threat"] = 1
+	normal["modifiers"] = []
+	probe.set_profile(Spawner.combat_profile(normal))
+	for row: Array in Spawner.CURVE:
+		probe.time = float(row[0])
+		assert(probe.current_row() == row)
+	print("C2TEST free_and_threat1_curve=true")
+	var hard := normal.duplicate(true)
+	hard["threat"] = 5
+	hard["modifiers"] = ["runner_surge", "elite_hunt"]
+	var profile := Spawner.combat_profile(hard)
+	probe.set_profile(profile)
+	for row: Array in Spawner.CURVE:
+		probe.time = float(row[0])
+		assert(int(probe.current_row()[2]) == int(row[2]))
+		assert(float(probe.current_row()[1]) > float(row[1]))
+		assert(float(probe.current_row()[3][1]) > float(row[3][1]))
+	probe.horde = horde
+	probe.player = player
+	probe.time = 180.0
+	probe._physics_process(0.0)
+	assert(probe.elites_spawned == 3 and probe._next_hunt == 270.0)
+	probe._physics_process(0.0)
+	assert(probe.elites_spawned == 3)
+	probe.time = 0.0
+	while horde.count < int(probe.current_row()[2]):
+		horde.spawn(player.position + Vector2(180, 0))
+	var at_cap := horde.count
+	probe.spawn_elites(4)
+	probe._physics_process(1.0)
+	assert(horde.count == at_cap)
+	print("C2TEST threat5_composition_caps_hunt_once=true")
+	hard["modifiers"] = ["acid_rain"]
+	probe.set_profile(Spawner.combat_profile(hard))
+	probe.time = 120.0
+	assert(float(probe.current_row()[3][3]) > 0.0)
+	var acid := Hazards.new()
+	acid.acid_life_mul = float(probe.profile["acid_life_mul"])
+	acid.acid_pool(Vector2.ZERO)
+	assert(is_equal_approx(acid._pool_life[0], 5.25) and acid._pool_dps[0] == 5.0)
+	acid.free()
+	print("C2TEST acid_early_spitters_life_only=true")
+	var target := Boss.new()
+	target.arena = ARENA
+	target.set_mission_profile(1.25, 0.35)
+	target.start(ARENA.get_center())
+	assert(target.hp == 30000.0)
+	target.take_damage(20000.0, Vector2.RIGHT, target.position)
+	assert(target.phase == 1 and target.hp == 15000.0)
+	target.take_damage(7000.0, Vector2.RIGHT, target.position)
+	assert(target.phase == 2)
+	target.free()
+	print("C2TEST hardened_hp_and_later_shedding=true")
+	var alarm := BloodAlarm.new()
+	alarm.spawner = probe
+	alarm.player = player
+	alarm.overlay = alarm_overlay
+	alarm.tint = alarm_tint
+	alarm.set_extra_alarm(true)
+	var drops: Array[int] = [0]
+	alarm.container_dropped.connect(func(_pos: Vector2) -> void: drops[0] += 1)
+	for start: float in [240.0, 420.0]:
+		alarm.time = start
+		alarm._physics_process(0.016)
+		assert(alarm.phase == BloodAlarm.Phase.WARN)
+		alarm.time = start + BloodAlarm.WARN_TIME
+		alarm._physics_process(0.016)
+		assert(alarm.is_active() and probe.alarm and alarm.reward_mult() == 2.0)
+		alarm.time = start + BloodAlarm.WARN_TIME + BloodAlarm.DURATION
+		alarm._physics_process(0.016)
+		assert(not probe.alarm and alarm.reward_mult() == 1.0)
+	assert(drops[0] == 2)
+	alarm.set_extra_alarm(true)
+	alarm.time = 415.0
+	alarm._physics_process(0.016)
+	assert(alarm.phase == BloodAlarm.Phase.IDLE and alarm._event == 1)
+	alarm.free()
+	probe.free()
+	print("C2TEST two_alarms_two_containers_skip_to_future=true")
+	var stats := _result_stats(true)
+	assert(stats["outcome"] == "victory" and stats["run_id"] == mission_config["run_id"] and stats["reward"] == mission_config["reward"])
+	assert(_result_stats(false)["outcome"] == "defeat")
+	var before := Meta.save_calls
+	var report := Campaign.complete_operation(stats)
+	assert(not report.is_empty() and Meta.save_calls == before + 1)
+	assert(Campaign.complete_operation(stats) == report and Meta.save_calls == before + 1)
+	print("C2TEST stats_transaction_once=true")
+	var cache_checked := false
+	for seed_value in 30:
+		Campaign.new_campaign(seed_value)
+		for op: Dictionary in Campaign.offers():
+			if not op["modifiers"].has("resource_cache"):
+				continue
+			mission_config = Campaign.start_operation(op["id"])
+			stats = _result_stats(true)
+			stats["dna_total"] = 100
+			var without_cache := mission_config.duplicate(true)
+			without_cache["modifiers"].erase("resource_cache")
+			assert(Spawner.combat_profile(without_cache) == Spawner.combat_profile(mission_config))
+			report = Campaign.complete_operation(stats)
+			assert(int(report["stats"]["dna_total"]) == floori(100.0 * float(mission_config["reward"]["dna_mul"])))
+			cache_checked = true
+			break
+		if cache_checked:
+			break
+	assert(cache_checked)
+	print("C2TEST resource_cache_rewards_only=true")
+	print("C2TEST ok=true")
+	get_tree().quit()
 
 
 func _physics_process(delta: float) -> void:
 	if game_over:
 		return
 	time += delta
+	_run_peak = maxi(_run_peak, horde.count)
 	if _audio_lowhp:
 		player.hp = player.max_hp * 0.2
 	if _audio_test and time < 36.0 and horde.count < 300:
@@ -428,6 +637,8 @@ func _physics_process(delta: float) -> void:
 		_sim_peak = maxi(_sim_peak, horde.count)
 		if player.adrenaline and weapons.any_reloading():
 			player.try_dash() # «Адреналин» используется как в живой игре: рывок, когда стволы на перезарядке
+	if _mortal:
+		_mortal_step()
 	horde.minutes = time / 60.0
 	spawner.time = time
 	blood_alarm.time = time
@@ -448,7 +659,10 @@ func _physics_process(delta: float) -> void:
 		if _kinds:
 			_fill_kinds()
 		else:
-			horde.spawn_group(player.global_position, mini(15, _bench_target - horde.count))
+			if mission_config.is_empty():
+				horde.spawn_group(player.global_position, mini(15, _bench_target - horde.count))
+			else:
+				spawner.fill_benchmark(mini(15, _bench_target - horde.count))
 	if _gore_stress and horde.count > 0:
 		for k in 2:
 			var i := randi() % horde.count
@@ -459,6 +673,7 @@ func _physics_process(delta: float) -> void:
 
 
 func _process(delta: float) -> void:
+	mission_banner_t = maxf(0.0, mission_banner_t - delta)
 	boss_phase_flash = maxf(0.0, boss_phase_flash - delta)
 	if _boss_reward_pos != Vector2.INF:
 		_boss_reward_age += delta
@@ -474,6 +689,38 @@ func _process(delta: float) -> void:
 		combo = 0
 	announce_t = maxf(announce_t - delta, 0.0)
 	screen_blood.low_hp = 0.0 # мягкая виньетка теперь рисуется под HUD
+
+
+## Бот проверки не получает здоровья/урона: только выбирает путь и обычный рывок.
+func _mortal_step() -> void:
+	var at := player.global_position
+	var escape := Vector2.ZERO
+	if horde.count > 0: # До первого тика орды пространственная сетка ещё не построена.
+		for i in horde.query_radius(at, 95.0):
+			var offset := at - horde.pos[i]
+			if horde.dead[i] == 0:
+				escape += offset.normalized() * maxf(0.0, 95.0 - offset.length())
+	if escape.length_squared() > 1.0:
+		player.auto_target = at + escape.normalized() * 100.0
+		if escape.length() > 100.0:
+			player.try_dash()
+	for i in hazards._pool_count:
+		if at.distance_to(hazards._pool_pos[i]) < hazards._pool_radius[i] + 20.0:
+			player.auto_target = at + (at - hazards._pool_pos[i]).normalized() * 90.0
+	if boss.is_alive():
+		var away := (at - boss.global_position).normalized()
+		if escape.length_squared() <= 1.0:
+			player.auto_target = boss.global_position + away * 220.0 + away.orthogonal() * 100.0
+		if boss._state == Boss.State.TELEGRAPH or boss._state == Boss.State.CHARGE:
+			var line := (boss._charge_target - boss._charge_from).normalized()
+			var side := line.orthogonal()
+			if (at - boss._charge_from).dot(side) < 0.0:
+				side = -side
+			player.auto_target = at + side * 140.0
+			if boss._state == Boss.State.CHARGE:
+				player.try_dash()
+	if player.auto_target != Vector2.INF:
+		player.auto_target = player.auto_target.clamp(ARENA.position + Vector2.ONE * 100.0, ARENA.end - Vector2.ONE * 100.0)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -848,6 +1095,9 @@ func _on_player_died() -> void:
 		effects.blood_hit(player.global_position, Vector2.from_angle(randf() * TAU), true)
 	await get_tree().create_timer(0.6, false).timeout
 	_open_results(false)
+	if _sim or _boss_test:
+		print("MISSION_RESULT outcome=defeat time=%.2f kills=%d peak=%d level=%d damage=%.2f" % [time, kills, _run_peak, progression.level, player.damage_taken])
+		get_tree().quit()
 
 
 ## Отладка: 4 ствола ур.5 с модулями — худший случай для производительности.
@@ -889,6 +1139,7 @@ func _sim_report() -> void:
 		alive[0], alive[1], alive[2], alive[3], elites, spawner.elites_spawned, crates, nades, roundi(player.damage_taken), _sim_peak, Engine.get_frames_per_second(), " | ".join(parts)])
 	_sim_peak = 0
 	if time >= _sim_until:
+		print("SIM summary kills=%d peak=%d level=%d damage=%.2f boss_alive=%s" % [kills, _run_peak, progression.level, player.damage_taken, boss.is_alive()])
 		get_tree().quit()
 
 
@@ -1280,6 +1531,7 @@ func _on_boss_died(at: Vector2) -> void:
 	_announce("ОБЪЕКТ-7 УНИЧТОЖЕН", Color(1.0, 0.82, 0.35))
 	if _boss_test or _sim:
 		print("BOSS killed fight_s=%.2f military_crates=%d" % [time - _boss_started, military_crates])
+		print("MISSION_RESULT outcome=victory time=%.2f kills=%d peak=%d level=%d damage=%.2f" % [time, kills, _run_peak, progression.level, player.damage_taken])
 	get_tree().paused = true
 	await get_tree().create_timer(0.15, true, false, true).timeout
 	Engine.time_scale = 0.25
@@ -1318,9 +1570,13 @@ func _result_stats(victory: bool) -> Dictionary:
 	for line in lines:
 		subtotal += int(line[1])
 	var mult := 1.5 if victory else 1.0
-	return {"victory": victory, "time": time, "kills": kills, "elites": elites_killed, "best_combo": best_combo,
+	var stats := {"victory": victory, "outcome": "victory" if victory else "defeat", "time": time, "kills": kills, "elites": elites_killed, "best_combo": best_combo,
 		"blood_liters": floor_decals.stamps_total * 0.015, "weapons": names, "crates": crates, "military_crates": military_crates,
 		"dna_lines": lines, "dna_mult": mult, "dna_total": floori(subtotal * mult)}
+	if not mission_config.is_empty():
+		for key: String in ["run_id", "operation_id", "region_id", "type", "reward"]:
+			stats[key] = mission_config[key].duplicate(true) if mission_config[key] is Dictionary else mission_config[key]
+	return stats
 
 
 func _open_results(victory: bool) -> void:
