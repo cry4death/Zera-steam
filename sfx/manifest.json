@@ -56,6 +56,126 @@
         3.465458
       ],
       "source_samples_at_full_scale": 341
+    },
+    "Master Tracks/1911/A_3.wav": {
+      "sha256": "5ebf1cda0505b028eb476abba459abb89001410e8a840e769f0218494c6951d9",
+      "rate": 192000,
+      "channels": 2
+    },
+    "Master Tracks/1911/A_4.wav": {
+      "sha256": "ca37fc9d4d3287f04c54d78494e91b6152a7f699905a8ad258c6041f6d86e805",
+      "rate": 192000,
+      "channels": 2
+    },
+    "Master Tracks/1911/A_11.wav": {
+      "sha256": "0f6b0416ec21d451d3c7d7fd9e34880d7e01a6ee2c3bbf7eadbb47d9a4543fb9",
+      "rate": 192000,
+      "channels": 2
+    },
+    "Master Tracks/1911/A_19.wav": {
+      "sha256": "3a276d14b59758719a080267139219e7e129a48fc9896c6b6fc116dcb5a11341",
+      "rate": 192000,
+      "channels": 2
+    },
+    "Master Tracks/PPSh/P_7.wav": {
+      "sha256": "4b242622a98e67dfa7346ec622abaebe39f4cc885c95361292d079a20b3d3bcc",
+      "rate": 192000,
+      "channels": 2
+    },
+    "Master Tracks/PPSh/P_6.wav": {
+      "sha256": "4c52b8362f8d7a1dba660057429394b0732cc305d338d685e07a84fa4532ea56",
+      "rate": 192000,
+      "channels": 2
+    },
+    "Master Tracks/PPSh/P_8.wav": {
+      "sha256": "a7847ce4bb40fd95ca070f5adc715cd373f0a67c8c0bcd68e1949b9f8dd36dc8",
+      "rate": 192000,
+      "channels": 2
+    },
+    "Master Tracks/PPSh/P_1.wav": {
+      "sha256": "164ea01dab9aa7d3ee6a7612bd9a2efc460a250e5b3ffcf5944cee0a24fceacb",
+      "rate": 192000,
+      "channels": 2
+    },
+    "Master Tracks/AK-47/C_11.wav": {
+      "sha256": "c40234bd04873c6d9d35293ed5d447f0aef63d6f55dc63905e9633bb83d8ec10",
+      "rate": 192000,
+      "channels": 2
+    },
+    "Master Tracks/AK-47/C_10.wav": {
+      "sha256": "13657ef36e69f13bf405fc42a92ff9a5e5c08333c5dca51e2ad56b45d351d988",
+      "rate": 192000,
+      "channels": 2
+    },
+    "Master Tracks/AK-47/C_14.wav": {
+      "sha256": "c749e112212b1fca4ecc35ff2d632c562909ab361a92de46984cdf6e0ce4a2f2",
+      "rate": 192000,
+      "channels": 2
+    },
+    "Master Tracks/AK-47/C_7.wav": {
+      "sha256": "8220013b137bdc58559d4612f67159bc562776408dceb995b63b1b1f973a182e",
+      "rate": 192000,
+      "channels": 2
+    },
+    "Master Tracks/Mosin Nagant/M_14.wav": {
+      "sha256": "8c400580a1f65fe263bf7d5e3b4b959354f836939d4ac8b5cb1839c1f9688f7a",
+      "rate": 192000,
+      "channels": 2
+    },
+    "Master Tracks/Mosin Nagant/M_1.wav": {
+      "sha256": "1b21eb70114737595a601c7d6472f072251ffab0dd782d339dd7f13366c0f75b",
+      "rate": 192000,
+      "channels": 2
+    },
+    "Master Tracks/Mosin Nagant/M_8.wav": {
+      "sha256": "84cdc79d92bd6b90a9e9e9a4bdf50bf1a53c5145d40fce6355dfcbe4e18b6c78",
+      "rate": 192000,
+      "channels": 2
+    },
+    "Master Tracks/Mosin Nagant/M_10.wav": {
+      "sha256": "16b15e09ac50c6140770092cd90912ea55bda466c8eef1d5b99e8e90cc015a1b",
+      "rate": 192000,
+      "channels": 2
+    },
+    "Master Tracks/Nova/O_6.wav": {
+      "sha256": "99f8498b877fbf15d70f9b28abd8e651c47f4088e9d0172ed2a51ab2770b573a",
+      "rate": 192000,
+      "channels": 2
+    },
+    "Master Tracks/Nova/O_3.wav": {
+      "sha256": "19fbeec139ea5ed543b80b4d1d4ea21b33f7b62314847e6e7fe422d206854f67",
+      "rate": 192000,
+      "channels": 2
+    },
+    "Master Tracks/Nova/O_8.wav": {
+      "sha256": "a1e631d720bc13f3487036c77dbb2ea25a2485ceadf8c517fd46d0dd5ccd9b49",
+      "rate": 192000,
+      "channels": 2
+    },
+    "Master Tracks/Smith & Wesson 642/V_9.wav": {
+      "sha256": "a7042943cdcee3053a7f52bbd8cfbd65efc64fac68bf2e850a932df08f72aa95",
+      "rate": 192000,
+      "channels": 2
+    },
+    "Master Tracks/Smith & Wesson 642/V_3.wav": {
+      "sha256": "932abf13f3169b17bd5f4ba79f8b178bb0a2f7d06dda3f3aafc21ad269da5b34",
+      "rate": 192000,
+      "channels": 2
+    },
+    "Master Tracks/Smith & Wesson 642/V_18.wav": {
+      "sha256": "f4a08774700592ded5bf645acf2555cbd7c0563bc7837f9b3f7b319273e1ce33",
+      "rate": 192000,
+      "channels": 2
+    },
+    "Master Tracks/Smith & Wesson 642/V_10.wav": {
+      "sha256": "8322ac966250b2e00d8750c11afb6c7929da6239c881bd7ef2736f52f65a2087",
+      "rate": 192000,
+      "channels": 2
+    },
+    "Master Tracks/Smith & Wesson 642/V_5.wav": {
+      "sha256": "4168031bb3374b424125476673e81c2deff89716ffe42bb7922d18dd8902fbe5",
+      "rate": 192000,
+      "channels": 2
     }
   },
   "files": [
@@ -503,6 +623,938 @@
       "file": "weapons/rail/shot_2.wav",
       "source": "synthesis: broadband electrical crack + descending whip",
       "seed": 106731
+    },
+    {
+      "file": "weapons/pistol/mag_out_0.wav",
+      "source": "Master Tracks/1911/A_3.wav",
+      "take": 1,
+      "crop_start_s": 1.152167,
+      "crop_end_s": 1.423333,
+      "segments_s": [
+        [
+          1.152167,
+          1.423333
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -37,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/pistol/mag_out_1.wav",
+      "source": "Master Tracks/1911/A_3.wav",
+      "take": 1,
+      "crop_start_s": 1.152167,
+      "crop_end_s": 1.423333,
+      "segments_s": [
+        [
+          1.152167,
+          1.423333
+        ]
+      ],
+      "pitch_ratio": 1.015,
+      "rmsmax100_target_db": -37,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/pistol/mag_in_0.wav",
+      "source": "Master Tracks/1911/A_4.wav",
+      "take": 1,
+      "crop_start_s": 0.895062,
+      "crop_end_s": 0.959688,
+      "segments_s": [
+        [
+          0.895062,
+          0.959688
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -37,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/pistol/mag_in_1.wav",
+      "source": "Master Tracks/1911/A_4.wav",
+      "take": 2,
+      "crop_start_s": 2.950125,
+      "crop_end_s": 3.034333,
+      "segments_s": [
+        [
+          2.950125,
+          3.034333
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -37,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/pistol/rack_0.wav",
+      "source": "Master Tracks/1911/A_11.wav",
+      "take": 1,
+      "crop_start_s": 0.744958,
+      "crop_end_s": 0.8065,
+      "segments_s": [
+        [
+          0.744958,
+          0.8065
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -37,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/pistol/rack_1.wav",
+      "source": "Master Tracks/1911/A_11.wav",
+      "take": 2,
+      "crop_start_s": 2.566,
+      "crop_end_s": 2.639063,
+      "segments_s": [
+        [
+          2.566,
+          2.639063
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -37,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/pistol/dry_0.wav",
+      "source": "Master Tracks/1911/A_19.wav",
+      "take": 1,
+      "crop_start_s": 0.695958,
+      "crop_end_s": 0.743354,
+      "segments_s": [
+        [
+          0.695958,
+          0.743354
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -37,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/pistol/dry_1.wav",
+      "source": "Master Tracks/1911/A_19.wav",
+      "take": 1,
+      "crop_start_s": 0.695958,
+      "crop_end_s": 0.743354,
+      "segments_s": [
+        [
+          0.695958,
+          0.743354
+        ]
+      ],
+      "pitch_ratio": 1.015,
+      "rmsmax100_target_db": -37,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/smg/mag_out_0.wav",
+      "source": "Master Tracks/PPSh/P_7.wav",
+      "take": 1,
+      "crop_start_s": 0.14,
+      "crop_end_s": 0.191375,
+      "segments_s": [
+        [
+          0.14,
+          0.191375
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -38,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/smg/mag_out_1.wav",
+      "source": "Master Tracks/PPSh/P_7.wav",
+      "take": 2,
+      "crop_start_s": 0.54,
+      "crop_end_s": 0.611688,
+      "segments_s": [
+        [
+          0.54,
+          0.611688
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -38,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/smg/mag_in_0.wav",
+      "source": "Master Tracks/PPSh/P_6.wav",
+      "take": 1,
+      "crop_start_s": 0.28,
+      "crop_end_s": 0.594063,
+      "segments_s": [
+        [
+          0.28,
+          0.594063
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -38,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/smg/mag_in_1.wav",
+      "source": "Master Tracks/PPSh/P_6.wav",
+      "take": 2,
+      "crop_start_s": 2.2135,
+      "crop_end_s": 2.601208,
+      "segments_s": [
+        [
+          2.2135,
+          2.601208
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -38,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/smg/rack_0.wav",
+      "source": "Master Tracks/PPSh/P_8.wav",
+      "take": 1,
+      "crop_start_s": 0.771021,
+      "crop_end_s": 1.065396,
+      "segments_s": [
+        [
+          0.771021,
+          1.065396
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -38,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/smg/rack_1.wav",
+      "source": "Master Tracks/PPSh/P_8.wav",
+      "take": 2,
+      "crop_start_s": 2.755625,
+      "crop_end_s": 2.999938,
+      "segments_s": [
+        [
+          2.755625,
+          2.999938
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -38,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/smg/dry_0.wav",
+      "source": "Master Tracks/PPSh/P_1.wav",
+      "take": 1,
+      "crop_start_s": 0.972812,
+      "crop_end_s": 1.009708,
+      "segments_s": [
+        [
+          0.972812,
+          1.009708
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -38,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/smg/dry_1.wav",
+      "source": "Master Tracks/PPSh/P_1.wav",
+      "take": 2,
+      "crop_start_s": 4.059521,
+      "crop_end_s": 4.099167,
+      "segments_s": [
+        [
+          4.059521,
+          4.099167
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -38,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/rifle/mag_out_0.wav",
+      "source": "Master Tracks/AK-47/C_11.wav",
+      "take": 1,
+      "crop_start_s": 0.29775,
+      "crop_end_s": 0.326146,
+      "segments_s": [
+        [
+          0.29775,
+          0.326146
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -35,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/rifle/mag_out_1.wav",
+      "source": "Master Tracks/AK-47/C_11.wav",
+      "take": 1,
+      "crop_start_s": 0.29775,
+      "crop_end_s": 0.326146,
+      "segments_s": [
+        [
+          0.29775,
+          0.326146
+        ]
+      ],
+      "pitch_ratio": 1.015,
+      "rmsmax100_target_db": -35,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/rifle/mag_in_0.wav",
+      "source": "Master Tracks/AK-47/C_10.wav",
+      "take": 1,
+      "crop_start_s": 0.214312,
+      "crop_end_s": 0.341313,
+      "segments_s": [
+        [
+          0.214312,
+          0.341313
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -35,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/rifle/mag_in_1.wav",
+      "source": "Master Tracks/AK-47/C_10.wav",
+      "take": 1,
+      "crop_start_s": 0.214312,
+      "crop_end_s": 0.341313,
+      "segments_s": [
+        [
+          0.214312,
+          0.341313
+        ]
+      ],
+      "pitch_ratio": 1.015,
+      "rmsmax100_target_db": -35,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/rifle/rack_0.wav",
+      "source": "Master Tracks/AK-47/C_14.wav",
+      "take": 1,
+      "crop_start_s": 0.238792,
+      "crop_end_s": 0.610021,
+      "segments_s": [
+        [
+          0.238792,
+          0.610021
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -35,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/rifle/rack_1.wav",
+      "source": "Master Tracks/AK-47/C_14.wav",
+      "take": 2,
+      "crop_start_s": 1.165375,
+      "crop_end_s": 1.558125,
+      "segments_s": [
+        [
+          1.165375,
+          1.558125
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -35,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/rifle/dry_0.wav",
+      "source": "Master Tracks/AK-47/C_7.wav",
+      "take": 1,
+      "crop_start_s": 0.329375,
+      "crop_end_s": 0.373396,
+      "segments_s": [
+        [
+          0.329375,
+          0.373396
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -35,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/rifle/dry_1.wav",
+      "source": "Master Tracks/AK-47/C_7.wav",
+      "take": 1,
+      "crop_start_s": 0.329375,
+      "crop_end_s": 0.373396,
+      "segments_s": [
+        [
+          0.329375,
+          0.373396
+        ]
+      ],
+      "pitch_ratio": 1.015,
+      "rmsmax100_target_db": -35,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/sniper/rack_0.wav",
+      "source": "Master Tracks/Mosin Nagant/M_14.wav",
+      "take": 1,
+      "crop_start_s": 0.623979,
+      "crop_end_s": 1.578854,
+      "segments_s": [
+        [
+          0.623979,
+          0.726688
+        ],
+        [
+          0.87,
+          1.036708
+        ],
+        [
+          1.13,
+          1.36
+        ],
+        [
+          1.473625,
+          1.578854
+        ]
+      ],
+      "pitch_ratio": 1.0512472129319956,
+      "rmsmax100_target_db": -33,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/sniper/rack_1.wav",
+      "source": "Master Tracks/Mosin Nagant/M_14.wav",
+      "take": 2,
+      "crop_start_s": 3.098854,
+      "crop_end_s": 4.121083,
+      "segments_s": [
+        [
+          3.098854,
+          3.325167
+        ],
+        [
+          3.425729,
+          3.6
+        ],
+        [
+          3.694979,
+          3.91
+        ],
+        [
+          4.080188,
+          4.121083
+        ]
+      ],
+      "pitch_ratio": 1.1379598662207357,
+      "rmsmax100_target_db": -33,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/sniper/mag_in_0.wav",
+      "source": "Master Tracks/Mosin Nagant/M_1.wav",
+      "take": 1,
+      "crop_start_s": 0.949375,
+      "crop_end_s": 1.414146,
+      "segments_s": [
+        [
+          0.949375,
+          1.414146
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -33,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/sniper/mag_in_1.wav",
+      "source": "Master Tracks/Mosin Nagant/M_1.wav",
+      "take": 2,
+      "crop_start_s": 3.174792,
+      "crop_end_s": 4.077833,
+      "segments_s": [
+        [
+          3.174792,
+          4.077833
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -33,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/sniper/mag_out_0.wav",
+      "source": "Master Tracks/Mosin Nagant/M_8.wav",
+      "take": 1,
+      "crop_start_s": 0.606854,
+      "crop_end_s": 0.849083,
+      "segments_s": [
+        [
+          0.606854,
+          0.849083
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -33,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/sniper/mag_out_1.wav",
+      "source": "Master Tracks/Mosin Nagant/M_8.wav",
+      "take": 2,
+      "crop_start_s": 3.734167,
+      "crop_end_s": 4.05,
+      "segments_s": [
+        [
+          3.734167,
+          4.05
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -33,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/sniper/dry_0.wav",
+      "source": "Master Tracks/Mosin Nagant/M_10.wav",
+      "take": 1,
+      "crop_start_s": 1.203917,
+      "crop_end_s": 1.241604,
+      "segments_s": [
+        [
+          1.203917,
+          1.241604
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -33,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/sniper/dry_1.wav",
+      "source": "Master Tracks/Mosin Nagant/M_10.wav",
+      "take": 1,
+      "crop_start_s": 1.203917,
+      "crop_end_s": 1.241604,
+      "segments_s": [
+        [
+          1.203917,
+          1.241604
+        ]
+      ],
+      "pitch_ratio": 1.015,
+      "rmsmax100_target_db": -33,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/shotgun/rack_0.wav",
+      "source": "Master Tracks/Nova/O_6.wav",
+      "take": 1,
+      "crop_start_s": 1.032125,
+      "crop_end_s": 1.449875,
+      "segments_s": [
+        [
+          1.032125,
+          1.449875
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -34,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/shotgun/rack_1.wav",
+      "source": "Master Tracks/Nova/O_6.wav",
+      "take": 1,
+      "crop_start_s": 1.032125,
+      "crop_end_s": 1.449875,
+      "segments_s": [
+        [
+          1.032125,
+          1.449875
+        ]
+      ],
+      "pitch_ratio": 1.015,
+      "rmsmax100_target_db": -34,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/shotgun/shell_in_0.wav",
+      "source": "Master Tracks/Nova/O_3.wav",
+      "take": 1,
+      "crop_start_s": 1.299479,
+      "crop_end_s": 1.8935,
+      "segments_s": [
+        [
+          1.299479,
+          1.8935
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -34,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/shotgun/shell_in_1.wav",
+      "source": "Master Tracks/Nova/O_3.wav",
+      "take": 2,
+      "crop_start_s": 6.90275,
+      "crop_end_s": 7.44,
+      "segments_s": [
+        [
+          6.90275,
+          7.44
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -34,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/shotgun/dry_0.wav",
+      "source": "Master Tracks/Nova/O_8.wav",
+      "take": 1,
+      "crop_start_s": 0.252937,
+      "crop_end_s": 0.317854,
+      "segments_s": [
+        [
+          0.252937,
+          0.317854
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -34,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/shotgun/dry_1.wav",
+      "source": "Master Tracks/Nova/O_8.wav",
+      "take": 1,
+      "crop_start_s": 0.252937,
+      "crop_end_s": 0.317854,
+      "segments_s": [
+        [
+          0.252937,
+          0.317854
+        ]
+      ],
+      "pitch_ratio": 1.015,
+      "rmsmax100_target_db": -34,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/revolver/cyl_open_0.wav",
+      "source": "Master Tracks/Smith & Wesson 642/V_9.wav",
+      "take": 1,
+      "crop_start_s": 1.24325,
+      "crop_end_s": 1.530604,
+      "segments_s": [
+        [
+          1.24325,
+          1.530604
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -36,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/revolver/cyl_open_1.wav",
+      "source": "Master Tracks/Smith & Wesson 642/V_9.wav",
+      "take": 1,
+      "crop_start_s": 1.24325,
+      "crop_end_s": 1.530604,
+      "segments_s": [
+        [
+          1.24325,
+          1.530604
+        ]
+      ],
+      "pitch_ratio": 1.015,
+      "rmsmax100_target_db": -36,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/revolver/eject_0.wav",
+      "source": "Master Tracks/Smith & Wesson 642/V_3.wav",
+      "take": 1,
+      "crop_start_s": 1.14,
+      "crop_end_s": 1.194167,
+      "segments_s": [
+        [
+          1.14,
+          1.194167
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -36,
+      "scatter_seed": 107729,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/revolver/eject_1.wav",
+      "source": "Master Tracks/Smith & Wesson 642/V_3.wav",
+      "take": 1,
+      "crop_start_s": 1.14,
+      "crop_end_s": 1.194167,
+      "segments_s": [
+        [
+          1.14,
+          1.194167
+        ]
+      ],
+      "pitch_ratio": 1.015,
+      "rmsmax100_target_db": -36,
+      "scatter_seed": 107739,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/revolver/load_0.wav",
+      "source": "Master Tracks/Smith & Wesson 642/V_18.wav",
+      "take": 1,
+      "crop_start_s": 1.331958,
+      "crop_end_s": 9.689937,
+      "segments_s": [
+        [
+          1.331958,
+          1.452438
+        ],
+        [
+          3.489583,
+          3.540104
+        ],
+        [
+          5.241729,
+          5.345729
+        ],
+        [
+          7.523229,
+          7.587625
+        ],
+        [
+          9.562479,
+          9.689937
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -36,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/revolver/load_1.wav",
+      "source": "Master Tracks/Smith & Wesson 642/V_18.wav",
+      "take": 1,
+      "crop_start_s": 1.331958,
+      "crop_end_s": 9.689937,
+      "segments_s": [
+        [
+          1.331958,
+          1.452438
+        ],
+        [
+          3.489583,
+          3.540104
+        ],
+        [
+          5.241729,
+          5.345729
+        ],
+        [
+          7.523229,
+          7.587625
+        ],
+        [
+          9.562479,
+          9.689937
+        ]
+      ],
+      "pitch_ratio": 1.015,
+      "rmsmax100_target_db": -36,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/revolver/cyl_close_0.wav",
+      "source": "Master Tracks/Smith & Wesson 642/V_10.wav",
+      "take": 1,
+      "crop_start_s": 1.440438,
+      "crop_end_s": 1.572188,
+      "segments_s": [
+        [
+          1.440438,
+          1.572188
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -36,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/revolver/cyl_close_1.wav",
+      "source": "Master Tracks/Smith & Wesson 642/V_10.wav",
+      "take": 1,
+      "crop_start_s": 1.440438,
+      "crop_end_s": 1.572188,
+      "segments_s": [
+        [
+          1.440438,
+          1.572188
+        ]
+      ],
+      "pitch_ratio": 1.015,
+      "rmsmax100_target_db": -36,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/revolver/dry_0.wav",
+      "source": "Master Tracks/Smith & Wesson 642/V_5.wav",
+      "take": 1,
+      "crop_start_s": 1.544021,
+      "crop_end_s": 1.575125,
+      "segments_s": [
+        [
+          1.544021,
+          1.575125
+        ]
+      ],
+      "pitch_ratio": 1.0,
+      "rmsmax100_target_db": -36,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/revolver/dry_1.wav",
+      "source": "Master Tracks/Smith & Wesson 642/V_5.wav",
+      "take": 1,
+      "crop_start_s": 1.544021,
+      "crop_end_s": 1.575125,
+      "segments_s": [
+        [
+          1.544021,
+          1.575125
+        ]
+      ],
+      "pitch_ratio": 1.015,
+      "rmsmax100_target_db": -36,
+      "scatter_seed": null,
+      "highpass_hz": 80
+    },
+    {
+      "file": "weapons/rifle/tail_0.wav",
+      "source": "AK-47/C_28P.wav",
+      "take": 1,
+      "crop_start_s": 0.761167,
+      "crop_end_s": 1.811167,
+      "pitch_ratio": 1.0,
+      "highpass_hz": 80,
+      "fade_in_s": 0.035
+    },
+    {
+      "file": "weapons/rifle/tail_1.wav",
+      "source": "AK-47/C_28P.wav",
+      "take": 2,
+      "crop_start_s": 3.407354,
+      "crop_end_s": 4.537354,
+      "pitch_ratio": 1.0,
+      "highpass_hz": 80,
+      "fade_in_s": 0.035
+    },
+    {
+      "file": "weapons/rifle/tail_2.wav",
+      "source": "AK-47/C_28P.wav",
+      "take": 3,
+      "crop_start_s": 6.170667,
+      "crop_end_s": 7.380667,
+      "pitch_ratio": 1.0,
+      "highpass_hz": 80,
+      "fade_in_s": 0.035
+    },
+    {
+      "file": "weapons/smg/tail_0.wav",
+      "source": "PPSh/P_30P.wav",
+      "take": 1,
+      "crop_start_s": 1.118854,
+      "crop_end_s": 2.168854,
+      "pitch_ratio": 1.0,
+      "highpass_hz": 80,
+      "fade_in_s": 0.035
+    },
+    {
+      "file": "weapons/smg/tail_1.wav",
+      "source": "PPSh/P_30P.wav",
+      "take": 2,
+      "crop_start_s": 4.537208,
+      "crop_end_s": 5.667208,
+      "pitch_ratio": 1.0,
+      "highpass_hz": 80,
+      "fade_in_s": 0.035
+    },
+    {
+      "file": "weapons/smg/tail_2.wav",
+      "source": "PPSh/P_30P.wav",
+      "take": 3,
+      "crop_start_s": 8.392583,
+      "crop_end_s": 9.602583,
+      "pitch_ratio": 1.0,
+      "highpass_hz": 80,
+      "fade_in_s": 0.035
     }
   ]
 }

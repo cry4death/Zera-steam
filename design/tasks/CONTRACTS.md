@@ -208,6 +208,7 @@ func open(stats: Dictionary) -> void
 | id | Что | Источник |
 |---|---|---|
 | `weapons/<gun>/shot` | одиночный выстрел, вид «у стрелка», хвост ≤ 1.2 с (sniper/shotgun/revolver ≤ 2.5 с), 3–6 вариантов | Prepared, near |
+| `weapons/rifle/tail`, `weapons/smg/tail` | хвост очереди ≥3 выстрелов, один раз при паузе >1.5 интервала, перезарядке или смене цели; 3 варианта, моно, 1.05–1.21 с | Prepared, near, отражения без атаки (W2) |
 | `weapons/<gun>/mag_out`, `mag_in` | отстегнуть / вставить магазин | Raw (A2) |
 | `weapons/<gun>/rack` | досылание: затвор, затворная рама, цевьё помпы | Raw (A2) |
 | `weapons/<gun>/dry` | сухой щелчок | Raw (A2) |

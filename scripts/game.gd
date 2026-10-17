@@ -1374,6 +1374,8 @@ func _run_weapons_test() -> void:
 	for base in range(4, 8):
 		assert(offered[base] == 1)
 	print("WTEST checks recoil_direction=true recoil_cap=true new_cards=true missing_sfx_silent=true")
+	# Проверка хвоста очереди меняет слоты, поэтому идёт после проверки карт Level Up.
+	await _wtest_burst_checks()
 	for base in WeaponDefs.BASES:
 		for level: int in [1, 5]:
 			var st := WeaponDefs.base_stats(base, level)
@@ -1422,6 +1424,7 @@ func _run_weapons_test() -> void:
 	print("WTEST complete casings=%d mags=%d" % [effects.casings_on_floor, effects.mags_on_floor])
 	if _shot_path != "" and DisplayServer.get_name() != "headless":
 		await _wtest_spread_palette()
+		await _wtest_floor_comparison()
 	get_tree().quit()
 
 
@@ -1433,7 +1436,12 @@ func _wtest_on_shot(base: int) -> void:
 		return
 	get_tree().paused = true
 	await RenderingServer.frame_post_draw
-	get_viewport().get_texture().get_image().save_png(_shot_path.replace(".png", "_" + Weapons.GUN_IDS[base] + ".png"))
+	var frame := get_viewport().get_texture().get_image()
+	frame.save_png(_shot_path.replace(".png", "_" + Weapons.GUN_IDS[base] + ".png"))
+	var center := Vector2i(player.get_global_transform_with_canvas().origin)
+	var crop := frame.get_region(Rect2i(center - Vector2i(70, 65), Vector2i(160, 130)))
+	crop.resize(crop.get_width() * 3, crop.get_height() * 3, Image.INTERPOLATE_NEAREST)
+	crop.save_png(_shot_path.get_base_dir().path_join("w2_flash_" + Weapons.GUN_IDS[base] + ".png"))
 	# Контрольный кадр того же состояния мира без источников света.
 	for light in effects._lights:
 		light.enabled = false
@@ -1474,3 +1482,127 @@ func _wtest_spread_palette() -> void:
 		get_viewport().get_texture().get_image().save_png(_shot_path.replace(".png", "_spread_" + tag + ".png"))
 		print("WTEST palette=%s heat=%.1f tracers=%d camera_kick=%.2f" % [tag, s.heat, weapons.bullet_count, camera._kick.length()])
 		get_tree().paused = false
+
+
+## Проверяем завершение реальной стрельбы по живучей цели, без случайной орды.
+func _wtest_burst_checks() -> void:
+	_weapons_test = false
+	_wtest_shot = true
+	for base: int in [WeaponDefs.Base.RIFLE, WeaponDefs.Base.SMG]:
+		weapons.slots.clear()
+		weapons.add_weapon(base)
+		var s := weapons.slots[0]
+		var e := horde.spawn(player.position + Vector2(100, 0))
+		horde.speed[e] = 0.0
+		horde.hp[e] = 100000.0
+		horde.max_hp[e] = 100000.0
+		await get_tree().physics_frame
+		var before := weapons.tails[base]
+		var id: String = "weapons/" + Weapons.GUN_IDS[base] + "/tail"
+		assert(sfx.has(id))
+		var played := int(sfx.played_by_id.get(id, 0))
+		# Два выстрела не дают хвоста, три — дают, повторная пауза молчит.
+		for k in 2:
+			s.cooldown = 0.0
+			weapons._update_slot(0, 1.0 / 60.0)
+		s.cooldown = 1000.0
+		weapons._update_slot(0, 2.0 / float(s.stats["rate"]))
+		assert(weapons.tails[base] == before)
+		for k in 3:
+			s.cooldown = 0.0
+			weapons._update_slot(0, 1.0 / 60.0)
+		s.cooldown = 1000.0
+		weapons._update_slot(0, 2.0 / float(s.stats["rate"]))
+		weapons._update_slot(0, 2.0 / float(s.stats["rate"]))
+		assert(weapons.tails[base] == before + 1)
+		await _wtest_audio_gap()
+		# Тактическая перезарядка завершает очередь сразу.
+		for k in 3:
+			s.cooldown = 0.0
+			weapons._update_slot(0, 1.0 / 60.0)
+		weapons.reload_all()
+		assert(weapons.tails[base] == before + 2)
+		s.reloading = false
+		s.mag = s.stats["mag"]
+		await _wtest_audio_gap()
+		# Новая ближайшая цель: предыдущая очередь получает один хвост.
+		for k in 3:
+			s.cooldown = 0.0
+			weapons._update_slot(0, 1.0 / 60.0)
+		var other := horde.spawn(player.position + Vector2(70, 0))
+		horde.speed[other] = 0.0
+		horde.hp[other] = 100000.0
+		await get_tree().physics_frame
+		s.cooldown = 0.0
+		weapons._update_slot(0, 1.0 / 60.0)
+		assert(weapons.tails[base] == before + 3)
+		if DisplayServer.get_name() != "headless":
+			assert(int(sfx.played_by_id.get(id, 0)) == played + 3)
+		print("W2TEST tails %s short=0 pause=1 reload=1 target_change=1 repeated_pause=0 played=%d" % [Weapons.GUN_IDS[base], int(sfx.played_by_id.get(id, 0)) - played])
+		weapons.bullet_count = 0
+		for j in horde.count:
+			horde.dead[j] = 1
+		await get_tree().physics_frame
+	_weapons_test = true
+	_wtest_shot = false
+
+
+## Ограничитель Sfx использует реальное время, а не delta после долгого GPU-кадра.
+func _wtest_audio_gap() -> void:
+	var until := Time.get_ticks_msec() + 100
+	while Time.get_ticks_msec() < until:
+		await get_tree().process_frame
+
+
+## Рядом лежат все три гильзы, кредиты, опыт и магазины; используются игровые штампы.
+func _wtest_floor_comparison() -> void:
+	weapons.process_mode = Node.PROCESS_MODE_DISABLED
+	player.position += Vector2(-260, -180)
+	player.set_physics_process(false)
+	player.sprite.texture = player._frames[0]
+	player.sprite.modulate = Color.WHITE
+	player.sprite.visible = true
+	camera.global_position = player.position
+	camera.reset_smoothing()
+	for j in horde.count:
+		horde.dead[j] = 1
+	await get_tree().physics_frame
+	# Массивы Gems параллельны count: убираем штатным _remove, а не обнулением счётчика.
+	while gems.count > 0:
+		gems._remove(gems.count - 1)
+	while credit_drops.count > 0:
+		credit_drops._remove(credit_drops.count - 1)
+	gems.player = null
+	credit_drops.player = null
+	var c := player.position
+	for row in 2:
+		var y := -34.0 + row * 52.0
+		if row == 1:
+			for x in range(-52, 89, 23):
+				floor_decals.blood(PixelArt.tex("blood_2"), c + Vector2(x, y), 0.0, 1.6, 0.85)
+		for kind in 3:
+			for j in 6:
+				var p := c + Vector2(-49.0 + kind * 21.0 + (j % 3) * 4.0, y - 3.0 + (j / 3) * 6.0)
+				effects.casing(p, Vector2.RIGHT, Effects.CASING_IDS[kind])
+				var i := effects._cn - 1
+				effects._cv[i] = Vector2.ZERO
+				effects._cz[i] = 0.0
+				effects._czv[i] = 0.0
+				effects._cage[i] = 1.5
+		credit_drops.spawn(c + Vector2(28, y), 1)
+		gems.spawn(c + Vector2(48, y), 1)
+		for kind in 3:
+			floor_decals.stamp(PixelArt.tex(Effects.CASING_ART[kind + 3]), c + Vector2(68 + kind * 10, y), -0.3, Color.WHITE)
+	gems.queue_redraw()
+	credit_drops.queue_redraw()
+	await get_tree().create_timer(0.2).timeout
+	get_tree().paused = true
+	await RenderingServer.frame_post_draw
+	var frame := get_viewport().get_texture().get_image()
+	frame.save_png(_shot_path.get_base_dir().path_join("w2_casings_full.png"))
+	var center := Vector2i(player.get_global_transform_with_canvas().origin)
+	var crop := frame.get_region(Rect2i(center + Vector2i(-180, -135), Vector2i(480, 270)))
+	crop.resize(crop.get_width() * 3, crop.get_height() * 3, Image.INTERPOLATE_NEAREST)
+	crop.save_png(_shot_path.get_base_dir().path_join("w2_casings_vs_credits.png"))
+	print("W2TEST floor casing_native_px=3,5,4 wet_tint=true magazines_unchanged=true")
+	get_tree().paused = false
