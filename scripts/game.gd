@@ -556,6 +556,7 @@ func _ready() -> void:
 		player.autopilot = true
 		Engine.time_scale = 4.0
 		Engine.max_physics_steps_per_frame = 16
+	Music.play(&"combat")
 	if _boss_test:
 		time = 595.0
 		trader_visit = TRADER_TIMES.size()
@@ -1788,12 +1789,14 @@ func _hud_shot(suffix: String) -> void:
 func _boss_timeline() -> void:
 	if time >= 570.0 and not _boss_warned:
 		_boss_warned = true
+		Music.play(&"boss")
 		_announce(_dispatch_line("approach"), Color(1.0, 0.34, 0.16))
 		camera.shake(6.0)
 	if time < 600.0 or _boss_spawned:
 		return
 	_boss_spawned = true
 	_boss_started = time
+	Music.play(&"boss")
 	var dir := -player.facing.normalized()
 	if dir == Vector2.ZERO:
 		dir = Vector2.LEFT
@@ -1946,6 +1949,7 @@ func _open_results(victory: bool) -> void:
 	level_up.close()
 	trader_ui.visible = false
 	alarm_overlay.stop()
+	Music.play(&"results")
 	results.open(_result_stats(victory))
 	get_tree().paused = true
 
