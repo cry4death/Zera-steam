@@ -16,6 +16,10 @@ var _grenade_icon: Texture2D
 @onready var game = owner # скрипт game.gd корневой сцены
 
 
+func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS # при паузе убираем анонс из-под экрана награды
+
+
 func _process(_delta: float) -> void:
 	queue_redraw()
 
@@ -104,8 +108,9 @@ func _draw() -> void:
 	if game.game_over:
 		draw_rect(Rect2(Vector2.ZERO, Vector2(w, h)), Color(0.25, 0.0, 0.0, 0.45))
 		_text_centered(font, Vector2(w * 0.5, h * 0.5 - 6), "ТЫ ПОГИБ", Color(1.0, 0.85, 0.8), 24)
-		_text_centered(font, Vector2(w * 0.5, h * 0.5 + 16), "продержался %02d:%02d · уровень %d · убито %d · лучшее комбо %d · ящиков: %d" % [t / 60, t % 60, prog.level, game.kills, game.best_combo, game.crates], TEXT)
-		_text_centered(font, Vector2(w * 0.5, h * 0.5 + 30), "Enter — заново", DIM)
+		_text_centered(font, Vector2(w * 0.5, h * 0.5 + 16), "продержался %02d:%02d · уровень %d · убито %d · лучшее комбо %d" % [t / 60, t % 60, prog.level, game.kills, game.best_combo], TEXT)
+		_text_centered(font, Vector2(w * 0.5, h * 0.5 + 30), "ящиков: %d" % game.crates, CREDIT_COLOR)
+		_text_centered(font, Vector2(w * 0.5, h * 0.5 + 46), "Enter — заново", DIM)
 
 
 ## Активка «граната»: иконка, затемнение-кулдаун сверху вниз, секунды или клавиша.

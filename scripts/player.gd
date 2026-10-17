@@ -170,6 +170,8 @@ func throw_grenade() -> bool:
 
 ## Куда полетит граната.
 func grenade_dir() -> Vector2:
+	if _dash_t > 0.0:
+		return _dash_dir
 	if _moving or aim_dir == Vector2.ZERO:
 		return facing
 	return aim_dir

@@ -42,10 +42,12 @@ func _ready() -> void:
 func spawn(p: Vector2, kind: int) -> void:
 	if count >= MAX_ITEMS:
 		# место кончилось: убираем самый старый обычный предмет
+		var oldest := -1
 		for i in count:
-			if _kind[i] != Kind.CONTAINER:
-				_remove(i)
-				break
+			if _kind[i] != Kind.CONTAINER and (oldest < 0 or _life[i] < _life[oldest]):
+				oldest = i
+		if oldest >= 0:
+			_remove(oldest)
 		if count >= MAX_ITEMS:
 			return
 	_pos.append(p)
