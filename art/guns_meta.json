@@ -1,0 +1,21 @@
+{
+ "note": "grip/support/muzzle - точки в пикселях соответствующего спрайта (ствол смотрит вправо); 3 px арта = 1 игровая единица",
+ "models": {
+  "ak_s": {"icon": {"grip": [31, 17], "muzzle": [91, 9], "size": [92, 35], "support": [59, 10]}, "world": {"grip": [21, 12], "length_units": 20.3, "muzzle": [60, 6], "size": [61, 24], "support": [39, 7]}},
+  "bulldog": {"icon": {"grip": [9, 17], "muzzle": [46, 6], "size": [47, 28], "support": [9, 17]}, "world": {"grip": [5, 9], "length_units": 8.3, "muzzle": [24, 3], "size": [25, 15], "support": [5, 9]}},
+  "butcher": {"icon": {"grip": [29, 14], "muzzle": [90, 4], "size": [91, 21], "support": [64, 9]}, "world": {"grip": [22, 11], "length_units": 23.0, "muzzle": [68, 4], "size": [69, 17], "support": [49, 7]}},
+  "colt": {"icon": {"grip": [12, 20], "muzzle": [48, 7], "size": [49, 34], "support": [12, 20]}, "world": {"grip": [7, 11], "length_units": 9.3, "muzzle": [27, 4], "size": [28, 19], "support": [7, 11]}},
+  "cowboy": {"icon": {"grip": [14, 18], "muzzle": [70, 6], "size": [71, 32], "support": [14, 18]}, "world": {"grip": [8, 10], "length_units": 13.3, "muzzle": [39, 4], "size": [40, 18], "support": [8, 10]}},
+  "grom": {"icon": {"grip": [26, 14], "muzzle": [88, 11], "size": [89, 23], "support": [54, 16]}, "world": {"grip": [18, 9], "length_units": 20.3, "muzzle": [60, 7], "size": [61, 16], "support": [36, 11]}},
+  "guard": {"icon": {"grip": [9, 20], "muzzle": [44, 8], "size": [45, 33], "support": [9, 20]}, "world": {"grip": [6, 13], "length_units": 9.7, "muzzle": [28, 5], "size": [29, 21], "support": [6, 13]}},
+  "hive": {"icon": {"grip": [33, 22], "muzzle": [81, 12], "size": [82, 29], "support": [63, 23]}, "world": {"grip": [24, 16], "length_units": 20.3, "muzzle": [60, 9], "size": [61, 22], "support": [46, 17]}},
+  "m4": {"icon": {"grip": [37, 23], "muzzle": [91, 12], "size": [92, 32], "support": [66, 12]}, "world": {"grip": [23, 15], "length_units": 19.0, "muzzle": [56, 8], "size": [57, 21], "support": [41, 8]}},
+  "mosin": {"icon": {"grip": [28, 10], "muzzle": [91, 5], "size": [92, 22], "support": [62, 8]}, "world": {"grip": [25, 9], "length_units": 27.0, "muzzle": [80, 5], "size": [81, 20], "support": [55, 7]}},
+  "needle": {"icon": {"grip": [30, 17], "muzzle": [95, 8], "size": [96, 24], "support": [60, 11]}, "world": {"grip": [21, 12], "length_units": 22.0, "muzzle": [65, 6], "size": [66, 18], "support": [41, 8]}},
+  "osa": {"icon": {"grip": [35, 16], "muzzle": [86, 7], "size": [87, 30], "support": [56, 7]}, "world": {"grip": [22, 11], "length_units": 18.3, "muzzle": [54, 5], "size": [55, 20], "support": [35, 5]}},
+  "ppsh": {"icon": {"grip": [29, 17], "muzzle": [91, 8], "size": [92, 33], "support": [58, 9]}, "world": {"grip": [19, 12], "length_units": 20.0, "muzzle": [59, 6], "size": [60, 23], "support": [38, 7]}},
+  "shkval": {"icon": {"grip": [26, 9], "muzzle": [91, 5], "size": [92, 19], "support": [64, 10]}, "world": {"grip": [21, 7], "length_units": 25.0, "muzzle": [74, 4], "size": [75, 16], "support": [52, 8]}},
+  "spear": {"icon": {"grip": [30, 21], "muzzle": [104, 11], "size": [105, 28], "support": [62, 15]}, "world": {"grip": [21, 15], "length_units": 24.3, "muzzle": [72, 8], "size": [73, 21], "support": [43, 11]}},
+  "winchester": {"icon": {"grip": [27, 9], "muzzle": [88, 5], "size": [89, 24], "support": [60, 11]}, "world": {"grip": [21, 7], "length_units": 23.3, "muzzle": [69, 4], "size": [70, 19], "support": [47, 9]}}
+ }
+}
