@@ -4,6 +4,8 @@ extends Node2D
 ## Стволы стреляют сами: автомат и дробовик — пулями, рейлган — мгновенным лучом,
 ## гранатомёт — гранатами со взрывом. Пули, лучи, гранаты и взрывы — данные в массивах.
 
+signal shot_fired(base: int)
+
 signal prototype_unlocked(slot: int, proto_name: String)
 
 const BULLET_RADIUS := 1.5
@@ -24,6 +26,11 @@ class Slot:
 	var reload_t := 0.0
 	var cooldown := 0.0
 	var stats := {}
+	var heat := 0.0
+	var since_shot := 100.0
+	var rack_t := -1.0
+	var rack_dir := Vector2.RIGHT
+	var reload_missing := 0
 
 	func module(id: int) -> Dictionary:
 		for m in modules:
@@ -48,6 +55,11 @@ var camera: GameCamera
 var horde: Horde
 var effects: Effects
 var floor_decals: FloorDecals
+var sfx: Sfx
+const GUN_IDS := ["rifle", "shotgun", "rail", "launcher", "pistol", "revolver", "smg", "sniper"]
+const RECOIL := [0.8, 1.8, 1.4, 1.5, 0.55, 1.25, 0.25, 2.5]
+var shots := PackedInt32Array([0, 0, 0, 0, 0, 0, 0, 0])
+var damage_dealt := 0.0
 var passives := {} # WeaponDefs.Passive → уровень (заполняет прогрессия)
 
 var slots: Array[Slot] = []
@@ -178,8 +190,19 @@ func _physics_process(delta: float) -> void:
 func _update_slot(i: int, delta: float) -> void:
 	var s := slots[i]
 	s.cooldown -= delta
+	s.since_shot += delta
+	if s.since_shot > 1.5 / float(s.stats["rate"]):
+		s.heat = move_toward(s.heat, 0.0, delta * 35.0)
+	if s.rack_t >= 0.0:
+		s.rack_t -= delta
+		if s.rack_t < 0.0:
+			_sound(s, "rack")
+			if effects:
+				effects.casing(player.global_position, s.rack_dir, "shell" if s.base == WeaponDefs.Base.SHOTGUN else "brass_rifle")
 	if s.reloading:
+		var before := s.reload_t / float(s.stats["reload"])
 		s.reload_t += delta
+		_reload_actions(s, before, s.reload_t / float(s.stats["reload"]))
 		if s.reload_t >= s.stats["reload"]:
 			s.reloading = false
 			s.mag = s.stats["mag"]
@@ -193,25 +216,93 @@ func _update_slot(i: int, delta: float) -> void:
 	var dir := (horde.pos[target] - origin).normalized()
 	player.aim_dir = dir
 	_aim_hold = 0.4
-	player.kick()
+	player.kick(RECOIL[s.base])
+	if camera:
+		camera.kick(dir, RECOIL[s.base])
+		if s.base in [WeaponDefs.Base.SHOTGUN, WeaponDefs.Base.SNIPER]:
+			camera.shake(0.6 if s.base == WeaponDefs.Base.SHOTGUN else 0.9)
 	var muzzle := origin + dir * 9.0 - dir.orthogonal() * 1.5
 	match s.base:
-		WeaponDefs.Base.RIFLE, WeaponDefs.Base.SHOTGUN:
+		WeaponDefs.Base.RIFLE, WeaponDefs.Base.SHOTGUN, WeaponDefs.Base.PISTOL, WeaponDefs.Base.REVOLVER, WeaponDefs.Base.SMG, WeaponDefs.Base.SNIPER:
 			_fire_bullets(i, muzzle, dir)
 		WeaponDefs.Base.RAIL:
 			_fire_rail(i, muzzle, dir)
 		WeaponDefs.Base.LAUNCHER:
 			_fire_grenades(i, muzzle, horde.pos[target])
-	_flashes.append([muzzle, dir.angle(), 0.05])
+	var tint := Color(1.0, 0.78, 0.45)
+	if s.base == WeaponDefs.Base.RAIL:
+		tint = Color(0.45, 0.85, 1.0)
+	if s.ammo == WeaponDefs.Ammo.CRYO:
+		tint = Color(0.45, 0.8, 1.0)
+	elif s.ammo == WeaponDefs.Ammo.INCENDIARY:
+		tint = Color(1.0, 0.36, 0.1)
+	var life := randf_range(0.04, 0.07)
+	_flashes.append([muzzle, dir.angle(), life, s.base, tint, randf_range(0.8, 1.25), randf_range(-0.2, 0.2)])
+	_sound(s, "shot")
+	shots[s.base] += 1
+	if effects:
+		effects.flash_light(muzzle, tint, 100.0 + RECOIL[s.base] * 32.0, 0.9 + RECOIL[s.base] * 0.3, life)
+		var smoke := Color(0.46, 0.45, 0.42, 0.3)
+		effects.emit(muzzle + dir * 3.0, dir * 9.0 + Vector2(0, -6), 0.45, smoke, 5.0, 2.0)
+		if s.heat > 8.0:
+			effects.emit(muzzle, Vector2(0, -14), 0.7, Color(0.5, 0.5, 0.48, 0.2), 3.5, 1.0)
+	if s.base in [WeaponDefs.Base.RIFLE, WeaponDefs.Base.SMG]:
+		s.heat = minf(s.heat + (1.0 if s.base == WeaponDefs.Base.RIFLE else 1.4), 16.0 if s.base == WeaponDefs.Base.RIFLE else 26.0)
+	s.since_shot = 0.0
+	if s.base in [WeaponDefs.Base.SHOTGUN, WeaponDefs.Base.SNIPER]:
+		s.rack_t = 0.25 if s.base == WeaponDefs.Base.SHOTGUN else 0.3
+		s.rack_dir = dir
+	elif s.base in [WeaponDefs.Base.RIFLE, WeaponDefs.Base.PISTOL, WeaponDefs.Base.SMG] and effects:
+		effects.casing(origin, dir, "brass_rifle" if s.base == WeaponDefs.Base.RIFLE else "brass_small")
 	s.mag -= 1
-	s.cooldown = maxf(s.cooldown, 0.0) + 1.0 / s.stats["rate"]
+	# ППШ сохраняет дробную часть интервала: 14/с не округляется до 12/с на физике 60 Гц.
+	s.cooldown = maxf(s.cooldown, -delta if s.base == WeaponDefs.Base.SMG else 0.0) + 1.0 / s.stats["rate"]
 	if s.mag <= 0:
+		_sound(s, "dry")
 		_start_reload(s)
+	shot_fired.emit(s.base)
 
 
 func _start_reload(s: Slot) -> void:
 	s.reloading = true
 	s.reload_t = 0.0
+	s.reload_missing = int(s.stats["mag"]) - s.mag
+	if s.base in [WeaponDefs.Base.PISTOL, WeaponDefs.Base.RIFLE, WeaponDefs.Base.SMG]:
+		_sound(s, "mag_out")
+		if effects:
+			effects.casing(player.global_position, player.aim_dir, "mag_" + GUN_IDS[s.base])
+	elif s.base == WeaponDefs.Base.REVOLVER:
+		_sound(s, "cyl_open")
+
+
+func _sound(s: Slot, action: String) -> void:
+	if sfx:
+		# A2 уже сводит механику на ~12 дБ тише выстрела.
+		sfx.play("weapons/" + GUN_IDS[s.base] + "/" + action)
+
+
+## Пороговые события без таймеров-нод. Тактическая помпа вставляет только недостающие патроны.
+func _reload_actions(s: Slot, before: float, after: float) -> void:
+	if s.base in [WeaponDefs.Base.PISTOL, WeaponDefs.Base.RIFLE, WeaponDefs.Base.SMG]:
+		if before < 0.7 and after >= 0.7:
+			_sound(s, "mag_in")
+		if before < 1.0 and after >= 1.0:
+			_sound(s, "rack")
+	elif s.base == WeaponDefs.Base.REVOLVER:
+		if before < 0.15 and after >= 0.15:
+			_sound(s, "eject")
+			if effects:
+				for k in s.reload_missing:
+					effects.casing(player.global_position, Vector2.from_angle(TAU * k / maxf(1.0, s.reload_missing)), "brass_small")
+		if before < 0.5 and after >= 0.5:
+			_sound(s, "load")
+		if before < 0.95 and after >= 0.95:
+			_sound(s, "cyl_close")
+	elif s.base == WeaponDefs.Base.SHOTGUN:
+		for k in s.reload_missing:
+			var threshold := float(k + 1) / float(s.reload_missing + 1)
+			if before < threshold and after >= threshold:
+				_sound(s, "shell_in")
 
 
 func reload_progress(i: int) -> float:
@@ -225,8 +316,8 @@ func _fire_bullets(i: int, muzzle: Vector2, dir: Vector2) -> void:
 	var s := slots[i]
 	var st := s.stats
 	var n: int = st["proj"]
-	var spread := deg_to_rad(st["spread"])
-	var pierce := int(s.mod_value(WeaponDefs.Module.PIERCE, [2, 4, 6]))
+	var spread := deg_to_rad(float(st["spread"]) + s.heat)
+	var pierce := int(s.mod_value(WeaponDefs.Module.PIERCE, [2, 4, 6])) + int(st.get("pierce", 0))
 	var bounce := int(s.mod_value(WeaponDefs.Module.RICOCHET, [1, 2, 3]))
 	for k in n:
 		var a := dir.angle()
@@ -237,8 +328,6 @@ func _fire_bullets(i: int, muzzle: Vector2, dir: Vector2) -> void:
 			a += (k - (n - 1) * 0.5) * deg_to_rad(5.0) + randf_range(-spread, spread) * 0.5
 		var spd: float = st["speed"] * (randf_range(0.85, 1.1) if s.base == WeaponDefs.Base.SHOTGUN else 1.0)
 		_spawn_bullet(muzzle, Vector2.from_angle(a) * spd, st["range"] / spd, st["damage"], i, pierce, bounce, 0)
-	if effects:
-		effects.casing(player.global_position, dir)
 
 
 func _spawn_bullet(p: Vector2, v: Vector2, life: float, dmg: float, slot: int, pierce: int, bounce: int, flags: int, depth := 0) -> void:
@@ -374,6 +463,7 @@ func _hit_enemy(slot: int, e: int, dmg: float, dir: Vector2, at: Vector2, knockb
 		WeaponDefs.Ammo.CRYO:
 			horde.chill_hit(e, 0.2, 4 if rank < 2 else 3, rank >= 3, s.prototype == 1)
 	var e_pos := horde.pos[e]
+	damage_dealt += minf(dmg, horde.hp[e])
 	var killed := horde.damage(e, dmg, dir, knockback, s.ammo, crit, at, explosive)
 	if effects:
 		effects.blood_hit(e_pos, dir, false)
@@ -411,6 +501,10 @@ func _on_kill(slot: int, e: int, dir: Vector2, depth: int) -> void:
 ## урон без эффектов патронов, любая смерть — гибы.
 func explode(at: Vector2, dmg: float, radius: float, slot := -1, depth := 0) -> void:
 	_blasts.append([at, radius, 0.0])
+	if sfx:
+		sfx.play("explosions/grenade", at, -2.0)
+	if effects:
+		effects.flash_light(at, Color(1.0, 0.42, 0.12), radius * 2.5, 1.6, 0.15)
 	if effects:
 		for k in 14:
 			effects.emit(at, Vector2.from_angle(randf() * TAU) * randf_range(30.0, 160.0), randf_range(0.15, 0.4),
@@ -597,6 +691,46 @@ func _draw() -> void:
 		draw_arc(bl[0], r, 0.0, TAU, 24, Color(1.0, 0.8, 0.4, 0.8 * (1.0 - k)), 2.0)
 		PixelArt.draw_dot(self, bl[0], r * 0.6 * (1.0 - k), Color(1.0, 0.85, 0.5, 0.6 * (1.0 - k)))
 	for fl: Array in _flashes:
-		var f := Vector2.from_angle(fl[1])
-		PixelArt.draw_dot(self, fl[0] + f * 1.5, 2.5, Color(1.0, 0.95, 0.6))
-		draw_line(fl[0], fl[0] + f * 6.0, Color(1.0, 0.8, 0.3), 2.0)
+		_draw_flash(fl)
+
+
+## Силуэт вспышки свой у каждого калибра; вариация сохранена до конца жизни.
+func _draw_flash(fl: Array) -> void:
+	var base: int = fl[3]
+	var c: Color = fl[4]
+	var scale_factor: float = fl[5]
+	draw_set_transform(fl[0], fl[1], Vector2.ONE * scale_factor)
+	var length := 6.0
+	var width := 2.0
+	match base:
+		WeaponDefs.Base.PISTOL:
+			length = 5.0
+			draw_line(Vector2(2, -3).rotated(fl[6]), Vector2(2, 3).rotated(fl[6]), c, 1.0)
+		WeaponDefs.Base.RIFLE:
+			length = 9.0
+			draw_line(Vector2(1, -4), Vector2(2, 4), c, 2.0)
+		WeaponDefs.Base.SMG:
+			length = 4.5
+			draw_rect(Rect2(-2, -2, 2, 4), Color(0.35, 0.36, 0.3))
+		WeaponDefs.Base.SHOTGUN:
+			length = 12.0
+			width = 6.0
+		WeaponDefs.Base.REVOLVER:
+			length = 5.0
+			width = 4.0
+		WeaponDefs.Base.SNIPER:
+			length = 20.0
+			width = 5.0
+			draw_arc(Vector2(6, 0), 10.0, 0.0, TAU, 16, Color(0.7, 0.67, 0.6, 0.3), 1.5)
+		WeaponDefs.Base.RAIL:
+			length = 11.0
+		WeaponDefs.Base.LAUNCHER:
+			length = 9.0
+			width = 4.0
+	var points := PackedVector2Array([Vector2(-1, 0), Vector2(2, -width), Vector2(length * 0.65, -width * 0.45), Vector2(length, 0), Vector2(length * 0.65, width * 0.45), Vector2(2, width)])
+	for k in points.size():
+		points[k] = points[k].rotated(fl[6])
+	draw_colored_polygon(points, c)
+	draw_line(Vector2.ZERO, Vector2(length * 0.6, 0), Color(1, 0.98, 0.85), 1.5)
+	PixelArt.draw_dot(self, Vector2(1, 0), 1.4, Color(1, 1, 0.95))
+	draw_set_transform(Vector2.ZERO)

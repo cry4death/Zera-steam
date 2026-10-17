@@ -1,0 +1,8 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+D3D12 12_0 - Forward+ - Using Device #0: AMD - AMD Radeon(TM) Graphics
+
+ERROR: Failed to read the root certificate store.
+   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2582)
+BENCH frames=441 avg_fps=43.8 avg_frame_ms=22.81 worst_frame_ms=144.34 horde_ms=5.84 enemies=498 kills=993
+BENCH process_ms=15.52 physics_ms=41.21 draw_calls=2559 objects=1886 gore=743 particles=1271 wet=235
+BENCH physics_avg_ms=32.88

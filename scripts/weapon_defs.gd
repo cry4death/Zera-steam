@@ -2,7 +2,7 @@ class_name WeaponDefs
 ## Данные модульного оружия (GDD §5, BALANCE.md §3–6): основы, патроны, модули, пассивки.
 ## Только описания и цифры — логика стрельбы в weapons.gd, выбор карт в progression.gd.
 
-enum Base { RIFLE, SHOTGUN, RAIL, LAUNCHER }
+enum Base { RIFLE, SHOTGUN, RAIL, LAUNCHER, PISTOL, REVOLVER, SMG, SNIPER }
 ## Патроны задают тип смерти (GDD §5.3).
 enum Ammo { STANDARD, EXPANSIVE, INCENDIARY, CRYO }
 enum Module { RICOCHET, PIERCE, SPLIT, DETONATOR, TWIN, CHAIN }
@@ -62,6 +62,42 @@ const BASES := {
 			{"damage": 10.0, "radius": 10.0, "reload_mul": 0.7, "text": "урон +10, радиус +10, перезарядка −30%"},
 		],
 	},
+	Base.PISTOL: {
+		"name": "Пистолет «Кольт»", "short": "Кольт", "desc": "Точная .45, быстрый магазин, +10% крит",
+		"damage": 14.0, "rate": 3.0, "mag": 7, "reload": 1.1, "range": 180.0, "spread": 2.0,
+		"speed": 450.0, "proj": 1, "knock": 35.0, "crit": 0.1,
+		"levels": [{}, {"damage": 4.0, "text": "урон +4"},
+			{"mag": 3, "rate_mul": 1.15, "text": "магазин +3, скорострельность +15%"},
+			{"crit": 0.1, "range": 20.0, "text": "+10% крит, дальность +20"},
+			{"damage": 8.0, "reload_mul": 0.7, "text": "урон +8, перезарядка −30%"}],
+	},
+	Base.REVOLVER: {
+		"name": "Револьвер «Бульдог»", "short": "Бульдог", "desc": "Пробивает одного насквозь, мощный отброс",
+		"damage": 30.0, "rate": 1.5, "mag": 6, "reload": 2.4, "range": 210.0, "spread": 3.0,
+		"speed": 460.0, "proj": 1, "knock": 90.0, "crit": 0.0, "pierce": 1,
+		"levels": [{}, {"damage": 10.0, "text": "урон +10"},
+			{"rate_mul": 1.2, "text": "скорострельность +20%"},
+			{"knock_mul": 1.5, "crit": 0.1, "text": "отброс ×1.5, +10% крит"},
+			{"damage": 16.0, "reload_mul": 0.75, "text": "урон +16, перезарядка −25%"}],
+	},
+	Base.SMG: {
+		"name": "ПП «ППШ»", "short": "ППШ", "desc": "Диск на 71 патрон, растущий разброс очереди",
+		"damage": 4.0, "rate": 14.0, "mag": 71, "reload": 2.6, "range": 165.0, "spread": 8.0,
+		"speed": 430.0, "proj": 1, "knock": 18.0, "crit": 0.0,
+		"levels": [{}, {"damage": 1.0, "text": "урон +1"},
+			{"mag": 20, "rate_mul": 1.1, "text": "магазин +20, скорострельность +10%"},
+			{"proj": 1, "text": "+1 пуля за выстрел"},
+			{"damage": 2.0, "reload_mul": 0.75, "text": "урон +2, перезарядка −25%"}],
+	},
+	Base.SNIPER: {
+		"name": "Винтовка «Мосинка»", "short": "Мосинка", "desc": "Затвор, пробивает троих, +15% крит",
+		"damage": 48.0, "rate": 0.8, "mag": 5, "reload": 3.0, "range": 360.0, "spread": 1.0,
+		"speed": 500.0, "proj": 1, "knock": 110.0, "crit": 0.15, "pierce": 3,
+		"levels": [{}, {"damage": 16.0, "text": "урон +16"},
+			{"mag": 2, "text": "магазин +2"},
+			{"rate_mul": 1.15, "crit": 0.1, "text": "скорострельность +15%, +10% крит"},
+			{"damage": 26.0, "reload_mul": 0.75, "text": "урон +26, перезарядка −25%"}],
+	},
 }
 
 ## Патроны: индексы совпадают с Weapon.Ammo (STANDARD, EXPANSIVE, INCENDIARY, CRYO).
@@ -113,7 +149,7 @@ const PROTOTYPES := [
 static func base_stats(base: int, level: int) -> Dictionary:
 	var d: Dictionary = BASES[base]
 	var s := {}
-	for k in ["damage", "rate", "mag", "reload", "range", "spread", "speed", "proj", "knock", "crit", "width", "radius"]:
+	for k in ["damage", "rate", "mag", "reload", "range", "spread", "speed", "proj", "knock", "crit", "width", "radius", "pierce"]:
 		if d.has(k):
 			s[k] = d[k]
 	var levels: Array = d["levels"]

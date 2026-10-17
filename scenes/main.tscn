@@ -1,4 +1,4 @@
-[gd_scene load_steps=22 format=3]
+[gd_scene load_steps=23 format=3]
 
 [ext_resource type="Script" path="res://scripts/game.gd" id="1_game"]
 [ext_resource type="Script" path="res://scripts/ground.gd" id="2_ground"]
@@ -21,6 +21,8 @@
 [ext_resource type="Script" path="res://scripts/alarm_overlay.gd" id="19_alarm_overlay"]
 [ext_resource type="Script" path="res://scripts/blood_alarm.gd" id="20_blood_alarm"]
 [ext_resource type="Script" path="res://scripts/pickups.gd" id="21_pickups"]
+
+[ext_resource type="Script" path="res://scripts/sfx.gd" id="22_sfx"]
 
 [node name="Main" type="Node2D"]
 script = ExtResource("1_game")
@@ -63,6 +65,9 @@ script = ExtResource("5_player")
 
 [node name="Weapons" type="Node2D" parent="World"]
 script = ExtResource("6_weapons")
+
+[node name="Sfx" type="Node" parent="."]
+script = ExtResource("22_sfx")
 
 [node name="Spawner" type="Node" parent="."]
 script = ExtResource("7_spawner")
