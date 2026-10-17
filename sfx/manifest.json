@@ -1,0 +1,508 @@
+{
+  "format": "PCM16 48000 Hz; shots stereo, other effects mono",
+  "seed": 104729,
+  "source_files": {
+    "1911/A_42P.wav": {
+      "sha256": "8e84438e771c157155a6a1ff47a6a7a7d81b6f39b185d41e426c57337a82254a",
+      "attacks_seconds": [
+        0.941438,
+        5.001542
+      ],
+      "source_samples_at_full_scale": 444
+    },
+    "Smith & Wesson 642/V_27P.wav": {
+      "sha256": "dc9a11f7e6544139f38cadccf3373fed733f2e000caca1b2328575293838fc58",
+      "attacks_seconds": [
+        0.805375,
+        6.218667
+      ],
+      "source_samples_at_full_scale": 147
+    },
+    "PPSh/P_30P.wav": {
+      "sha256": "75621034e31c390edc44c963e00d44c995fb62ebcb11bec36ad7a752fafd4346",
+      "attacks_seconds": [
+        0.968854,
+        4.387208,
+        8.242583,
+        11.421271,
+        15.090063
+      ],
+      "source_samples_at_full_scale": 537
+    },
+    "AK-47/C_28P.wav": {
+      "sha256": "e0934c1d79192d2216db62fdf6ab57bf9d5d585267af367a1cfb21f0972a537d",
+      "attacks_seconds": [
+        0.611167,
+        3.257354,
+        6.020667,
+        9.156187
+      ],
+      "source_samples_at_full_scale": 571
+    },
+    "Mosin Nagant/M_21P.wav": {
+      "sha256": "970ed2322ba61579dc8afaefb4f25e6ae791a3acb1e6e23372ea948cfe2a97b3",
+      "attacks_seconds": [
+        1.033792,
+        5.019771,
+        9.155625,
+        14.137208
+      ],
+      "source_samples_at_full_scale": 361
+    },
+    "Nova/O_21P.wav": {
+      "sha256": "5661d0625e4634f19e6e316c13693b80c8e28cd9f716cf9c75c465153ae40815",
+      "attacks_seconds": [
+        0.430937,
+        3.465458
+      ],
+      "source_samples_at_full_scale": 341
+    }
+  },
+  "files": [
+    {
+      "file": "weapons/pistol/shot_0.wav",
+      "source": "1911/A_42P.wav",
+      "take": 1,
+      "attack_s": 0.941438,
+      "crop_start_s": 0.939937,
+      "crop_end_s": 1.589938,
+      "pitch_ratio": 1.0,
+      "eq_tilt": 0.0,
+      "rms100_target_db": -25
+    },
+    {
+      "file": "weapons/pistol/shot_1.wav",
+      "source": "1911/A_42P.wav",
+      "take": 2,
+      "attack_s": 5.001542,
+      "crop_start_s": 5.000042,
+      "crop_end_s": 5.650042,
+      "pitch_ratio": 1.0,
+      "eq_tilt": 0.0,
+      "rms100_target_db": -25
+    },
+    {
+      "file": "weapons/pistol/shot_2.wav",
+      "source": "1911/A_42P.wav",
+      "take": 1,
+      "attack_s": 0.941438,
+      "crop_start_s": 0.939937,
+      "crop_end_s": 1.589938,
+      "pitch_ratio": 0.982,
+      "eq_tilt": -0.055,
+      "rms100_target_db": -25
+    },
+    {
+      "file": "weapons/pistol/shot_3.wav",
+      "source": "1911/A_42P.wav",
+      "take": 2,
+      "attack_s": 5.001542,
+      "crop_start_s": 5.000042,
+      "crop_end_s": 5.650042,
+      "pitch_ratio": 1.021,
+      "eq_tilt": 0.055,
+      "rms100_target_db": -25
+    },
+    {
+      "file": "weapons/revolver/shot_0.wav",
+      "source": "Smith & Wesson 642/V_27P.wav",
+      "take": 1,
+      "attack_s": 0.805375,
+      "crop_start_s": 0.803875,
+      "crop_end_s": 1.653875,
+      "pitch_ratio": 1.0,
+      "eq_tilt": 0.0,
+      "rms100_target_db": -24
+    },
+    {
+      "file": "weapons/revolver/shot_1.wav",
+      "source": "Smith & Wesson 642/V_27P.wav",
+      "take": 2,
+      "attack_s": 6.218667,
+      "crop_start_s": 6.217167,
+      "crop_end_s": 7.067167,
+      "pitch_ratio": 1.0,
+      "eq_tilt": 0.0,
+      "rms100_target_db": -24
+    },
+    {
+      "file": "weapons/revolver/shot_2.wav",
+      "source": "Smith & Wesson 642/V_27P.wav",
+      "take": 1,
+      "attack_s": 0.805375,
+      "crop_start_s": 0.803875,
+      "crop_end_s": 1.653875,
+      "pitch_ratio": 0.982,
+      "eq_tilt": -0.055,
+      "rms100_target_db": -24
+    },
+    {
+      "file": "weapons/revolver/shot_3.wav",
+      "source": "Smith & Wesson 642/V_27P.wav",
+      "take": 2,
+      "attack_s": 6.218667,
+      "crop_start_s": 6.217167,
+      "crop_end_s": 7.067167,
+      "pitch_ratio": 1.021,
+      "eq_tilt": 0.055,
+      "rms100_target_db": -24
+    },
+    {
+      "file": "weapons/smg/shot_0.wav",
+      "source": "PPSh/P_30P.wav",
+      "take": 1,
+      "attack_s": 0.968854,
+      "crop_start_s": 0.967354,
+      "crop_end_s": 1.167354,
+      "pitch_ratio": 1.0,
+      "eq_tilt": 0.0,
+      "rms100_target_db": -26
+    },
+    {
+      "file": "weapons/smg/shot_1.wav",
+      "source": "PPSh/P_30P.wav",
+      "take": 2,
+      "attack_s": 4.387208,
+      "crop_start_s": 4.385708,
+      "crop_end_s": 4.585708,
+      "pitch_ratio": 1.0,
+      "eq_tilt": 0.0,
+      "rms100_target_db": -26
+    },
+    {
+      "file": "weapons/smg/shot_2.wav",
+      "source": "PPSh/P_30P.wav",
+      "take": 3,
+      "attack_s": 8.242583,
+      "crop_start_s": 8.241083,
+      "crop_end_s": 8.441083,
+      "pitch_ratio": 1.0,
+      "eq_tilt": 0.0,
+      "rms100_target_db": -26
+    },
+    {
+      "file": "weapons/smg/shot_3.wav",
+      "source": "PPSh/P_30P.wav",
+      "take": 4,
+      "attack_s": 11.421271,
+      "crop_start_s": 11.419771,
+      "crop_end_s": 11.619771,
+      "pitch_ratio": 1.0,
+      "eq_tilt": 0.0,
+      "rms100_target_db": -26
+    },
+    {
+      "file": "weapons/smg/shot_4.wav",
+      "source": "PPSh/P_30P.wav",
+      "take": 5,
+      "attack_s": 15.090063,
+      "crop_start_s": 15.088563,
+      "crop_end_s": 15.288562,
+      "pitch_ratio": 1.0,
+      "eq_tilt": 0.0,
+      "rms100_target_db": -26
+    },
+    {
+      "file": "weapons/rifle/shot_0.wav",
+      "source": "AK-47/C_28P.wav",
+      "take": 1,
+      "attack_s": 0.611167,
+      "crop_start_s": 0.609667,
+      "crop_end_s": 0.849667,
+      "pitch_ratio": 1.0,
+      "eq_tilt": 0.0,
+      "rms100_target_db": -23
+    },
+    {
+      "file": "weapons/rifle/shot_1.wav",
+      "source": "AK-47/C_28P.wav",
+      "take": 2,
+      "attack_s": 3.257354,
+      "crop_start_s": 3.255854,
+      "crop_end_s": 3.495854,
+      "pitch_ratio": 1.0,
+      "eq_tilt": 0.0,
+      "rms100_target_db": -23
+    },
+    {
+      "file": "weapons/rifle/shot_2.wav",
+      "source": "AK-47/C_28P.wav",
+      "take": 3,
+      "attack_s": 6.020667,
+      "crop_start_s": 6.019167,
+      "crop_end_s": 6.259167,
+      "pitch_ratio": 1.0,
+      "eq_tilt": 0.0,
+      "rms100_target_db": -23
+    },
+    {
+      "file": "weapons/rifle/shot_3.wav",
+      "source": "AK-47/C_28P.wav",
+      "take": 4,
+      "attack_s": 9.156187,
+      "crop_start_s": 9.154687,
+      "crop_end_s": 9.394687,
+      "pitch_ratio": 1.0,
+      "eq_tilt": 0.0,
+      "rms100_target_db": -23
+    },
+    {
+      "file": "weapons/sniper/shot_0.wav",
+      "source": "Mosin Nagant/M_21P.wav",
+      "take": 1,
+      "attack_s": 1.033792,
+      "crop_start_s": 1.032292,
+      "crop_end_s": 2.232292,
+      "pitch_ratio": 1.0,
+      "eq_tilt": 0.0,
+      "rms100_target_db": -21
+    },
+    {
+      "file": "weapons/sniper/shot_1.wav",
+      "source": "Mosin Nagant/M_21P.wav",
+      "take": 2,
+      "attack_s": 5.019771,
+      "crop_start_s": 5.018271,
+      "crop_end_s": 6.218271,
+      "pitch_ratio": 1.0,
+      "eq_tilt": 0.0,
+      "rms100_target_db": -21
+    },
+    {
+      "file": "weapons/sniper/shot_2.wav",
+      "source": "Mosin Nagant/M_21P.wav",
+      "take": 3,
+      "attack_s": 9.155625,
+      "crop_start_s": 9.154125,
+      "crop_end_s": 10.354125,
+      "pitch_ratio": 1.0,
+      "eq_tilt": 0.0,
+      "rms100_target_db": -21
+    },
+    {
+      "file": "weapons/sniper/shot_3.wav",
+      "source": "Mosin Nagant/M_21P.wav",
+      "take": 4,
+      "attack_s": 14.137208,
+      "crop_start_s": 14.135708,
+      "crop_end_s": 15.335708,
+      "pitch_ratio": 1.0,
+      "eq_tilt": 0.0,
+      "rms100_target_db": -21
+    },
+    {
+      "file": "weapons/shotgun/shot_0.wav",
+      "source": "Nova/O_21P.wav",
+      "take": 1,
+      "attack_s": 0.430937,
+      "crop_start_s": 0.429438,
+      "crop_end_s": 1.479437,
+      "pitch_ratio": 1.0,
+      "eq_tilt": 0.0,
+      "rms100_target_db": -22
+    },
+    {
+      "file": "weapons/shotgun/shot_1.wav",
+      "source": "Nova/O_21P.wav",
+      "take": 2,
+      "attack_s": 3.465458,
+      "crop_start_s": 3.463958,
+      "crop_end_s": 4.513958,
+      "pitch_ratio": 1.0,
+      "eq_tilt": 0.0,
+      "rms100_target_db": -22
+    },
+    {
+      "file": "weapons/shotgun/shot_2.wav",
+      "source": "Nova/O_21P.wav",
+      "take": 1,
+      "attack_s": 0.430937,
+      "crop_start_s": 0.429438,
+      "crop_end_s": 1.479437,
+      "pitch_ratio": 0.982,
+      "eq_tilt": -0.055,
+      "rms100_target_db": -22
+    },
+    {
+      "file": "weapons/shotgun/shot_3.wav",
+      "source": "Nova/O_21P.wav",
+      "take": 2,
+      "attack_s": 3.465458,
+      "crop_start_s": 3.463958,
+      "crop_end_s": 4.513958,
+      "pitch_ratio": 1.021,
+      "eq_tilt": 0.055,
+      "rms100_target_db": -22
+    },
+    {
+      "file": "casings/brass_small_0.wav",
+      "source": "synthesis: brass_small, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 104729
+    },
+    {
+      "file": "casings/brass_small_1.wav",
+      "source": "synthesis: brass_small, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 104730
+    },
+    {
+      "file": "casings/brass_small_2.wav",
+      "source": "synthesis: brass_small, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 104731
+    },
+    {
+      "file": "casings/brass_small_3.wav",
+      "source": "synthesis: brass_small, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 104732
+    },
+    {
+      "file": "casings/brass_small_4.wav",
+      "source": "synthesis: brass_small, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 104733
+    },
+    {
+      "file": "casings/brass_small_5.wav",
+      "source": "synthesis: brass_small, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 104734
+    },
+    {
+      "file": "casings/brass_rifle_0.wav",
+      "source": "synthesis: brass_rifle, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 104829
+    },
+    {
+      "file": "casings/brass_rifle_1.wav",
+      "source": "synthesis: brass_rifle, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 104830
+    },
+    {
+      "file": "casings/brass_rifle_2.wav",
+      "source": "synthesis: brass_rifle, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 104831
+    },
+    {
+      "file": "casings/brass_rifle_3.wav",
+      "source": "synthesis: brass_rifle, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 104832
+    },
+    {
+      "file": "casings/brass_rifle_4.wav",
+      "source": "synthesis: brass_rifle, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 104833
+    },
+    {
+      "file": "casings/brass_rifle_5.wav",
+      "source": "synthesis: brass_rifle, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 104834
+    },
+    {
+      "file": "casings/shell_0.wav",
+      "source": "synthesis: shell, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 104929
+    },
+    {
+      "file": "casings/shell_1.wav",
+      "source": "synthesis: shell, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 104930
+    },
+    {
+      "file": "casings/shell_2.wav",
+      "source": "synthesis: shell, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 104931
+    },
+    {
+      "file": "casings/shell_3.wav",
+      "source": "synthesis: shell, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 104932
+    },
+    {
+      "file": "casings/shell_4.wav",
+      "source": "synthesis: shell, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 104933
+    },
+    {
+      "file": "casings/shell_5.wav",
+      "source": "synthesis: shell, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 104934
+    },
+    {
+      "file": "casings/mag_drop_0.wav",
+      "source": "synthesis: mag_drop, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 105029
+    },
+    {
+      "file": "casings/mag_drop_1.wav",
+      "source": "synthesis: mag_drop, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 105030
+    },
+    {
+      "file": "casings/mag_drop_2.wav",
+      "source": "synthesis: mag_drop, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 105031
+    },
+    {
+      "file": "casings/mag_drop_3.wav",
+      "source": "synthesis: mag_drop, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 105032
+    },
+    {
+      "file": "casings/mag_drop_4.wav",
+      "source": "synthesis: mag_drop, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 105033
+    },
+    {
+      "file": "casings/mag_drop_5.wav",
+      "source": "synthesis: mag_drop, 5 inharmonic modes, 3 impacts + grit",
+      "seed": 105034
+    },
+    {
+      "file": "explosions/grenade_0.wav",
+      "source": "synthesis: 49-66 Hz sub, filtered blast, rumble, reflections, debris",
+      "seed": 105729
+    },
+    {
+      "file": "explosions/grenade_1.wav",
+      "source": "synthesis: 49-66 Hz sub, filtered blast, rumble, reflections, debris",
+      "seed": 105730
+    },
+    {
+      "file": "explosions/grenade_2.wav",
+      "source": "synthesis: 49-66 Hz sub, filtered blast, rumble, reflections, debris",
+      "seed": 105731
+    },
+    {
+      "file": "explosions/grenade_3.wav",
+      "source": "synthesis: 49-66 Hz sub, filtered blast, rumble, reflections, debris",
+      "seed": 105732
+    },
+    {
+      "file": "weapons/launcher/shot_0.wav",
+      "source": "weapons/shotgun/shot_0.wav + synthesized thump",
+      "pitch_ratio": 0.57
+    },
+    {
+      "file": "weapons/rail/shot_0.wav",
+      "source": "synthesis: broadband electrical crack + descending whip",
+      "seed": 106729
+    },
+    {
+      "file": "weapons/launcher/shot_1.wav",
+      "source": "weapons/shotgun/shot_1.wav + synthesized thump",
+      "pitch_ratio": 0.585
+    },
+    {
+      "file": "weapons/rail/shot_1.wav",
+      "source": "synthesis: broadband electrical crack + descending whip",
+      "seed": 106730
+    },
+    {
+      "file": "weapons/launcher/shot_2.wav",
+      "source": "weapons/shotgun/shot_2.wav + synthesized thump",
+      "pitch_ratio": 0.6
+    },
+    {
+      "file": "weapons/rail/shot_2.wav",
+      "source": "synthesis: broadband electrical crack + descending whip",
+      "seed": 106731
+    }
+  ]
+}

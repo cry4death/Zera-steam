@@ -1,0 +1,30 @@
+[
+  {
+    "gun": "smg",
+    "hz": 10,
+    "peak_dbfs": -6.602,
+    "cycle_rms_spread_db": 0.002,
+    "clipped_samples": 0
+  },
+  {
+    "gun": "smg",
+    "hz": 15,
+    "peak_dbfs": -6.61,
+    "cycle_rms_spread_db": 0.004,
+    "clipped_samples": 0
+  },
+  {
+    "gun": "rifle",
+    "hz": 10,
+    "peak_dbfs": -6.279,
+    "cycle_rms_spread_db": 0.007,
+    "clipped_samples": 0
+  },
+  {
+    "gun": "rifle",
+    "hz": 15,
+    "peak_dbfs": -6.242,
+    "cycle_rms_spread_db": 0.006,
+    "clipped_samples": 0
+  }
+]
