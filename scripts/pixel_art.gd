@@ -8,9 +8,9 @@ class_name PixelArt
 const ART_SCALE := 1.0 / 3.0
 const ART_DENSITY := 3.0 # пикселей арта на игровую единицу
 const CELL := Vector2(48, 48) # ячейка персонажа в листах
-const VARIANT_COUNT := 4
+const VARIANT_COUNT := 7
 const ANIM_FRAMES := 4
-const VARIANT_NAMES := ["гражданский", "учёный", "солдат", "рабочий"]
+const VARIANT_NAMES := ["гражданский", "учёный", "солдат", "рабочий", "бегун", "толстяк", "плевальщик"]
 const CORPSE_POSES := 3
 
 ## Биты ран на живом зомби (столбец атласа).

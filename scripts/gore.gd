@@ -95,7 +95,7 @@ func _ready() -> void:
 		_t_head.append(_load("gib_head_%d" % v))
 		_t_arm.append(_load("gib_arm_%d" % v))
 		_t_torso.append(_load("gib_torso_%d" % v))
-	_shirt.assign([Color("4d6074"), Color("c9cbc1"), Color("515a3a"), Color("d26c24")])
+	_shirt.assign([Color("4d6074"), Color("c9cbc1"), Color("515a3a"), Color("d26c24"), Color("323235"), Color("b2a88a"), Color("56683b")])
 	for pose in PixelArt.CORPSE_POSES:
 		_t_burnt.append(_load("corpse_burnt_%d" % pose))
 	_t_bone = _load("gib_bone")
@@ -136,6 +136,9 @@ func _corpse_tex(list: Array[int], v: int) -> int:
 # --- реакция на события орды -------------------------------------------------
 
 func on_enemy_killed(p: Vector2, dir: Vector2, death: int, facing: float, v: int) -> void:
+	if v == 6:
+		# Капли кислоты вперемешку с обычной кровью при любом типе смерти.
+		_acid_drops(p, 12)
 	match death:
 		Death.HEADSHOT:
 			_death_headshot(p, dir, v)
@@ -155,6 +158,8 @@ func on_enemy_killed(p: Vector2, dir: Vector2, death: int, facing: float, v: int
 
 ## Попадание без смерти: клочья одежды.
 func on_enemy_hit(p: Vector2, dir: Vector2, v: int) -> void:
+	if v == 6:
+		_acid_drops(p, 3)
 	if randf() < 0.3:
 		var c := _shirt[v].darkened(randf_range(0.0, 0.3))
 		effects.emit(p, dir.rotated(randf_range(-0.8, 0.8)) * randf_range(40.0, 90.0), randf_range(0.6, 1.2), c, 1.0, 6.0)
@@ -162,6 +167,8 @@ func on_enemy_hit(p: Vector2, dir: Vector2, v: int) -> void:
 
 ## Новая стадия раны: что-то отлетает с той стороны, куда попали.
 func on_enemy_wounded(p: Vector2, dir: Vector2, facing: float, v: int, stage: int, wound: int) -> void:
+	if v == 6:
+		_acid_drops(p, 4 + stage * 2)
 	effects.blood_burst(p, dir, 4 + stage * 3, 90.0, 0.7)
 	if wound & PixelArt.WOUND_ARM_L or wound & PixelArt.WOUND_ARM_R:
 		var side := -1.0 if wound & PixelArt.WOUND_ARM_L else 1.0
@@ -177,6 +184,13 @@ func on_enemy_wounded(p: Vector2, dir: Vector2, facing: float, v: int, stage: in
 			var tid: int = _t_skull if i == 0 else _t_meat.pick_random()
 			_add(Kind.GIB, tid, p, dir.rotated(randf_range(-0.7, 0.7)) * randf_range(60.0, 140.0), randf() * TAU, randf_range(-16.0, 16.0), Color.WHITE, 6.0, i > 0)
 		_add(Kind.GIB, _t_guts.pick_random(), p, -dir * 20.0, randf() * TAU, 3.0, Color.WHITE, 8.0, true)
+
+
+## Только визуальные капли; опасные лужи создаёт Hazards в S2.
+func _acid_drops(p: Vector2, n: int) -> void:
+	for j in n:
+		var velocity := Vector2.from_angle(randf() * TAU) * randf_range(35.0, 120.0)
+		effects.emit(p, velocity, randf_range(0.3, 0.7), Color(0.29, 0.40, 0.12), randf_range(0.7, 1.3), 5.0, true)
 
 
 # --- типы смерти -------------------------------------------------------------
@@ -200,16 +214,23 @@ func _death_headshot(p: Vector2, dir: Vector2, v: int) -> void:
 
 
 func _death_gibs(p: Vector2, dir: Vector2, v: int) -> void:
-	effects.blood_burst(p, dir, 30, 210.0, 1.3)
+	var bursts := 2 if v == 5 else 1
+	for j in bursts:
+		var burst_dir := Vector2.from_angle(randf() * TAU) if v == 5 else dir
+		effects.blood_burst(p, burst_dir, 30, 210.0, 1.3)
+	if v == 5:
+		floor_decals.pool(_splats.pick_random(), p + Vector2.from_angle(randf() * TAU) * 8.0, randf() * TAU, 1.4)
+		floor_decals.blood(_sprays.pick_random(), p - dir * 10.0, dir.angle() + PI, 1.1, 0.6)
 	floor_decals.pool(_splats.pick_random(), p, randf() * TAU, 1.4)
 	floor_decals.blood(_sprays.pick_random(), p + dir * 10.0, dir.angle(), 1.1, 0.6)
 	var parts: Array[int] = [_t_head[v], _t_arm[v], _t_arm[v], _t_torso[v], _t_rib, _t_spine, _t_bone, _t_brain, _t_jaw, _t_eye]
-	for i in 2:
+	for i in 4 if v == 5 else 2:
 		parts.append(_t_guts.pick_random())
 	for i in 4:
 		parts.append(_t_meat.pick_random())
 	for t in parts:
-		var vel := dir.rotated(randf_range(-1.3, 1.3)) * randf_range(60.0, 230.0)
+		var out := Vector2.from_angle(randf() * TAU) if v == 5 else dir.rotated(randf_range(-1.3, 1.3))
+		var vel := out * randf_range(60.0, 230.0)
 		var bloody := t != _t_bone and t != _t_rib and t != _t_spine
 		_add(Kind.GIB, t, p + Vector2(randf_range(-3, 3), randf_range(-3, 3)), vel, randf() * TAU, randf_range(-18.0, 18.0), Color.WHITE, 4.5, bloody)
 	splatter.emit(p, 1.0)

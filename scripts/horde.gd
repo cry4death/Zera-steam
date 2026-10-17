@@ -2,12 +2,33 @@ class_name Horde
 extends Node2D
 ## Орда: каждый зомби — строка в packed-массивах, без отдельных нод.
 ## Движение к игроку, расталкивание через spatial hash, рендер одним MultiMesh.
-## Статы — BALANCE.md §2 (пока только шаркающий). Раны — GDD §6.4.
+## Статы — BALANCE.md §2. Раны — GDD §6.4.
 
 signal enemy_killed(pos: Vector2, dir: Vector2, death: int, facing: float, variant: int)
+signal enemy_died(pos: Vector2, kind: int, is_elite: bool)
+signal spit_fired(from: Vector2, to: Vector2, damage: float)
+signal fat_burst(pos: Vector2, is_elite: bool)
 signal enemy_wounded(pos: Vector2, dir: Vector2, facing: float, variant: int, stage: int, wound: int)
 signal enemy_hit(pos: Vector2, dir: Vector2, variant: int)
 signal player_touched(damage: float)
+
+enum Kind { SHAMBLER, RUNNER, FAT, SPITTER }
+
+const KINDS := [
+	{"hp": 10.0, "speed": 28.0, "damage": 6.0, "xp": 1, "credit_chance": 0.06, "credits": 1},
+	{"hp": 6.0, "speed": 88.0, "damage": 4.0, "xp": 1, "credit_chance": 0.06, "credits": 1},
+	{"hp": 60.0, "speed": 20.0, "damage": 10.0, "xp": 4, "credit_chance": 0.40, "credits": 2},
+	{"hp": 15.0, "speed": 34.0, "damage": 5.0, "xp": 2, "credit_chance": 0.20, "credits": 2},
+]
+const ELITE_HP := 5.0
+const ELITE_DAMAGE := 1.3
+const ELITE_SCALE := 1.5
+const ELITE_SPEED := 1.1
+const ELITE_XP := 25
+const ELITE_CREDITS := 10
+const TOUCH_COOLDOWN := 0.8
+const SPIT_COOLDOWN := 3.0
+const SPIT_WINDUP := 0.3
 
 const MAX_ENEMIES := 2000
 const RADIUS := 5.0
@@ -20,9 +41,6 @@ const BLOODY_STEPS := 8
 const STAGE_THRESHOLDS := [0.75, 0.5, 0.25]
 const VARIANT_WEIGHTS := [0.4, 0.2, 0.2, 0.2]
 
-@export var base_hp := 10.0
-@export var base_speed := 28.0
-@export var contact_damage := 6.0
 @export var hp_growth_per_min := 0.12
 @export var damage_growth_per_min := 0.05
 
@@ -45,6 +63,12 @@ var speed := PackedFloat32Array()
 var angle := PackedFloat32Array()
 var flash := PackedFloat32Array()
 var dead := PackedByteArray()
+var kind := PackedByteArray()
+var elite := PackedByteArray()
+var radius := PackedFloat32Array()
+var touch_cd := PackedFloat32Array()
+var spit_cd := PackedFloat32Array()
+var spit_windup := PackedFloat32Array()
 var variant := PackedByteArray()
 var stage := PackedByteArray()
 var wounds := PackedByteArray() # биты PixelArt.WOUND_*
@@ -85,6 +109,12 @@ func _ready() -> void:
 	angle.resize(MAX_ENEMIES)
 	flash.resize(MAX_ENEMIES)
 	dead.resize(MAX_ENEMIES)
+	kind.resize(MAX_ENEMIES)
+	elite.resize(MAX_ENEMIES)
+	radius.resize(MAX_ENEMIES)
+	touch_cd.resize(MAX_ENEMIES)
+	spit_cd.resize(MAX_ENEMIES)
+	spit_windup.resize(MAX_ENEMIES)
 	variant.resize(MAX_ENEMIES)
 	stage.resize(MAX_ENEMIES)
 	wounds.resize(MAX_ENEMIES)
@@ -117,6 +147,7 @@ func _ready() -> void:
 	mmi.texture = PixelArt.tex("zombie_atlas")
 	var mat := ShaderMaterial.new()
 	mat.shader = preload("res://shaders/flash.gdshader")
+	mat.set_shader_parameter("rows", float(PixelArt.VARIANT_COUNT * PixelArt.ANIM_FRAMES))
 	mmi.material = mat
 	add_child(mmi)
 
@@ -130,20 +161,28 @@ func setup(arena_rect: Rect2, target: Player, floor_layer: FloorDecals) -> void:
 	_head.resize(_grid_w * _grid_h)
 
 
-func spawn(p: Vector2) -> void:
+func spawn(p: Vector2, k := Kind.SHAMBLER, is_elite := false) -> int:
 	if count >= MAX_ENEMIES:
-		return
+		return -1
 	var i := count
 	count += 1
-	pos[i] = p.clamp(arena.position + Vector2.ONE * RADIUS, arena.end - Vector2.ONE * RADIUS)
+	kind[i] = k
+	elite[i] = 1 if is_elite else 0
+	radius[i] = RADIUS * (ELITE_SCALE if is_elite else 1.0)
+	touch_cd[i] = 0.0
+	spit_cd[i] = randf_range(SPIT_WINDUP, SPIT_COOLDOWN) if k == Kind.SPITTER else 0.0
+	spit_windup[i] = 0.0
+	pos[i] = p.clamp(arena.position + Vector2.ONE * radius[i], arena.end - Vector2.ONE * radius[i])
 	knock[i] = Vector2.ZERO
-	hp[i] = base_hp * (1.0 + hp_growth_per_min * minutes)
+	hp[i] = KINDS[k]["hp"] * (1.0 + hp_growth_per_min * minutes) * (ELITE_HP if is_elite else 1.0)
 	max_hp[i] = hp[i]
-	speed[i] = base_speed * randf_range(0.85, 1.2)
+	# Даже самый медленный бегун быстрее базовых 80 px/с игрока.
+	var spread := randf_range(0.95, 1.1) if k == Kind.RUNNER else randf_range(0.85, 1.2)
+	speed[i] = KINDS[k]["speed"] * spread * (ELITE_SPEED if is_elite else 1.0)
 	angle[i] = 0.0
 	flash[i] = 0.0
 	dead[i] = 0
-	variant[i] = _pick_variant()
+	variant[i] = _pick_variant() if k == Kind.SHAMBLER else k + 3
 	stage[i] = 0
 	wounds[i] = 0
 	holes[i] = 0.0
@@ -160,6 +199,7 @@ func spawn(p: Vector2) -> void:
 	chill_hits[i] = 0
 	freeze_t[i] = 0.0
 	shatter[i] = 0
+	return i
 
 
 static func _pick_variant() -> int:
@@ -181,10 +221,10 @@ func spawn_point(center: Vector2) -> Vector2:
 	return (center + Vector2.from_angle(randf() * TAU) * spawn_ring).clamp(inner.position, inner.end)
 
 
-func spawn_group(center: Vector2, n: int) -> void:
+func spawn_group(center: Vector2, n: int, k := Kind.SHAMBLER) -> void:
 	var origin := spawn_point(center)
-	for k in n:
-		spawn(origin + Vector2(randf_range(-20.0, 20.0), randf_range(-20.0, 20.0)))
+	for j in n:
+		spawn(origin + Vector2(randf_range(-20.0, 20.0), randf_range(-20.0, 20.0)), k)
 
 
 ## Возвращает true, если враг умер. Тип смерти зависит от патронов, крита и оверкилла.
@@ -197,14 +237,19 @@ func damage(i: int, amount: float, dir: Vector2, knockback: float, ammo := Weapo
 		amount *= 1.25 # замёрзших бьёт сильнее
 	hp[i] -= amount
 	flash[i] = 1.0
-	knock[i] += dir * knockback
+	knock[i] += dir * knockback * (0.3 if kind[i] == Kind.FAT else 1.0)
 	holes[i] = minf(holes[i] + 0.12, 1.0)
 	if hp[i] <= 0.0:
 		dead[i] = 1
 		var death := death_override if death_override >= 0 else _death_type(ammo, crit, amount >= max_hp[i] or explosive)
 		if freeze_t[i] > 0.0 and death_override < 0:
 			death = Gore.Death.ICE # замёрзший всегда раскалывается
+		if kind[i] == Kind.FAT:
+			death = Gore.Death.GIBS # лопается даже от огня, крио и отладочной смерти
 		enemy_killed.emit(pos[i], dir, death, angle[i], variant[i])
+		enemy_died.emit(pos[i], kind[i], elite[i] == 1)
+		if kind[i] == Kind.FAT:
+			fat_burst.emit(pos[i], elite[i] == 1)
 		_on_death_status(i)
 		return true
 	if dir != Vector2.ZERO: # от огня (без направления) клочья не летят
@@ -279,15 +324,14 @@ func chill_hit(i: int, slow: float, need: int, shatter_on := false, instant := f
 ## Живые зомби в радиусе r от точки p.
 func query_radius(p: Vector2, r: float) -> PackedInt32Array:
 	var out := PackedInt32Array()
-	var rr := (r + RADIUS) * (r + RADIUS)
-	var cr := ceili((r + RADIUS) / CELL)
+	var cr := ceili((r + RADIUS * ELITE_SCALE) / CELL)
 	var cx := int(p.x / CELL)
 	var cy := int(p.y / CELL)
 	for y in range(maxi(cy - cr, 0), mini(cy + cr + 1, _grid_h)):
 		for x in range(maxi(cx - cr, 0), mini(cx + cr + 1, _grid_w)):
 			var j := _head[x + y * _grid_w]
 			while j != -1:
-				if j < count and dead[j] == 0 and pos[j].distance_squared_to(p) <= rr:
+				if j < count and dead[j] == 0 and pos[j].distance_squared_to(p) <= (r + radius[j]) * (r + radius[j]):
 					out.append(j)
 				j = _next[j]
 	return out
@@ -324,18 +368,18 @@ func _death_type(ammo: int, crit: bool, overkill: bool) -> int:
 
 ## Первый живой враг, пересекающий круг (p, r), или -1.
 func find_hit(p: Vector2, r: float) -> int:
-	var rr := (RADIUS + r) * (RADIUS + r)
+	var cr := ceili((r + RADIUS * ELITE_SCALE) / CELL)
 	var cx := int(p.x / CELL)
 	var cy := int(p.y / CELL)
-	for y in range(cy - 1, cy + 2):
+	for y in range(cy - cr, cy + cr + 1):
 		if y < 0 or y >= _grid_h:
 			continue
-		for x in range(cx - 1, cx + 2):
+		for x in range(cx - cr, cx + cr + 1):
 			if x < 0 or x >= _grid_w:
 				continue
 			var j := _head[x + y * _grid_w]
 			while j != -1:
-				if j < count and dead[j] == 0 and pos[j].distance_squared_to(p) <= rr:
+				if j < count and dead[j] == 0 and pos[j].distance_squared_to(p) <= (r + radius[j]) * (r + radius[j]):
 					return j
 				j = _next[j]
 	return -1
@@ -372,13 +416,14 @@ func _physics_process(delta: float) -> void:
 
 func _move(delta: float) -> void:
 	var ppos := player.global_position
-	var touch_r := Player.RADIUS + RADIUS
-	var touch_r2 := (touch_r + 1.0) * (touch_r + 1.0)
-	var lo := arena.position + Vector2.ONE * RADIUS
-	var hi := arena.end - Vector2.ONE * RADIUS
 	var decay := exp(-10.0 * delta)
-	var touching := false
+	var touch_damage := 0.0
+	var damage_scale := 1.0 + damage_growth_per_min * minutes
 	for i in count:
+		if dead[i] == 1:
+			continue
+		touch_cd[i] = maxf(touch_cd[i] - delta, 0.0)
+		var frozen := freeze_t[i] > 0.0
 		var p := pos[i]
 		var old := p
 		var to := ppos - p
@@ -401,16 +446,37 @@ func _move(delta: float) -> void:
 			burn_t[i] -= delta
 			if dead[i] == 0:
 				damage(i, burn_dps[i] * delta, Vector2.ZERO, 0.0, WeaponDefs.Ammo.INCENDIARY)
-		p += dir * spd * delta + k * delta
+		if dead[i] == 1: # огонь мог убить в этом кадре
+			continue
+		var move_dir := dir
+		if kind[i] == Kind.SPITTER:
+			spit_cd[i] = maxf(spit_cd[i] - delta, 0.0)
+			move_dir = -dir if d < 130.0 else (dir if d > 170.0 else Vector2.ZERO)
+			if not frozen:
+				if spit_windup[i] > 0.0:
+					spit_windup[i] = maxf(spit_windup[i] - delta, 0.0)
+					move_dir = Vector2.ZERO
+					if spit_windup[i] == 0.0:
+						if d >= 90.0 and d <= 260.0:
+							spit_fired.emit(p, ppos, 10.0 * damage_scale * (ELITE_DAMAGE if elite[i] == 1 else 1.0))
+				elif spit_cd[i] <= 0.0 and d >= 90.0 and d <= 260.0:
+					spit_windup[i] = SPIT_WINDUP
+					spit_cd[i] = SPIT_COOLDOWN
+					move_dir = Vector2.ZERO
+		p += move_dir * spd * delta + k * delta
 		knock[i] = k * decay
 		# игрок «тяжёлый»: выталкивает зомби из себя
 		var away := p - ppos
 		var ad2 := away.length_squared()
-		if ad2 < touch_r2:
-			touching = true
+		var touch_r := Player.RADIUS + radius[i]
+		if ad2 < (touch_r + 1.0) * (touch_r + 1.0):
+			if touch_cd[i] <= 0.0 and not frozen:
+				var hit_damage: float = KINDS[kind[i]]["damage"] * damage_scale * (ELITE_DAMAGE if elite[i] == 1 else 1.0)
+				touch_damage = maxf(touch_damage, hit_damage)
+				touch_cd[i] = TOUCH_COOLDOWN
 			if ad2 > 0.0001 and ad2 < touch_r * touch_r:
 				p = ppos + away / sqrt(ad2) * touch_r
-		p = p.clamp(lo, hi)
+		p = p.clamp(arena.position + Vector2.ONE * radius[i], arena.end - Vector2.ONE * radius[i])
 		pos[i] = p
 		var a := dir.angle() if freeze_t[i] <= 0.0 else angle[i]
 		if stage[i] == 3 and freeze_t[i] <= 0.0:
@@ -418,8 +484,8 @@ func _move(delta: float) -> void:
 		angle[i] = a
 		flash[i] = maxf(flash[i] - delta * 10.0, 0.0)
 		_feet_and_drips(i, p, old, a)
-	if touching:
-		player_touched.emit(contact_damage * (1.0 + damage_growth_per_min * minutes))
+	if touch_damage > 0.0:
+		player_touched.emit(touch_damage)
 
 
 ## Кровавые следы, если зомби прошёл по луже, и капли с раненых.
@@ -450,9 +516,9 @@ func _rebuild_grid() -> void:
 
 
 func _separate() -> void:
-	var min_d := RADIUS * 2.0
-	var min_d2 := min_d * min_d
 	for i in count:
+		if dead[i] == 1:
+			continue
 		var p := pos[i]
 		var cx := int(p.x / CELL)
 		var cy := int(p.y / CELL)
@@ -464,11 +530,12 @@ func _separate() -> void:
 					continue
 				var j := _head[x + y * _grid_w]
 				while j != -1:
-					if j > i:
+					if j > i and dead[j] == 0:
 						var q := pos[j]
 						var dv := p - q
 						var d2 := dv.length_squared()
-						if d2 < min_d2:
+						var min_d := radius[i] + radius[j]
+						if d2 < min_d * min_d:
 							if d2 < 0.0001:
 								dv = Vector2.from_angle(randf() * TAU) * 0.1
 								d2 = 0.01
@@ -495,6 +562,12 @@ func _compact() -> void:
 				angle[i] = angle[count]
 				flash[i] = flash[count]
 				dead[i] = dead[count]
+				kind[i] = kind[count]
+				elite[i] = elite[count]
+				radius[i] = radius[count]
+				touch_cd[i] = touch_cd[count]
+				spit_cd[i] = spit_cd[count]
+				spit_windup[i] = spit_windup[count]
 				variant[i] = variant[count]
 				stage[i] = stage[count]
 				wounds[i] = wounds[count]
@@ -517,11 +590,21 @@ func _compact() -> void:
 
 
 func _render() -> void:
+	var front := 0
+	var back := count - 1
 	for i in count:
-		var o := i * FLOATS_PER_INSTANCE
+		# Элитки поверх обычной толпы: обводку не перекрывают поздние спавны.
+		var slot := front
+		if elite[i] == 1:
+			slot = back
+			back -= 1
+		else:
+			front += 1
+		var o := slot * FLOATS_PER_INSTANCE
 		var a := angle[i]
-		var c := cos(a)
-		var s := sin(a)
+		var scale_factor := ELITE_SCALE if elite[i] == 1 else 1.0
+		var c := cos(a) * scale_factor
+		var s := sin(a) * scale_factor
 		var p := pos[i]
 		# Transform2D в буфере: x.x, y.x, 0, origin.x, x.y, y.y, 0, origin.y
 		_buf[o] = c
@@ -530,8 +613,8 @@ func _render() -> void:
 		_buf[o + 4] = s
 		_buf[o + 5] = c
 		_buf[o + 7] = p.y
-		# вспышка + статусы для шейдера: +2 — заморожен, +4 — горит
-		_buf[o + 8] = flash[i] * 0.99 + (2.0 if freeze_t[i] > 0.0 else 0.0) + (4.0 if burn_t[i] > 0.0 else 0.0)
+		# вспышка + флаги: +2 — заморожен, +4 — горит, +8 — элитка
+		_buf[o + 8] = flash[i] * 0.99 + (2.0 if freeze_t[i] > 0.0 else 0.0) + (4.0 if burn_t[i] > 0.0 else 0.0) + (8.0 if elite[i] == 1 else 0.0)
 		var anim := int(_time * speed[i] * 0.2 + seed_value[i] * 4.0) % PixelArt.ANIM_FRAMES # шаги
 		_buf[o + 9] = wounds[i] + 16 * (variant[i] * PixelArt.ANIM_FRAMES + anim) # кадр атласа
 		_buf[o + 10] = holes[i]

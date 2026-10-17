@@ -32,6 +32,10 @@ var _combo_timer := 0.0
 var _burst_count := 0
 var _burst_t := -1.0
 
+# 400 обычных (8:00, BALANCE §7.1) + 6 элиток, пополняются отдельно.
+const KINDS_COUNTS := [220, 100, 40, 40]
+const KINDS_ELITES := 6
+var _kinds := false
 var _bench := false
 var _shot_path := ""
 var _bench_t := 0.0
@@ -77,6 +81,10 @@ func _ready() -> void:
 		elif arg.begins_with("--bench="):
 			_bench = true
 			_bench_target = arg.trim_prefix("--bench=").to_int()
+		elif arg == "--kinds":
+			_kinds = true
+			_bench = true
+			_bench_target = 406
 		elif arg.begins_with("--shot="):
 			_shot_path = arg.trim_prefix("--shot=")
 		elif arg == "--no-fire":
@@ -126,6 +134,13 @@ func _ready() -> void:
 	horde.enemy_killed.connect(gore.on_enemy_killed)
 	horde.enemy_wounded.connect(gore.on_enemy_wounded)
 	horde.enemy_hit.connect(gore.on_enemy_hit)
+	# До S2 только журнал, без снарядов и взрывов Hazards.
+	horde.spit_fired.connect(func(from: Vector2, to: Vector2, damage: float) -> void:
+		if _sim:
+			print("spit_fired from=%s to=%s damage=%.2f" % [from, to, damage]))
+	horde.fat_burst.connect(func(pos: Vector2, is_elite: bool) -> void:
+		if _sim:
+			print("fat_burst pos=%s elite=%s" % [pos, is_elite]))
 	gore.splatter.connect(_on_splatter)
 	horde.player_touched.connect(player.take_damage)
 	player.hurt.connect(_on_player_hurt)
@@ -149,6 +164,8 @@ func _ready() -> void:
 		player.god_mode = true
 		player.autopilot = true
 		spawner.enabled = false
+		if _kinds:
+			_fill_kinds(true)
 		if _no_fire:
 			player.autopilot = false
 			weapons.process_mode = Node.PROCESS_MODE_DISABLED
@@ -169,7 +186,10 @@ func _physics_process(delta: float) -> void:
 	if trader_visit < TRADER_TIMES.size() and time >= TRADER_TIMES[trader_visit]:
 		_open_trader()
 	if _bench and horde.count < _bench_target:
-		horde.spawn_group(player.global_position, mini(15, _bench_target - horde.count))
+		if _kinds:
+			_fill_kinds()
+		else:
+			horde.spawn_group(player.global_position, mini(15, _bench_target - horde.count))
 	if _gore_stress and horde.count > 0:
 		for k in 2:
 			var i := randi() % horde.count
@@ -211,9 +231,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			s.ammo = (s.ammo + 1) % WeaponDefs.AMMO.size()
 			weapons.refresh(0)
 		KEY_F7:
-			progression.add_xp(Progression.xp_to_next(progression.level) - progression.xp)
+			for j in 10:
+				horde.spawn(player.global_position + Vector2(130.0, 0.0) + Vector2(randf_range(-20.0, 20.0), randf_range(-20.0, 20.0)), Horde.Kind.RUNNER)
 		KEY_F8:
-			progression.credits += 100
+			horde.spawn(player.global_position + Vector2(100.0, 0.0), Horde.Kind.FAT)
+		KEY_F9:
+			horde.spawn(player.global_position + Vector2(150.0, 0.0), Horde.Kind.SPITTER)
+		KEY_F10:
+			horde.spawn(player.global_position + Vector2(110.0, 0.0), randi() % Horde.Kind.size(), true)
 		KEY_F6:
 			# перебор типа смерти: авто → все типы по очереди
 			horde.death_override += 1
@@ -446,10 +471,32 @@ func _run_ui_test() -> void:
 	get_tree().quit()
 
 
+## В --kinds состав не зависит от того, кого первым убило оружие.
+func _fill_kinds(initial := false) -> void:
+	var alive := [0, 0, 0, 0]
+	var elites := 0
+	for i in horde.count:
+		if horde.elite[i] == 1:
+			elites += 1
+		else:
+			alive[horde.kind[i]] += 1
+	for k in Horde.Kind.size():
+		for j in maxi(0, KINDS_COUNTS[k] - alive[k]):
+			var p := horde.spawn_point(player.global_position)
+			if initial:
+				p = player.global_position + Vector2.from_angle(randf() * TAU) * randf_range(90.0, 270.0)
+			horde.spawn(p, k)
+	for j in maxi(0, KINDS_ELITES - elites):
+		var p := player.global_position + Vector2.from_angle(TAU * (elites + j) / KINDS_ELITES) * 140.0
+		horde.spawn(p, (elites + j) % Horde.Kind.size(), true)
+	if initial:
+		print("KINDS population=400 mix=220/100/40/40 elites=6 total=%d" % horde.count)
+
+
 func _bench_step(delta: float) -> void:
 	_bench_t += delta
 	# перебираем типы смерти, чтобы на скриншоте были все
-	if not _gore_stress:
+	if not _gore_stress and not _kinds:
 		horde.death_override = int(_bench_t / 1.5) % Gore.Death.size()
 	if _bench_t < BENCH_WARMUP:
 		return
@@ -462,17 +509,18 @@ func _bench_step(delta: float) -> void:
 		return
 	_bench = false
 	var n := float(_bench_frames)
-	print("BENCH frames=%d avg_fps=%.1f avg_frame_ms=%.2f worst_frame_ms=%.2f horde_ms=%.2f enemies=%.0f kills=%d" % [
-		_bench_frames, 1000.0 / (_bench_frame_ms / n), _bench_frame_ms / n, _bench_worst_ms,
+	var label := "KINDS" if _kinds else "BENCH"
+	print("%s frames=%d avg_fps=%.1f avg_frame_ms=%.2f worst_frame_ms=%.2f horde_ms=%.2f enemies=%.0f kills=%d" % [
+		label, _bench_frames, 1000.0 / (_bench_frame_ms / n), _bench_frame_ms / n, _bench_worst_ms,
 		_bench_horde_ms / n, _bench_enemies / n, kills])
-	print("BENCH process_ms=%.2f physics_ms=%.2f draw_calls=%d objects=%d gore=%d particles=%d wet=%d" % [
-		Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
+	print("%s process_ms=%.2f physics_ms=%.2f draw_calls=%d objects=%d gore=%d particles=%d wet=%d" % [
+		label, Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
 		Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), Performance.get_monitor(Performance.OBJECT_COUNT),
 		gore.count, effects.particle_count(), floor_decals.pool_count()])
 	if _shot_path != "":
 		await RenderingServer.frame_post_draw
 		get_viewport().get_texture().get_image().save_png(_shot_path)
-		print("BENCH screenshot: ", _shot_path)
+		print(label, " screenshot: ", _shot_path)
 	get_tree().quit()
 
 
