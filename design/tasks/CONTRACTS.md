@@ -251,3 +251,79 @@ func has(id: String) -> bool
   (ППШ 15 выстр./с не забивает микс), вытеснение самого старого.
 - Шины: `Master` (лимитер), `Weapons`, `World` — в `default_bus_layout.tres`.
 - `--headless` и тесты работают без звука и без ошибок.
+
+---
+
+# M6 — мета: база, дерево, мастерская, ящики, модели
+
+## 11. Модели стволов (создаёт **S5**, звуки — **A3**)
+
+`WeaponDefs.MODELS: Dictionary` — `id → {...}`. У каждой категории (`Base`) серийная модель
+(доступна с начала) и модель из ящика. Модель задаёт **переопределения** статов основы на L1
+(`"stats": {...}`, ключи как в `BASES`), имя, черту и голос (`"gun"` — папка `sfx/weapons/<gun>/`).
+
+| id | Base | Имя | Редкость | gun (запись) | Черта (`trait`) |
+|---|---|---|---|---|---|
+| `ak_s` | RIFLE | Автомат АК-С | серийная | `rifle` (AK-47) | — |
+| `m4` | RIFLE | Карабин «М4» | обычная | `m4` (AR-15) | `burst3`: очереди по 3, разброс не растёт |
+| `butcher` | SHOTGUN | Дробовик «Мясник» | серийная | `shotgun` (Nova) | — |
+| `shkval` | SHOTGUN | Дробовик «Шквал» | обычная | `shkval` (Winchester M12, slam-fire) | `slamfire`: высокий темп, магазин 10, долгая перезарядка (BALANCE §3.4) |
+| `needle` | RAIL | Рейлган «Игла» | серийная | `rail` | — |
+| `spear` | RAIL | Рейлган «Копьё» | **редкая** | `spear` (синтез) | `kill_charge`: убийство +50% урона следующему выстрелу |
+| `grom` | LAUNCHER | Гранатомёт «Гром» | серийная | `launcher` | — |
+| `hive` | LAUNCHER | Гранатомёт «Улей» | **редкая** | `hive` (синтез) | `sticky`: гранаты прилипают к врагу и рвутся через 0.6 с |
+| `colt` | PISTOL | Пистолет «Кольт» | серийная | `pistol` (1911) | — |
+| `guard` | PISTOL | Пистолет «Страж» | обычная | `guard` (Walther PPQ 9мм) | `hicap`: магазин 17, быстрый темп, ниже урон |
+| `bulldog` | REVOLVER | Револьвер «Бульдог» | серийная | `revolver` (S&W 642) | — |
+| `cowboy` | REVOLVER | Револьвер «Ковбой» | **редкая** | `cowboy` (Ruger Single Six) | `fan`: высаживает барабан веером по разным целям за 0.5 с |
+| `ppsh` | SMG | ПП «ППШ» | серийная | `smg` (PPSh) | — |
+| `osa` | SMG | ПП «Оса» | обычная | `osa` (Carl Gustav M45) | `steady`: магазин 50, разброс не растёт в очереди |
+| `mosin` | SNIPER | Винтовка «Мосинка» | серийная | `sniper` (Mosin) | — |
+| `winchester` | SNIPER | Винтовка «Винчестер» | **редкая** | `winchester` (Marlin 336, рычаг) | `lever`: темп ×2, урон ×0.6, убийство мгновенно взводит рычаг |
+
+`Weapons.Slot.model: String`; `add_weapon(base)` берёт `Meta.model_for(base)`. `refresh()`: основа →
+переопределения модели → уровни L2–L5 (как сейчас) → мастерская модели → бонусы дерева → пассивки → модули.
+Звук и механика ствола — по `MODELS[model]["gun"]` (а не по индексу основы). Числа моделей из ящиков —
+BALANCE §3.4 где есть, остальные подбирает S5 с таблицей эфф. DPS в отчёте.
+
+## 12. Meta — сохранение и мета-прогресс (создаёт **S5**, UI — **S6**)
+
+Автозагрузка `Meta` (`scripts/meta.gd`, `extends Node`), файл `user://zera_save.json`
+(версия схемы, атомарная запись через временный файл). Цифры — BALANCE §11, дерево — GDD §12.1.
+
+```gdscript
+var dna := 0                 # тратимая
+var dna_earned := 0          # всего заработано (уровень класса), не тратится
+var tree := {}               # id узла → true
+var workshop := {}           # model_id → {"damage": 0..5, "rate": .., "mag": .., "reload": ..}
+var owned := PackedStringArray()   # открытые модели (серийные — всегда)
+var favorite := {}           # Base → model_id
+var crates := 0
+var military_crates := 0
+var runs := 0
+
+func class_level() -> int                       # 80·(n−1)^1.5
+func skill_points() -> int                      # уровень−1 − открытые узлы
+func can_unlock(node: String) -> bool           # по порядку внутри ветки
+func unlock(node: String) -> bool
+func upgrade_cost(model: String, stat: String) -> int    # 20/40/70/110/160, редкие ×1.5; -1 — максимум
+func buy_upgrade(model: String, stat: String) -> bool
+func open_crate(military: bool) -> Dictionary   # {"kind": "model"|"dna", "model": id, "dna": n, "duplicate": bool, "rare": bool}
+func model_for(base: int) -> String             # избранная или серийная
+func set_favorite(base: int, model: String) -> bool
+func run_bonuses() -> Dictionary                # из дерева: damage_mul, crit_add, sustained_rate, reload_mul, mag_mul, last_round, hp_add, dash_charges, adrenaline
+func add_run(stats: Dictionary) -> void         # dna_total, crates, military_crates; runs += 1; save()
+func save() -> void
+func load_save() -> void
+func reset() -> void                            # тесты; флаг --fresh-save
+```
+
+Узлы дерева: `fire_1..3`, `mag_1..3`, `surv_1..3` (GDD §12.1). Все тест-режимы игры (`--sim`, `--bench`,
+`--boss`, …) работают на **временном** сохранении (не трогают `user://zera_save.json`).
+
+## 13. Поток сцен (создаёт **S6**)
+
+`run/main_scene` → `scenes/base.tscn` (экран базы). «В БОЙ» → `scenes/main.tscn`. Экран итогов:
+«НА БАЗУ» (основная) и «ЕЩЁ РАЗ» (сразу новый забег). Если в командной строке есть любой тест-флаг
+игры (`--sim`, `--bench`, `--boss`, `--alarm`, `--ui-test`, `--weapons-test`, `--loadout*`, `--s3-test`) —
+база сразу переходит в `main.tscn`, чтобы все старые команды проверки работали без изменений.
