@@ -286,6 +286,46 @@ def synthesis(builder: Builder) -> None:
         builder.emit(f"weapons/rail/shot_{variant}.wav", clip, "synthesis: broadband electrical crack + descending whip", seed=seed)
 
 
+def highpass80(data: np.ndarray) -> np.ndarray:
+    """ФВЧ Баттерворта второго порядка, 80 Гц, без резонансного горба."""
+    k = np.tan(np.pi * 80 / RATE)
+    norm = 1 / (1 + np.sqrt(2) * k + k * k)
+    b0, b1, b2 = norm, -2 * norm, norm
+    a1, a2 = 2 * (k * k - 1) * norm, (1 - np.sqrt(2) * k + k * k) * norm
+    out = np.empty_like(data)
+    z1 = np.zeros(data.shape[1])
+    z2 = np.zeros(data.shape[1])
+    for i, sample in enumerate(data):
+        value = b0 * sample + z1
+        z1 = b1 * sample - a1 * value + z2
+        z2 = b2 * sample - a2 * value
+        out[i] = value
+    return out
+
+
+def burst_tails(builder: Builder) -> None:
+    """Отражения после одиночного near-выстрела, без атаки и второго выстрела."""
+    for gun in ("rifle", "smg"):
+        source = SOURCES[gun][0]
+        raw, rate = read_pcm(builder.src / source)
+        audio = resample_48k(raw, rate)
+        attacks = detect_attacks(audio)
+        for variant in range(3):
+            # После 150 мс остаётся раскат стрельбища; между дублями > 3 секунд.
+            start = attacks[variant] + round(.15 * RATE)
+            end = start + round((1.05 + .08 * variant) * RATE)
+            clip = audio[start:end].mean(axis=1, keepdims=True)
+            clip = highpass80(lowpass(clip, 8500))
+            t = np.arange(len(clip)) / RATE
+            clip *= (1 - np.exp(-t / .035))[:, None] ** 2
+            clip *= np.exp(-t / .6)[:, None]
+            clip = normalize(finish(clip, .16), -20 if gun == "rifle" else -22)
+            builder.emit(f"weapons/{gun}/tail_{variant}.wav", clip, source,
+                         take=variant + 1, crop_start_s=round(start / RATE, 6),
+                         crop_end_s=round(end / RATE, 6), pitch_ratio=1.0,
+                         highpass_hz=80, fade_in_s=.035)
+
+
 # ---- A2 extension point ----------------------------------------------------
 def mechanics(builder: Builder) -> None:
     """A2: Raw tracks -> mag_out/in, rack, dry, cylinder, eject/load, shell_in.
@@ -395,7 +435,7 @@ def mechanics(builder: Builder) -> None:
                             scatter[offset:offset + len(ring), 0] += ring
                         clip = scatter
                     target = SHOT_LEVELS[gun] - 12
-                    clip = finish(clip, .018)
+                    clip = finish(highpass80(clip), .018)
                     # Compound motions can start with quiet handling. Calibrate
                     # their loudest 100 ms to A1 shot RMS100 minus 12 dB.
                     power = np.pad(clip[:, 0] ** 2, (0, max(0, RATE // 10 - len(clip))))
@@ -406,7 +446,7 @@ def mechanics(builder: Builder) -> None:
                     builder.emit(f"weapons/{gun}/{event}_{variant}.wav", clip, source,
                                  take=take + 1, crop_start_s=cuts[0][0], crop_end_s=cuts[-1][1],
                                  segments_s=cuts, pitch_ratio=ratio,
-                                 rmsmax100_target_db=target, scatter_seed=layer_seed)
+                                 rmsmax100_target_db=target, scatter_seed=layer_seed, highpass_hz=80)
 
 
 def metadata(builder: Builder) -> None:
@@ -417,8 +457,9 @@ def metadata(builder: Builder) -> None:
              "Authors: Ben Jaszczak, Brian Nelson, Kevin Heras, Matthew Nanney.",
              "Source and license: [OpenGameArt — The Free Firearm Sound Library](https://opengameart.org/content/the-free-firearm-sound-library), CC0 1.0.",
              "All A1 procedural synthesis and edits are also dedicated to CC0 1.0.", "",
-             "Only Prepared near-distance recordings are used. Originals remain outside this repository.",
+             "Shots/tails: Prepared near recordings; mechanics: Raw master tracks. Originals remain outside this repository.",
              "Times refer to the original file; FIR delay is compensated. Exact edits/seeds and source SHA256 are in manifest.json.", "",
+             "W2: all mechanics use a second-order Butterworth high-pass at 80 Hz. Burst tails use attack-free near reflections, 35 ms smooth entry, 160 ms fade out; A1 files unchanged.", "",
              "| Output file | Source / synthesis | Take; original crop; pitch |", "|---|---|---|"]
     for e in builder.entries:
         edit = f"take {e['take']}; {e['crop_start_s']:.6f}–{e['crop_end_s']:.6f} s; ×{e['pitch_ratio']}" if "take" in e else f"seed {e['seed']}" if "seed" in e else f"×{e['pitch_ratio']}"
@@ -436,6 +477,7 @@ def main() -> None:
     shots(builder)
     synthesis(builder)
     mechanics(builder)
+    burst_tails(builder)
     metadata(builder)
     size = sum((args.out / e["file"]).stat().st_size for e in builder.entries)
     print(f"Generated {len(builder.entries)} WAV files: PCM16, 48000 Hz; {size} bytes")

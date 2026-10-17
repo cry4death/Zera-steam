@@ -115,8 +115,13 @@ func casing(origin: Vector2, dir: Vector2, kind := "brass_small") -> void:
 	_cv[i] = (-dir.orthogonal()).rotated(randf_range(-0.35, 0.35)) * randf_range(28.0, 55.0) - dir * 12.0
 	if mag:
 		_cv[i] *= 0.25
+	else:
+		# Метр здесь — ширина бойца (~12 ед.); гильзы расходятся на 12–36 ед.
+		_cv[i] = (-dir.orthogonal()).rotated(randf_range(-1.0, 1.0)) * randf_range(35.0, 85.0) - dir * randf_range(-8.0, 20.0)
 	_cz[i] = 5.0
 	_czv[i] = randf_range(30.0, 52.0) if not mag else 12.0
+	if not mag:
+		_czv[i] = randf_range(22.0, 46.0)
 	_cr[i] = randf() * TAU
 	_cspin[i] = randf_range(-16.0, 16.0)
 	_cage[i] = 0.0
@@ -146,7 +151,13 @@ func _update_casings(delta: float) -> void:
 				_cv[i] *= exp(-delta * 26.0)
 		if _cage[i] >= 1.5 or _cbounce[i] >= 3 and _cv[i].length_squared() < 3.0:
 			if floor_decals:
-				floor_decals.stamp(_ctex[_ckind[i]], _cp[i], _cr[i], Color.WHITE)
+				var tint := Color.WHITE
+				if _ckind[i] < 3:
+					# Пыль гасит латунь; на мокрой крови металл ещё темнее.
+					tint = Color(0.84, 0.85, 0.88, 0.88)
+					if floor_decals.is_wet(_cp[i]):
+						tint = Color(0.62, 0.6, 0.62, 0.8)
+				floor_decals.stamp(_ctex[_ckind[i]], _cp[i], _cr[i], tint)
 				if _ckind[i] < 3:
 					casings_on_floor += 1
 				else:
@@ -283,7 +294,9 @@ func _draw() -> void:
 		PixelArt.draw_dot(self, _cp[i], 1.2 if _ckind[i] < 3 else 2.5, Color(0, 0, 0, 0.3))
 		var tex := _ctex[_ckind[i]]
 		draw_set_transform(_cp[i] - Vector2(0, _cz[i]), _cr[i], Vector2.ONE * PixelArt.ART_SCALE)
-		draw_texture(tex, -tex.get_size() * 0.5)
+		# В полёте латунь может блеснуть; на полу она уже тусклая.
+		var glint := Color(1.3, 1.25, 1.1) if _ckind[i] < 3 and _cz[i] > 0.5 else Color.WHITE
+		draw_texture(tex, -tex.get_size() * 0.5, glint)
 	draw_set_transform(Vector2.ZERO)
 	if _ghost_tex:
 		var half := _ghost_tex.get_size() * 0.5

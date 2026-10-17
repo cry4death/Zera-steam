@@ -31,6 +31,8 @@ class Slot:
 	var rack_t := -1.0
 	var rack_dir := Vector2.RIGHT
 	var reload_missing := 0
+	var burst_shots := 0
+	var burst_target := -1
 
 	func module(id: int) -> Dictionary:
 		for m in modules:
@@ -91,11 +93,26 @@ var _gsmall := PackedByteArray() # кассетная мини-граната
 # эффекты для отрисовки: лучи [от, до, ширина, время, цвет], взрывы [центр, радиус, время]
 var _beams: Array = []
 var _blasts: Array = []
-var _flashes: Array = [] # [позиция, угол, время]
+# Вспышек мало (до четырёх стволов); один общий аддитивный слой.
+const FLASH_KINDS := ["rifle", "shotgun", "rifle", "launcher", "small", "small", "small", "sniper"]
+var _flashes: Array = [] # [позиция, угол, время, основа, тинт, масштаб, поворот, вариант, жизнь]
+var _flash_tex: Array[Texture2D] = []
+var _flash_layer: Node2D
+var _flash_drawn := false
+var tails := PackedInt32Array([0, 0, 0, 0, 0, 0, 0, 0])
 var _aim_hold := 0.0
 
 
 func _ready() -> void:
+	_flash_layer = Node2D.new()
+	var mat := CanvasItemMaterial.new()
+	mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	_flash_layer.material = mat
+	_flash_layer.draw.connect(_draw_flashes)
+	add_child(_flash_layer)
+	for kind: String in FLASH_KINDS:
+		for variant in 4:
+			_flash_tex.append(PixelArt.tex("flash_%s_%d" % [kind, variant]))
 	add_weapon(WeaponDefs.Base.RIFLE)
 
 
@@ -176,6 +193,10 @@ func _physics_process(delta: float) -> void:
 	_update_grenades(delta)
 	_age_fx(delta)
 	queue_redraw()
+	# Слой вспышек перерисовывается, только пока есть вспышки (и один раз, чтобы стереть).
+	if not _flashes.is_empty() or _flash_drawn:
+		_flash_layer.queue_redraw()
+	_flash_drawn = not _flashes.is_empty()
 	if player == null or player.is_dead:
 		return
 	_aim_hold -= delta
@@ -192,6 +213,7 @@ func _update_slot(i: int, delta: float) -> void:
 	s.cooldown -= delta
 	s.since_shot += delta
 	if s.since_shot > 1.5 / float(s.stats["rate"]):
+		_end_burst(s)
 		s.heat = move_toward(s.heat, 0.0, delta * 35.0)
 	if s.rack_t >= 0.0:
 		s.rack_t -= delta
@@ -213,6 +235,7 @@ func _update_slot(i: int, delta: float) -> void:
 	var target := horde.find_nearest(origin, s.stats["range"])
 	if target == -1:
 		return
+	_burst_shot(s, horde.uid[target])
 	var dir := (horde.pos[target] - origin).normalized()
 	player.aim_dir = dir
 	_aim_hold = 0.4
@@ -229,21 +252,23 @@ func _update_slot(i: int, delta: float) -> void:
 			_fire_rail(i, muzzle, dir)
 		WeaponDefs.Base.LAUNCHER:
 			_fire_grenades(i, muzzle, horde.pos[target])
-	var tint := Color(1.0, 0.78, 0.45)
+	var tint := Color.WHITE
 	if s.base == WeaponDefs.Base.RAIL:
 		tint = Color(0.45, 0.85, 1.0)
 	if s.ammo == WeaponDefs.Ammo.CRYO:
 		tint = Color(0.45, 0.8, 1.0)
 	elif s.ammo == WeaponDefs.Ammo.INCENDIARY:
 		tint = Color(1.0, 0.36, 0.1)
-	var life := randf_range(0.04, 0.07)
-	_flashes.append([muzzle, dir.angle(), life, s.base, tint, randf_range(0.8, 1.25), randf_range(-0.2, 0.2)])
+	var life := randf_range(0.04, 0.06)
+	_flashes.append([muzzle, dir.angle(), life, s.base, tint, randf_range(0.85, 1.15), randf_range(-PI / 18.0, PI / 18.0), randi() % 4, life])
+	_flash_layer.queue_redraw()
 	_sound(s, "shot")
 	shots[s.base] += 1
 	if effects:
-		effects.flash_light(muzzle, tint, 100.0 + RECOIL[s.base] * 32.0, 0.9 + RECOIL[s.base] * 0.3, life)
-		var smoke := Color(0.46, 0.45, 0.42, 0.3)
-		effects.emit(muzzle + dir * 3.0, dir * 9.0 + Vector2(0, -6), 0.45, smoke, 5.0, 2.0)
+		var light_tint := Color(1.0, 0.78, 0.45) if tint == Color.WHITE else tint
+		effects.flash_light(muzzle, light_tint, 100.0 + RECOIL[s.base] * 32.0, 0.9 + RECOIL[s.base] * 0.3, life)
+		var smoke := Color(0.48, 0.49, 0.50, 0.1)
+		effects.emit(muzzle + dir * 3.0, dir * 9.0 + Vector2(0, -6), 0.45, smoke, 3.4, 2.0)
 		if s.heat > 8.0:
 			effects.emit(muzzle, Vector2(0, -14), 0.7, Color(0.5, 0.5, 0.48, 0.2), 3.5, 1.0)
 	if s.base in [WeaponDefs.Base.RIFLE, WeaponDefs.Base.SMG]:
@@ -264,6 +289,7 @@ func _update_slot(i: int, delta: float) -> void:
 
 
 func _start_reload(s: Slot) -> void:
+	_end_burst(s)
 	s.reloading = true
 	s.reload_t = 0.0
 	s.reload_missing = int(s.stats["mag"]) - s.mag
@@ -273,6 +299,25 @@ func _start_reload(s: Slot) -> void:
 			effects.casing(player.global_position, player.aim_dir, "mag_" + GUN_IDS[s.base])
 	elif s.base == WeaponDefs.Base.REVOLVER:
 		_sound(s, "cyl_open")
+
+
+## Хвост принадлежит завершившейся очереди, счётчик сбрасывается до проигрывания.
+func _end_burst(s: Slot) -> void:
+	var count := s.burst_shots
+	s.burst_shots = 0
+	s.burst_target = -1
+	if count >= 3:
+		tails[s.base] += 1
+		_sound(s, "tail")
+
+
+func _burst_shot(s: Slot, target_uid: int) -> void:
+	if s.base != WeaponDefs.Base.RIFLE and s.base != WeaponDefs.Base.SMG:
+		return
+	if s.burst_target != target_uid:
+		_end_burst(s)
+	s.burst_target = target_uid
+	s.burst_shots += 1
 
 
 func _sound(s: Slot, action: String) -> void:
@@ -690,47 +735,27 @@ func _draw() -> void:
 		var r: float = bl[1] * (0.4 + 0.6 * k)
 		draw_arc(bl[0], r, 0.0, TAU, 24, Color(1.0, 0.8, 0.4, 0.8 * (1.0 - k)), 2.0)
 		PixelArt.draw_dot(self, bl[0], r * 0.6 * (1.0 - k), Color(1.0, 0.85, 0.5, 0.6 * (1.0 - k)))
+	# Дым остаётся в обычном смешивании, огонь — в общем аддитивном слое.
 	for fl: Array in _flashes:
-		_draw_flash(fl)
+		if fl[3] != WeaponDefs.Base.SNIPER and fl[3] != WeaponDefs.Base.LAUNCHER:
+			continue
+		var age: float = 1.0 - fl[2] / fl[8]
+		draw_set_transform(fl[0], fl[1])
+		var smoke := Color(0.58, 0.59, 0.60, 0.12 * (1.0 - age))
+		if fl[3] == WeaponDefs.Base.SNIPER:
+			draw_arc(Vector2(4.0 + age * 3.0, 0), 3.0 + age * 5.0, 0.2, TAU - 0.5, 20, smoke, 0.7 + age)
+		else:
+			for j in 4:
+				PixelArt.draw_dot(self, Vector2(3.0 + j * 1.6 + age * 3.0, sin(j * 2.0) * 2.0), 2.0 + age * 3.0, smoke)
+		draw_set_transform(Vector2.ZERO)
 
 
-## Силуэт вспышки свой у каждого калибра; вариация сохранена до конца жизни.
-func _draw_flash(fl: Array) -> void:
-	var base: int = fl[3]
-	var c: Color = fl[4]
-	var scale_factor: float = fl[5]
-	draw_set_transform(fl[0], fl[1], Vector2.ONE * scale_factor)
-	var length := 6.0
-	var width := 2.0
-	match base:
-		WeaponDefs.Base.PISTOL:
-			length = 5.0
-			draw_line(Vector2(2, -3).rotated(fl[6]), Vector2(2, 3).rotated(fl[6]), c, 1.0)
-		WeaponDefs.Base.RIFLE:
-			length = 9.0
-			draw_line(Vector2(1, -4), Vector2(2, 4), c, 2.0)
-		WeaponDefs.Base.SMG:
-			length = 4.5
-			draw_rect(Rect2(-2, -2, 2, 4), Color(0.35, 0.36, 0.3))
-		WeaponDefs.Base.SHOTGUN:
-			length = 12.0
-			width = 6.0
-		WeaponDefs.Base.REVOLVER:
-			length = 5.0
-			width = 4.0
-		WeaponDefs.Base.SNIPER:
-			length = 20.0
-			width = 5.0
-			draw_arc(Vector2(6, 0), 10.0, 0.0, TAU, 16, Color(0.7, 0.67, 0.6, 0.3), 1.5)
-		WeaponDefs.Base.RAIL:
-			length = 11.0
-		WeaponDefs.Base.LAUNCHER:
-			length = 9.0
-			width = 4.0
-	var points := PackedVector2Array([Vector2(-1, 0), Vector2(2, -width), Vector2(length * 0.65, -width * 0.45), Vector2(length, 0), Vector2(length * 0.65, width * 0.45), Vector2(2, width)])
-	for k in points.size():
-		points[k] = points[k].rotated(fl[6])
-	draw_colored_polygon(points, c)
-	draw_line(Vector2.ZERO, Vector2(length * 0.6, 0), Color(1, 0.98, 0.85), 1.5)
-	PixelArt.draw_dot(self, Vector2(1, 0), 1.4, Color(1, 1, 0.95))
-	draw_set_transform(Vector2.ZERO)
+func _draw_flashes() -> void:
+	for fl: Array in _flashes:
+		var tex := _flash_tex[int(fl[3]) * 4 + int(fl[7])]
+		var tint: Color = fl[4]
+		# Альфа у края уже в текстуре; затухает только последний короткий кадр.
+		tint.a *= minf(1.0, float(fl[2]) / 0.025)
+		_flash_layer.draw_set_transform(fl[0], fl[1] + fl[6], Vector2.ONE * PixelArt.ART_SCALE * float(fl[5]))
+		_flash_layer.draw_texture(tex, Vector2(-3.0, -tex.get_height() * 0.5), tint)
+	_flash_layer.draw_set_transform(Vector2.ZERO)

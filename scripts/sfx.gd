@@ -5,6 +5,7 @@ extends Node
 const VOICES := 24
 var played := 0
 var dropped := 0
+var played_by_id: Dictionary = {}
 var _silent := false
 var _bank: Dictionary = {}
 var _last: Dictionary = {}
@@ -121,3 +122,4 @@ func play(id: String, pos := Vector2.INF, volume_db := 0.0, pitch_jitter := 0.05
 		voice.pitch_scale = pitch
 		voice.play()
 	played += 1
+	played_by_id[id] = int(played_by_id.get(id, 0)) + 1
