@@ -12,7 +12,8 @@
 ## Исходники (только читать)
 
 `C:\Users\Dev\Desktop\zera-assets\firearm_cc0\raw_master_tracks.zip` (3.3 ГБ, сырые дорожки,
-24/96). Опись — `master_sheet.xlsx` рядом (openpyxl есть в Python рантайма Codex). **Не распаковывай
+24/96), пути внутри — `Master Tracks\<папка ствола>\<X_n>.wav` (папки как в Prepared: `1911`,
+`PPSh`, `AK-47`, `Mosin Nagant`, `Nova`, `Smith & Wesson 642`; `__MACOSX` пропускай). Опись — `master_sheet.xlsx` рядом (openpyxl есть в Python рантайма Codex). **Не распаковывай
 архив целиком** — на диске мало места: извлеки только нужные дорожки
 (`"C:\Program Files\7-Zip\7z.exe" x archive.zip -o<tmp> <пути>` или `zipfile` в Python)
 во временную папку внутри своей рабочей копии и удали её в конце.
