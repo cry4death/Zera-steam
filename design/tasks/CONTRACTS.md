@@ -359,3 +359,71 @@ func reset() -> void                            # тесты; флаг --fresh-s
 | `ui/click`, `ui/confirm`, `ui/deny` | интерфейс базы/карт | механика оружия (A2) обработанная |
 
 Лупы (`ambience/*`, `player/heartbeat`) импортируются с `loop_mode` (forward) — в `.import`.
+
+---
+
+# C — глобальная кампания (вертикальный срез; дизайн — `design/CAMPAIGN.md`)
+
+Срез по `CAMPAIGN.md` §25 этапы А–В + минимум Г: **глобус → 3 операции → текущий бой (зачистка) → один ход
+заражения → сводка**. Кампания — рамка вокруг боя: бой получает только `MissionConfig`, мир меняется один раз
+после забега. Численные значения — стартовые из `CAMPAIGN.md` §7, §10, все в одном словаре баланса.
+
+## 15. Кампания — данные и правила (создаёт **C1**)
+
+Файлы: `scripts/campaign/campaign_catalog.gd` (статично), `campaign_rules.gd` (чистые функции, без файлов и глобального
+RNG), `campaign_director.gd` (предложения, детерминированно из seed+turn), `campaign.gd` (фасад). Состояние
+хранит `Meta` в поле `campaign` общего сохранения (схема **3**, миграция 1/2 → 3 без потери профиля; нет поля —
+новая кампания). Чистые классы в файлы не пишут.
+
+**Каталог (первая версия):** 8 активных регионов с `id`, именем, `lat`/`lon`, соседями (граф §5.3 — только явные рёбра),
+`traits` (биом/подпись), стартовым `infection`: `east_europe` (стартовый, улей `object_7` — Карантинная зона),
+`west_europe`, `siberia`, `middle_east`, `north_africa`, `east_asia`, `north_america`, `south_asia` + декоративные метки
+(Арктика, Океания, Тихоокеанская платформа — «нет связи»). Ульи: `object_7` (живой, играбельный — текущий босс);
+`mother` (Сибирь), `meat_mountain`, `general`, `hive_heart` — видны как «сигнал не подтверждён», не играбельны
+(контента нет; честная подпись «скоро»).
+
+**Регион в сохранении:** `infection` 0..100 (int), `discovered`, `suppressed_turns`, `last_changed_turn`. Этапы — §6.1.
+**Ход** (§7.2–7.3) — порядок строго: прямой эффект → эффекты соседям/улья → снимок → одновременный рост
+всех из снимка → применить → `suppressed_turns -= 1` (новое подавление от этой миссии действует на текущем ходу
+и ещё `N−1` следующих; тест на ходах 1/2/3) → новые предложения. Эффекты исходов — §7.4 (зачистка −28/−3 соседям/2 хода,
+поражение +7, улей −40/−8/3 хода и `alive=false` навсегда). Ровно один фоновый ход на исход. Защита от обвала — §7.5.
+
+**Предложения** (§8): 3 на ход — «доступная» (угроза ≤ II), «стандартная», «рискованная/особая» (угроза IV–V или улей);
+без трёх одинаковых типов; всегда есть доступная; детерминированно (`RandomNumberGenerator` с `seed ^ turn`).
+Операция: `{id, region_id, type: "clearance"|"nest", seed, offered_turn, name, briefing, threat: 1..5, modifiers: [≤2 id],
+reward: {dna_mul, extra_crate_chance}, effects: {win: {...}, loss: {...}}}`. Названия операций — генерация из
+списков («Красный коридор», «Холодный периметр» …), брифинг ≤ 2 фраз.
+
+```gdscript
+class_name Campaign  # фасад; хранит состояние в Meta.campaign
+static func world() -> Dictionary                    # текущее состояние (копия)
+static func offers() -> Array[Dictionary]
+static func region_info(id: String) -> Dictionary    # каталог + состояние + этап + «почему опасно»
+static func start_operation(op_id: String) -> Dictionary   # кладёт pending_operation (+ run_id), save(); вернёт MissionConfig
+static func pending() -> Dictionary                  # {} если забег не из кампании
+static func complete_operation(stats: Dictionary) -> Dictionary  # идемпотентно по run_id; см. §17
+static func new_campaign(seed: int) -> void          # явный сброс войны, профиль не трогает
+static func last_report() -> Dictionary
+```
+
+## 16. MissionConfig — что бой берёт из кампании (создаёт **C1**, применяет **C2**)
+
+```gdscript
+{"run_id": "c12-east_europe-4f82", "operation_id": "...", "region_id": "east_europe", "region_name": "Восточная Европа",
+ "type": "clearance", "threat": 3, "modifiers": ["runner_surge", "elite_hunt"],
+ "reward": {"dna_mul": 1.2, "extra_crate_chance": 0.25}, "boss": "object_7", "name": "Красный коридор"}
+```
+Бой без `pending` — «свободный забег», как сейчас (кампания не меняется). Модификаторы первой версии (§10.3):
+`runner_surge`, `elite_hunt`, `acid_rain` (больше плевальщиков и луж), `blood_frenzy` (вторая кровавая тревога на 4:00),
+`hardened_boss` (Объект-7: +25% HP, броня дольше), `resource_cache` (награды +). Угроза I–V — состав/частота
+(спавн ×1.0…1.3, элитки чаще), **не** «мешки HP» (§10.1–10.2), орда не выше проверенных лимитов.
+
+## 17. Завершение операции (C1 — логика, C3 — экран)
+
+`RunResults.open(stats)`: если `Campaign.pending()` не пуст — вместо `Meta.add_run` вызывается
+`Campaign.complete_operation(stats)`: начисляет мету **и** меняет мир в памяти, затем **один** `Meta.save()`;
+повторный вызов с тем же `run_id` ничего не меняет и возвращает тот же отчёт. `stats` дополняется
+`"outcome": "victory"|"defeat"` (победа = убит босс), `"run_id"`. Отчёт: `{changes: [{region_id, name, from, to,
+stage_from, stage_to, causes: [строки]}], events: [строки ≤ 3 по приоритету §15.1], nests_alive: int, critical: int}`.
+Явный выход из боя (пауза → «На базу») — как смерть: `defeat` (так уже работает пауза). Закрытие игры посреди боя — без наград и без хода: при следующем запуске база находит висящий `pending_operation`, снимает его без commit и показывает «Связь с группой потеряна — операция не засчитана» (§13.4).
+Все тест-флаги обходят кампанию; новый `--campaign-test` (headless) и `--campaign-op=<op_id|first>` (бой из кампании).
