@@ -310,7 +310,7 @@ func _draw() -> void:
 	_actions.clear()
 	_scroll_max = 0.0
 	draw_rect(Rect2(0.0, 0.0, w, h), Color(0.03, 0.0, 0.0, 0.86))
-	_text_c(font, Vector2(w * 0.5, 29.0), "ТОРГОВЕЦ", GOLD, 18)
+	_text_c(font, Vector2(w * 0.5, 29.0), "ПОЛЕВОЕ СНАБЖЕНИЕ", GOLD, 18)
 	_text_c(font, Vector2(w * 0.5, 48.0), "КРЕДИТЫ: %d" % _trader.credits(), GOLD, 13)
 	if _step == Step.SHOP:
 		_draw_offers(font, w, h)

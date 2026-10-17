@@ -183,18 +183,17 @@ func _draw() -> void:
 	draw_rect(panel, Color(0.08, 0.07, 0.07, 0.97))
 	draw_rect(panel, Color(accent, 0.55), false, 1.0)
 	draw_rect(Rect2(p, Vector2(260, 3)), accent)
-	var title := "ОБЪЕКТ-7 УНИЧТОЖЕН" if victory else "ВЫ ПОГИБЛИ"
-	if not _report.is_empty():
-		title = "ОПЕРАЦИЯ ВЫПОЛНЕНА" if victory else "ЕДИНИЦА ЭВАКУИРОВАНА"
-	_text_c(font, p + Vector2(130, 23), title, accent, 13 if not _report.is_empty() else 14)
+	_text_c(font, p + Vector2(130, 15), "РАПОРТ ОБ ОПЕРАЦИИ", MUTED, 9)
+	var title := "ОПЕРАЦИЯ ВЫПОЛНЕНА" if victory else "ОПЕРАТИВНИК ЭВАКУИРОВАН"
+	_text_c(font, p + Vector2(130, 29), title, accent, 11)
 	_body = Rect2(p + Vector2(12, 34), Vector2(236, 205))
 	_draw_receipt(font)
 	draw_line(p + Vector2(12, 244), p + Vector2(248, 244), Color(GOLD, 0.4))
 	var lines: Array = _stats.get("dna_lines", [])
 	var total_progress := clampf((_t - lines.size() * LINE_DELAY - COUNT_TIME) / COUNT_TIME, 0.0, 1.0)
-	_pair(font, p + Vector2(12, 258), 236.0, "ИТОГО ДНК", str(roundi(int(_stats.get("dna_total", 0)) * total_progress)), GOLD, 13)
+	_pair(font, p + Vector2(12, 258), 236.0, "ОБРАЗЦЫ (ДНК)", str(roundi(int(_stats.get("dna_total", 0)) * total_progress)), GOLD, 13)
 	if total_progress >= 1.0:
-		_text_c(font, p + Vector2(130, 268), "ДНК всего: %d" % int(_stats.get("dna_bank", 0)), MUTED, 8)
+		_text_c(font, p + Vector2(130, 268), "Образцов на форпосте: %d" % int(_stats.get("dna_bank", 0)), MUTED, 8)
 	_base_button = Rect2(p + Vector2(12, 274), Vector2(116, 24))
 	_button = Rect2(p + Vector2(134, 274), Vector2(114, 24))
 	for i in 2:
@@ -209,9 +208,9 @@ func _draw() -> void:
 		_text_c(font, r.get_center() + Vector2(0, 4), label, c, 8 if not _report.is_empty() else 10)
 	var hint := "Enter · допечатать" if not _finished else "←→ / A / Enter · R — ещё раз"
 	if _scroll_max > 0.0:
-		hint += " · ↑↓ / колесо — чек"
+		hint += " · ↑↓ / колесо — рапорт"
 	if not _report.is_empty():
-		hint = "←→ / A / Enter · ↑↓ / колесо — чек"
+		hint = "←→ / A / Enter · ↑↓ / колесо — рапорт"
 	_text_c(font, p + Vector2(130, 309), hint, MUTED, 8)
 	if not _report.is_empty():
 		_draw_consequences(font, Rect2(p + Vector2(272, 0), Vector2(264, 316)))
@@ -301,7 +300,7 @@ func _draw_receipt(font: Font) -> void:
 		_body_text(font, Vector2(x, y), "—", MUTED, 8)
 		y += 10.0
 	y += 2.0
-	_body_text(font, Vector2(x + _body.size.x * 0.5 - _width(font, "— ДНК —", 9) * 0.5, y), "— ДНК —", GOLD, 9)
+	_body_text(font, Vector2(x + _body.size.x * 0.5 - _width(font, "— ОБРАЗЦЫ (ДНК) —", 9) * 0.5, y), "— ОБРАЗЦЫ (ДНК) —", GOLD, 9)
 	y += 13.0
 	var lines: Array = _stats.get("dna_lines", [])
 	columns = 2 if lines.size() > 8 else 1
@@ -313,13 +312,26 @@ func _draw_receipt(font: Font) -> void:
 			var at := Vector2(x + (i % columns) * (width + 10.0), y + floorf(float(i) / columns) * 10.0)
 			_body_pair(font, at, width, str(line[0]), str(roundi(int(line[1]) * progress)), WHITE, 8)
 	y += ceili(float(lines.size()) / columns) * 10.0
-	var mult := float(_stats.get("dna_mult", 1.0))
-	if mult > 1.0:
+	var factors := multiplier_text()
+	if not factors.is_empty():
 		if _t >= lines.size() * LINE_DELAY:
-			_body_text(font, Vector2(x, y), "× %.1f победа" % mult, GOLD, 9)
+			_body_text(font, Vector2(x, y), factors, GOLD, 9)
 		y += 12.0
 	_scroll_max = maxf(0.0, y + _scroll - _body.end.y + 3.0)
 	_scroll = minf(_scroll, _scroll_max)
+
+
+## Итоговый коэффициент уже включает операцию; награды не пересчитываем.
+func multiplier_text() -> String:
+	var victory: bool = _stats.get("victory", false)
+	var operation := float(_stats.get("reward", {}).get("dna_mul", 1.0)) if victory and not _report.is_empty() else 1.0
+	var base := float(_stats.get("dna_mult", 1.0)) / operation
+	var parts: Array[String] = []
+	if base > 1.0:
+		parts.append("× %.1f победа" % base)
+	if operation > 1.0:
+		parts.append("× %s операция" % String.num(operation, 2))
+	return " · ".join(parts)
 
 
 func _body_text(font: Font, p: Vector2, value: String, color: Color, fs: int) -> void:

@@ -36,6 +36,21 @@ const DROP_SCATTER := 10.0 # предметы с одной элитки не л
 const CALM_RADIUS := 200.0 # затишье 9:00: зомби дальше этого от игрока убираются
 const TRADER_TIMES := [300.0, 540.0] # визиты торговца: 5:00 и 9:00 (BALANCE.md §9.2)
 
+# Реплики не используют боевой RNG и не влияют на сценарий операции.
+const DISPATCH := {
+	"start": ["Высадка. Работайте.", "Канал открыт. Зачистка."],
+	"trader": ["Снабжение выдано.", "Поставка закрыта. Работайте."],
+	"alarm": ["Всплеск биомассы.", "Активность растёт. Огонь."],
+	"approach": ["Объект-7 на подходе.", "Объект-7. Приготовиться."],
+	"boss": ["Объект-7 уничтожен.", "Объект-7. Сигнал погас."],
+	"evac": ["Единица ранена. Эвакуация.", "Прекратить огонь. Эвакуация."],
+	"supply": ["Сброс снабжения.", "Снабжение. Груз на земле."],
+}
+var _dispatch_counts: Dictionary = {}
+var _dispatch_started := false
+var _dispatch_alarm_phase := BloodAlarm.Phase.IDLE
+
+
 var time := 0.0
 var kills := 0
 var game_over := false
@@ -834,7 +849,14 @@ func _physics_process(delta: float) -> void:
 
 
 func _process(delta: float) -> void:
+	if blood_alarm.phase != _dispatch_alarm_phase:
+		if blood_alarm.phase == BloodAlarm.Phase.WARN or (blood_alarm.phase == BloodAlarm.Phase.ACTIVE and _dispatch_alarm_phase != BloodAlarm.Phase.WARN):
+			_announce(_dispatch_line("alarm"))
+		_dispatch_alarm_phase = blood_alarm.phase
 	mission_banner_t = maxf(0.0, mission_banner_t - delta)
+	if not _dispatch_started and mission_banner_t <= 0.0:
+		_dispatch_started = true
+		_announce(_dispatch_line("start"), Color(0.75, 0.85, 0.8))
 	boss_phase_flash = maxf(0.0, boss_phase_flash - delta)
 	if _boss_reward_pos != Vector2.INF:
 		_boss_reward_age += delta
@@ -982,6 +1004,7 @@ func _on_grenade_landed(at: Vector2) -> void:
 
 ## Контейнер тревоги упал: он лежит до подбора (см. Pickups).
 func _on_container_dropped(pos: Vector2) -> void:
+	_announce(_dispatch_line("supply"), Color(1.0, 0.82, 0.35))
 	_alarm_end_t = time
 	pickups.spawn(pos, Pickups.Kind.CONTAINER)
 	if _alarm and _shot_path != "":
@@ -1006,7 +1029,7 @@ func _on_pickup(kind: int, pos: Vector2) -> void:
 			_open_loot("РЕДКАЯ ДЕТАЛЬ", "выбери одну из двух", 2, true, true)
 		Pickups.Kind.CONTAINER:
 			crates += 1
-			_open_loot("КРОВАВЫЙ КОНТЕЙНЕР", "выбери модуль · +1 оружейный ящик", 3, false, false)
+			_open_loot("СБРОС СНАБЖЕНИЯ", "выбери модуль · +1 оружейный ящик", 3, false, false)
 			if _sim or _alarm:
 				print("CONTAINER picked time=%02d:%02d crates=%d" % [int(time) / 60, int(time) % 60, crates])
 
@@ -1178,6 +1201,7 @@ func _open_trader() -> void:
 
 
 func _on_trader_closed() -> void:
+	_announce(_dispatch_line("trader"), Color(1.0, 0.82, 0.35))
 	# Space закрывает лавку и он же рывок: ждём физический кадр, чтобы нажатие не стало рывком
 	await get_tree().physics_frame
 	await get_tree().physics_frame
@@ -1223,6 +1247,13 @@ func _update_view() -> void:
 	horde.far_distance = horde.spawn_ring * 1.6
 
 
+func _dispatch_line(event: String) -> String:
+	var count := int(_dispatch_counts.get(event, 0))
+	_dispatch_counts[event] = count + 1
+	var variants: Array = DISPATCH[event]
+	return "ДИСПЕТЧЕР: " + str(variants[posmod(Meta.runs + count, variants.size())])
+
+
 func _announce(text: String, color := Color(0.9, 0.15, 0.1)) -> void:
 	announce_text = text
 	announce_color = color
@@ -1251,6 +1282,7 @@ func _on_player_died() -> void:
 		return
 	game_over = true
 	spawner.enabled = false
+	_announce(_dispatch_line("evac"))
 	camera.shake(6.0)
 	for i in 4:
 		effects.blood_hit(player.global_position, Vector2.from_angle(randf() * TAU), true)
@@ -1566,7 +1598,7 @@ func _run_ui_test() -> void:
 	level_up.close()
 	# экран контейнера при двух отложенных Level Up: выбор их не списывает
 	progression.pending = 2
-	_open_loot("КРОВАВЫЙ КОНТЕЙНЕР", "выбери модуль · +1 оружейный ящик", 3, false, false)
+	_open_loot("СБРОС СНАБЖЕНИЯ", "выбери модуль · +1 оружейный ящик", 3, false, false)
 	await get_tree().create_timer(1.0, true).timeout
 	await RenderingServer.frame_post_draw
 	get_viewport().get_texture().get_image().save_png(_shot_path.replace(".png", "_container.png"))
@@ -1614,7 +1646,7 @@ func _run_ui_test() -> void:
 func _boss_timeline() -> void:
 	if time >= 570.0 and not _boss_warned:
 		_boss_warned = true
-		_announce("ОБЪЕКТ-7 ПРИБЛИЖАЕТСЯ", Color(1.0, 0.34, 0.16))
+		_announce(_dispatch_line("approach"), Color(1.0, 0.34, 0.16))
 		camera.shake(6.0)
 	if time < 600.0 or _boss_spawned:
 		return
@@ -1689,7 +1721,7 @@ func _on_boss_died(at: Vector2) -> void:
 	horde.death_override = previous
 	if _boss_test:
 		print("BOSS death cpu: burst=%.2f ms, total handler=%.2f ms" % [_boss_dbg_burst_ms, (Time.get_ticks_usec() - _boss_death_usec) / 1000.0])
-	_announce("ОБЪЕКТ-7 УНИЧТОЖЕН", Color(1.0, 0.82, 0.35))
+	_announce(_dispatch_line("boss"), Color(1.0, 0.82, 0.35))
 	if _boss_test or _sim:
 		print("BOSS killed fight_s=%.2f military_crates=%d" % [time - _boss_started, military_crates])
 		print("MISSION_RESULT outcome=victory time=%.2f kills=%d peak=%d level=%d damage=%.2f" % [time, kills, _run_peak, progression.level, player.damage_taken])
