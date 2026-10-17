@@ -11,7 +11,7 @@ const CAR_RADIUS := 90.0
 const CAR_DAMAGE := 60.0
 const BARREL_RADIUS := 65.0
 const BARREL_DAMAGE := 40.0
-const FLOW_BUDGET := 700
+const FLOW_BUDGET := 400
 const NO_PATH := 2147483647
 
 var player: Player
@@ -45,10 +45,12 @@ var blood_events := 0
 
 var _link_obj := PackedInt32Array()
 var _link_next := PackedInt32Array()
-var _distance := PackedInt32Array()
+var distance := PackedInt32Array()
+var _distance_build := PackedInt32Array()
+var _pending_target := -1
+var _dirty := true
 var _next_flow := PackedVector2Array()
 var _adjacency := PackedInt32Array()
-var _directions := PackedVector2Array([Vector2.RIGHT, Vector2.LEFT, Vector2.DOWN, Vector2.UP])
 var _queue := PackedInt32Array()
 var _qread := 0
 var _qwrite := 0
@@ -57,9 +59,6 @@ var _target_cell := -1
 var _flow_target := Vector2.ZERO
 var _flow_ready := false
 var _nav_cd := 0.0
-var _los_version := 1
-var _los_stamp := PackedInt32Array()
-var _los_clear := PackedByteArray()
 var _blast_queue := PackedInt32Array()
 var _burning := PackedInt32Array()
 var _smoking := PackedInt32Array()
@@ -69,6 +68,7 @@ var _view_cell := Vector2i(-999, -999)
 var _atlas: Texture2D
 var _fire: Texture2D
 var _smoke: Texture2D
+var _fx: Node2D
 var _rng := RandomNumberGenerator.new()
 
 
@@ -77,6 +77,9 @@ func _ready() -> void:
 	_fire = PixelArt.tex("fx_explosion_medium")
 	_smoke = PixelArt.tex("fx_smoke")
 	process_priority = -20
+	_fx = Node2D.new()
+	_fx.draw.connect(_draw_fx)
+	add_child(_fx)
 	_rng.seed = 17081
 
 
@@ -123,10 +126,9 @@ func setup(rect: Rect2, layout: Array[Dictionary]) -> void:
 	blocked.resize(n)
 	flow.resize(n)
 	_next_flow.resize(n)
-	_distance.resize(n)
+	distance.resize(n)
+	_distance_build.resize(n)
 	_queue.resize(n)
-	_los_stamp.resize(n)
-	_los_clear.resize(n)
 	_adjacency.resize(n * 4)
 	_flow_ready = false
 	_building = false
@@ -165,10 +167,8 @@ func rebuild_grid() -> void:
 				# Запас для элитки и диагонали клетки: поток не срезает углы.
 				if _overlaps(i, cell_center(c), 18.9):
 					blocked[c] = 1
-	_flow_ready = false
 	_building = false
-	_target_cell = -1
-	_los_version += 1
+	_dirty = true # старое поле остаётся в работе, пока строится новое
 	# Связи неизменны между разрушениями: горячий BFS не считает границы и координаты.
 	_adjacency.fill(-1)
 	for c in blocked.size():
@@ -338,46 +338,40 @@ func line_clear(from: Vector2, to: Vector2) -> bool:
 	return ray_hit(from, to, true, 0.0) == -1
 
 
+## ZERO — идти прямо. Иначе направление поля потока. Прямой путь есть, если расстояние
+## по сетке равно манхэттенскому (ступенчатая дорожка без обхода): O(1), без трассировки.
 func steering(p: Vector2, direct: Vector2) -> Vector2:
 	if not _flow_ready:
-		return direct
+		return Vector2.ZERO
 	var c := cell_at(p)
-	if _los_stamp[c] != _los_version:
-		_los_stamp[c] = _los_version
-		_los_clear[c] = 1 if _nav_line_clear(cell_center(c), _flow_target) else 0
-	if _los_clear[c] == 1:
-		return direct
-	var direction := flow[c]
-	if direction == Vector2.ZERO:
-		# Агент мог быть растолкнут в запас сетки: берёт ближайшую свободную клетку.
-		var best := INF
-		for offset: int in [-1, 1, -grid_w, grid_w]:
-			var next := c + offset
-			if next >= 0 and next < blocked.size() and blocked[next] == 0 and _distance[next] < best:
-				best = _distance[next]
-				direction = (cell_center(next) - p).normalized()
-	return direction.normalized() if direction != Vector2.ZERO else direct
+	var d := distance[c]
+	if d != NO_PATH:
+		if d == absi(c % grid_w - _target_cell % grid_w) + absi(c / grid_w - _target_cell / grid_w) 				and blocked[cell_at(p + direct * 20.0)] == 0 and blocked[cell_at(p + direct * 40.0)] == 0:
+			return Vector2.ZERO
+		return flow[c]
+	# Агент мог быть растолкнут в запас сетки: берёт ближайшую свободную клетку.
+	var best := NO_PATH
+	var direction := Vector2.ZERO
+	for offset: int in [-1, 1, -grid_w, grid_w]:
+		var next := c + offset
+		if next >= 0 and next < blocked.size() and blocked[next] == 0 and distance[next] < best:
+			best = distance[next]
+			direction = (cell_center(next) - p).normalized()
+	return direction
 
 
-func _nav_line_clear(from: Vector2, to: Vector2) -> bool:
-	var steps := maxi(1, ceili(from.distance_to(to) / (CELL * 0.65)))
-	for j in steps + 1:
-		if blocked[cell_at(from.lerp(to, float(j) / float(steps)))] != 0:
-			return false
-	return true
-
-
+## Поле пересчитывается, когда игрок ушёл от цели поля больше чем на 3 клетки; BFS размазан по тикам.
 func navigation_step(delta: float, target: Vector2) -> void:
 	var start := Time.get_ticks_usec()
 	_nav_cd -= delta
 	var c := cell_at(free_point(target, 19.0))
-	if not _building and _nav_cd <= 0.0 and c != _target_cell:
-		_target_cell = c
-		_flow_target = cell_center(c)
-		_nav_cd = 0.2
-		_distance.fill(NO_PATH)
+	if not _building and _nav_cd <= 0.0 and (_dirty or _target_cell < 0 or absi(c % grid_w - _target_cell % grid_w) > 2 or absi(c / grid_w - _target_cell / grid_w) > 2):
+		_pending_target = c
+		_dirty = false
+		_nav_cd = 0.15
+		_distance_build.fill(NO_PATH)
 		_next_flow.fill(Vector2.ZERO)
-		_distance[c] = 0
+		_distance_build[c] = 0
 		_queue[0] = c
 		_qread = 0
 		_qwrite = 1
@@ -387,22 +381,44 @@ func navigation_step(delta: float, target: Vector2) -> void:
 		while _qread < _qwrite and _qread < end:
 			var at := _queue[_qread]
 			_qread += 1
-			for direction_index in 4:
-				var next := _adjacency[at * 4 + direction_index]
-				if next < 0 or _distance[next] != NO_PATH:
-					continue
-				_distance[next] = _distance[at] + 1
-				_next_flow[next] = _directions[direction_index]
+			var nd := _distance_build[at] + 1
+			var base := at * 4
+			var next := _adjacency[base]
+			if next >= 0 and _distance_build[next] == NO_PATH:
+				_distance_build[next] = nd
+				_next_flow[next] = Vector2.RIGHT
+				_queue[_qwrite] = next
+				_qwrite += 1
+			next = _adjacency[base + 1]
+			if next >= 0 and _distance_build[next] == NO_PATH:
+				_distance_build[next] = nd
+				_next_flow[next] = Vector2.LEFT
+				_queue[_qwrite] = next
+				_qwrite += 1
+			next = _adjacency[base + 2]
+			if next >= 0 and _distance_build[next] == NO_PATH:
+				_distance_build[next] = nd
+				_next_flow[next] = Vector2.DOWN
+				_queue[_qwrite] = next
+				_qwrite += 1
+			next = _adjacency[base + 3]
+			if next >= 0 and _distance_build[next] == NO_PATH:
+				_distance_build[next] = nd
+				_next_flow[next] = Vector2.UP
 				_queue[_qwrite] = next
 				_qwrite += 1
 		if _qread == _qwrite:
 			_building = false
 			_flow_ready = true
-			_los_version += 1
+			_target_cell = _pending_target
+			_flow_target = cell_center(_target_cell)
 			nav_completed += 1
 			var previous := flow
 			flow = _next_flow
 			_next_flow = previous
+			var previous_distance := distance
+			distance = _distance_build
+			_distance_build = previous_distance
 	nav_worst_usec = maxi(nav_worst_usec, Time.get_ticks_usec() - start)
 
 
@@ -449,6 +465,7 @@ func damage(i: int, amount: float, fire := false) -> void:
 			state[i] = State.BURNING
 			burn[i] = 4.0 + float(i % 3)
 			_burning.append(i)
+			_fx.queue_redraw()
 		else:
 			state[i] = State.BURNING
 			_blast_queue.append(i)
@@ -493,11 +510,14 @@ func charge(at: Vector2, radius: float) -> bool:
 
 ## Кровь выбирает заранее обрезанную по альфе ступень того же атласа.
 func splatter(at: Vector2, _dir := Vector2.ZERO, _death := 0, _facing := 0.0, _variant := 0) -> void:
+	var link := near_head[cell_at(at)]
 	var changed := false
-	for i in count:
+	while link != -1:
+		var i := _link_obj[link]
+		link = _link_next[link]
 		if kind[i] >= Kind.TIRES or state[i] == State.GONE or blood[i] >= 3:
 			continue
-		if _overlaps(i, at, 42.0):
+		if _overlaps(i, at, 30.0):
 			blood[i] += 1
 			blood_events += 1
 			changed = true
@@ -565,10 +585,13 @@ func _process(delta: float) -> void:
 	_visual_tick += delta
 	var view := PixelArt.view_rect(self)
 	var cell := Vector2i(view.position / 48.0)
-	if cell != _view_cell or ((not _burning.is_empty() or not _smoking.is_empty()) and _visual_tick >= 0.083):
+	if cell != _view_cell:
 		_view_cell = cell
-		_visual_tick = 0.0
 		queue_redraw()
+	# Огонь и дым — отдельный слой: корпуса не перерисовываются на каждом кадре анимации.
+	if (not _burning.is_empty() or not _smoking.is_empty()) and _visual_tick >= 0.083:
+		_visual_tick = 0.0
+		_fx.queue_redraw()
 
 
 func _tile(i: int) -> int:
@@ -594,16 +617,20 @@ func _draw() -> void:
 			draw_set_transform(pos[i], rotation_angle[i], Vector2.ONE * PixelArt.ART_SCALE)
 			draw_texture_rect_region(_atlas, Rect2(-ART_CELL * 0.5, ART_CELL), source)
 	draw_set_transform(Vector2.ZERO)
+
+
+func _draw_fx() -> void:
+	var view := PixelArt.view_rect(self, 130.0)
 	for i in _smoking:
 		if not view.has_point(pos[i]):
 			continue
 		var frame := int(Time.get_ticks_msec() / 180 + i) % 8
 		var at := pos[i] + axis[i] * 20.0
-		draw_texture_rect_region(_smoke, Rect2(at + Vector2(-14, -30), Vector2(28, 32)), Rect2(frame * 96, 0, 96, 96), Color(0.55, 0.55, 0.52, 0.45))
+		_fx.draw_texture_rect_region(_smoke, Rect2(at + Vector2(-14, -30), Vector2(28, 32)), Rect2(frame * 96, 0, 96, 96), Color(0.55, 0.55, 0.52, 0.45))
 	for i in _burning:
 		if not view.has_point(pos[i]):
 			continue
 		var frame := int(Time.get_ticks_msec() / 80 + i) % 8
 		var at := pos[i] + axis[i] * 18.0
-		draw_texture_rect_region(_smoke, Rect2(at + Vector2(-24, -50), Vector2(48, 52)), Rect2(frame * 96, 0, 96, 96), Color(0.55, 0.54, 0.51, 0.65))
-		draw_texture_rect_region(_fire, Rect2(at - Vector2(16, 30), Vector2(32, 36)), Rect2((frame + 2) * 144, (i % 3) * 144, 144, 144))
+		_fx.draw_texture_rect_region(_smoke, Rect2(at + Vector2(-24, -50), Vector2(48, 52)), Rect2(frame * 96, 0, 96, 96), Color(0.55, 0.54, 0.51, 0.65))
+		_fx.draw_texture_rect_region(_fire, Rect2(at - Vector2(16, 30), Vector2(32, 36)), Rect2((frame + 2) * 144, (i % 3) * 144, 144, 144))

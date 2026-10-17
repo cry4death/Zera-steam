@@ -58,6 +58,7 @@ var far_distance := 600.0
 var count := 0
 var pos := PackedVector2Array()
 var knock := PackedVector2Array()
+var steer := PackedVector2Array() # кэш направления обхода (O1), ZERO — прямо
 var hp := PackedFloat32Array()
 var max_hp := PackedFloat32Array()
 var speed := PackedFloat32Array()
@@ -109,6 +110,7 @@ func _ready() -> void:
 	process_priority = -10 # обновляемся раньше оружия, чтобы сетка была свежей
 	pos.resize(MAX_ENEMIES)
 	knock.resize(MAX_ENEMIES)
+	steer.resize(MAX_ENEMIES)
 	hp.resize(MAX_ENEMIES)
 	max_hp.resize(MAX_ENEMIES)
 	speed.resize(MAX_ENEMIES)
@@ -189,6 +191,7 @@ func spawn(p: Vector2, k := Kind.SHAMBLER, is_elite := false) -> int:
 	if obstacles:
 		pos[i] = obstacles.free_point(pos[i], radius[i])
 	knock[i] = Vector2.ZERO
+	steer[i] = Vector2.ZERO
 	hp[i] = KINDS[k]["hp"] * (1.0 + hp_growth_per_min * minutes) * (ELITE_HP if is_elite else 1.0)
 	max_hp[i] = hp[i]
 	# Даже самый медленный бегун быстрее базовых 80 px/с игрока.
@@ -438,9 +441,14 @@ func _physics_process(delta: float) -> void:
 	_rebuild_grid()
 	_separate()
 	if obstacles:
+		var near := obstacles.near_head
+		var ogw := obstacles.grid_w
+		var gw1 := ogw - 1
+		var gh1 := obstacles.grid_h - 1
 		for i in count:
-			if obstacles.near_head[obstacles.cell_at(pos[i])] != -1:
-				pos[i] = obstacles.resolve(pos[i], radius[i])
+			var p := pos[i]
+			if near[clampi(int(p.x / CELL), 0, gw1) + clampi(int(p.y / CELL), 0, gh1) * ogw] != -1:
+				pos[i] = obstacles.resolve(p, radius[i])
 	_render()
 	queue_redraw()
 	update_ms = (Time.get_ticks_usec() - t0) / 1000.0
@@ -464,6 +472,10 @@ func _move(delta: float) -> void:
 	var decay := exp(-10.0 * delta)
 	var touch_damage := 0.0
 	var damage_scale := 1.0 + damage_growth_per_min * minutes
+	var near := obstacles.near_head if obstacles else PackedInt32Array()
+	var ogw := obstacles.grid_w if obstacles else 1
+	var gw1 := ogw - 1
+	var gh1 := (obstacles.grid_h if obstacles else 1) - 1
 	for i in count:
 		if dead[i] == 1:
 			continue
@@ -494,8 +506,12 @@ func _move(delta: float) -> void:
 		if dead[i] == 1: # огонь мог убить в этом кадре
 			continue
 		var move_dir := dir
-		if obstacles:
-			move_dir = obstacles.steering(p, dir)
+		if obstacles and d > 90.0:
+			# Направление поля обходов обновляется раз в 4 тика на зомби: ZERO — идти прямо.
+			if (i + _frame) & 3 == 0:
+				steer[i] = obstacles.steering(p, dir)
+			if steer[i] != Vector2.ZERO:
+				move_dir = steer[i]
 		if kind[i] == Kind.SPITTER:
 			spit_cd[i] = maxf(spit_cd[i] - delta, 0.0)
 			move_dir = -dir if d < 130.0 else (move_dir if d > 170.0 else Vector2.ZERO)
@@ -511,7 +527,7 @@ func _move(delta: float) -> void:
 					spit_cd[i] = SPIT_COOLDOWN
 					move_dir = Vector2.ZERO
 		p += move_dir * spd * delta + k * delta
-		if obstacles and obstacles.near_head[obstacles.cell_at(p)] != -1:
+		if obstacles and near[clampi(int(p.x / CELL), 0, gw1) + clampi(int(p.y / CELL), 0, gh1) * ogw] != -1:
 			p = obstacles.move_actor(old, p, radius[i])
 		knock[i] = k * decay
 		# игрок «тяжёлый»: выталкивает зомби из себя
@@ -614,6 +630,7 @@ func _compact() -> void:
 			if i != count:
 				pos[i] = pos[count]
 				knock[i] = knock[count]
+				steer[i] = steer[count]
 				hp[i] = hp[count]
 				max_hp[i] = max_hp[count]
 				speed[i] = speed[count]
