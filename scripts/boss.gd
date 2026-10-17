@@ -356,7 +356,11 @@ func _draw() -> void:
 	if not _alive:
 		return
 	_draw_attacks()
-	PixelArt.draw_dot(self, Vector2(1.0, 4.0), 20.0, Color(0.015, 0.012, 0.012, 0.55))
+	# тень — мягкий эллипс: объект один, а пиксельная точка такого радиуса давала ступенчатый крест
+	draw_set_transform(Vector2(1.0, 4.0), 0.0, Vector2(1.0, 0.75))
+	for k in 4:
+		draw_circle(Vector2.ZERO, 22.0 - k * 4.0, Color(0.015, 0.012, 0.012, 0.16))
+	draw_set_transform(Vector2.ZERO)
 	if _body:
 		_body.queue_redraw()
 
