@@ -89,11 +89,16 @@ var shatter := PackedByteArray() # Крио III: раскол ранит сос�
 
 var _grid_w := 0
 var _grid_h := 0
+var _stride := 0 # ширина сетки с пустой рамкой в одну ячейку: соседей можно читать без проверки границ
+var _noff := PackedInt32Array()
 var _head := PackedInt32Array()
 var _next := PackedInt32Array()
 var _frame := 0
 var _next_uid := 1
 var _time := 0.0
+
+const SHATTER_PER_TICK := 6
+var _shatter_queue := PackedVector2Array()
 
 var _mm: MultiMesh
 var _buf := PackedFloat32Array()
@@ -158,7 +163,10 @@ func setup(arena_rect: Rect2, target: Player, floor_layer: FloorDecals) -> void:
 	floor_decals = floor_layer
 	_grid_w = ceili(arena.size.x / CELL)
 	_grid_h = ceili(arena.size.y / CELL)
-	_head.resize(_grid_w * _grid_h)
+	_stride = _grid_w + 2
+	_head.resize(_stride * (_grid_h + 2))
+	_head.fill(-1)
+	_noff = PackedInt32Array([1, _stride - 1, _stride, _stride + 1]) # E, SW, S, SE
 	# Границы MultiMesh — вся арена. Иначе Godot отсекает орду целиком по устаревшему
 	# прямоугольнику, и зомби пропадают, стоит уйти от места, где он был посчитан.
 	var r := arena.grow(SPRITE_SIZE)
@@ -310,9 +318,9 @@ func _on_death_status(i: int) -> void:
 			if randf() < burn_spread[i]:
 				ignite(j, burn_dps[i], 3.0, burn_spread[i], burn_r[i])
 	if freeze_t[i] > 0.0 and shatter[i] == 1:
-		for j in query_radius(pos[i], 24.0):
-			chill_hit(j, 0.3, 3, true)
-			damage(j, 5.0, (pos[j] - pos[i]).normalized(), 40.0, WeaponDefs.Ammo.CRYO)
+		# Раскол не рекурсивный: цепочка замёрзших раньше разворачивалась за один кадр (десятки мс),
+		# теперь точки раскола встают в очередь и разбираются по SHATTER_PER_TICK за тик.
+		_shatter_queue.append(pos[i])
 
 
 func ignite(i: int, dps: float, duration: float, spread_chance := 0.0, spread_r := 16.0) -> void:
@@ -345,7 +353,7 @@ func query_radius(p: Vector2, r: float) -> PackedInt32Array:
 	var cy := int(p.y / CELL)
 	for y in range(maxi(cy - cr, 0), mini(cy + cr + 1, _grid_h)):
 		for x in range(maxi(cx - cr, 0), mini(cx + cr + 1, _grid_w)):
-			var j := _head[x + y * _grid_w]
+			var j := _head[(x + 1) + (y + 1) * _stride]
 			while j != -1:
 				if j < count and dead[j] == 0 and pos[j].distance_squared_to(p) <= (r + radius[j]) * (r + radius[j]):
 					out.append(j)
@@ -393,7 +401,7 @@ func find_hit(p: Vector2, r: float) -> int:
 		for x in range(cx - cr, cx + cr + 1):
 			if x < 0 or x >= _grid_w:
 				continue
-			var j := _head[x + y * _grid_w]
+			var j := _head[(x + 1) + (y + 1) * _stride]
 			while j != -1:
 				if j < count and dead[j] == 0 and pos[j].distance_squared_to(p) <= (r + radius[j]) * (r + radius[j]):
 					return j
@@ -421,6 +429,7 @@ func _physics_process(delta: float) -> void:
 	var t0 := Time.get_ticks_usec()
 	_frame += 1
 	_time += delta
+	_run_shatter()
 	_compact()
 	_move(delta)
 	_rebuild_grid()
@@ -428,6 +437,19 @@ func _physics_process(delta: float) -> void:
 	_render()
 	queue_redraw()
 	update_ms = (Time.get_ticks_usec() - t0) / 1000.0
+
+
+## Раскол замёрзших: осколки ранят соседей в радиусе 24; убитые замёрзшие добавляют свои точки в очередь.
+func _run_shatter() -> void:
+	var n := mini(_shatter_queue.size(), SHATTER_PER_TICK)
+	if n == 0:
+		return
+	var batch := _shatter_queue.slice(0, n)
+	_shatter_queue = _shatter_queue.slice(n)
+	for p in batch:
+		for j in query_radius(p, 24.0):
+			chill_hit(j, 0.3, 3, true)
+			damage(j, 5.0, (pos[j] - p).normalized(), 40.0, WeaponDefs.Ammo.CRYO)
 
 
 func _move(delta: float) -> void:
@@ -499,18 +521,22 @@ func _move(delta: float) -> void:
 			a += sin(_time * 7.0 + seed_value[i] * 20.0) * 0.35 # еле живые шатаются
 		angle[i] = a
 		flash[i] = maxf(flash[i] - delta * 10.0, 0.0)
-		_feet_and_drips(i, p, old, a)
+		# следы и капли: функцию зовём только когда что-то нужно (раньше — 500 вызовов за тик впустую)
+		if floor_decals != null:
+			var sa := step_acc[i] + p.distance_to(old)
+			if sa >= STEP_LENGTH or stage[i] > 0 or (i + _frame) & 3 == 0:
+				step_acc[i] = sa
+				_feet_and_drips(i, p, a)
+			else:
+				step_acc[i] = sa
 	if touch_damage > 0.0:
 		player_touched.emit(touch_damage)
 
 
 ## Кровавые следы, если зомби прошёл по луже, и капли с раненых.
-func _feet_and_drips(i: int, p: Vector2, old: Vector2, a: float) -> void:
-	if floor_decals == null:
-		return
+func _feet_and_drips(i: int, p: Vector2, a: float) -> void:
 	if (i + _frame) & 3 == 0 and floor_decals.is_wet(p):
 		feet[i] = BLOODY_STEPS
-	step_acc[i] += p.distance_to(old)
 	if step_acc[i] >= STEP_LENGTH:
 		step_acc[i] = 0.0
 		if feet[i] > 0:
@@ -526,40 +552,45 @@ func _rebuild_grid() -> void:
 	_head.fill(-1)
 	for i in count:
 		var p := pos[i]
-		var c := clampi(int(p.x / CELL), 0, _grid_w - 1) + clampi(int(p.y / CELL), 0, _grid_h - 1) * _grid_w
+		var c := clampi(int(p.x / CELL), 0, _grid_w - 1) + 1 + (clampi(int(p.y / CELL), 0, _grid_h - 1) + 1) * _stride
 		_next[i] = _head[c]
 		_head[c] = i
 
 
 func _separate() -> void:
+	# Каждая пара обходится один раз: хвост своей ячейки + четыре «передние» соседки (E, SW, S, SE).
+	# Раньше обходили все 9 ячеек с проверкой j > i и границ — вдвое больше проходов по спискам.
+	var gw := _grid_w - 1
+	var gh := _grid_h - 1
+	var stride := _stride
 	for i in count:
 		if dead[i] == 1:
 			continue
 		var p := pos[i]
-		var cx := int(p.x / CELL)
-		var cy := int(p.y / CELL)
-		for y in range(cy - 1, cy + 2):
-			if y < 0 or y >= _grid_h:
-				continue
-			for x in range(cx - 1, cx + 2):
-				if x < 0 or x >= _grid_w:
-					continue
-				var j := _head[x + y * _grid_w]
-				while j != -1:
-					if j > i and dead[j] == 0:
-						var q := pos[j]
-						var dv := p - q
-						var d2 := dv.length_squared()
-						var min_d := radius[i] + radius[j]
-						if d2 < min_d * min_d:
-							if d2 < 0.0001:
-								dv = Vector2.from_angle(randf() * TAU) * 0.1
-								d2 = 0.01
-							var d := sqrt(d2)
-							var push := dv * ((min_d - d) / d * 0.5)
-							p += push
-							pos[j] = q - push
-					j = _next[j]
+		var ri := radius[i]
+		var base := clampi(int(p.x / CELL), 0, gw) + 1 + (clampi(int(p.y / CELL), 0, gh) + 1) * stride
+		var j := _next[i]
+		var k := 0
+		while true:
+			while j != -1:
+				if dead[j] == 0:
+					var q := pos[j]
+					var dv := p - q
+					var d2 := dv.length_squared()
+					var min_d := ri + radius[j]
+					if d2 < min_d * min_d:
+						if d2 < 0.0001:
+							dv = Vector2.from_angle(randf() * TAU) * 0.1
+							d2 = 0.01
+						var d := sqrt(d2)
+						var push := dv * ((min_d - d) / d * 0.5)
+						p += push
+						pos[j] = q - push
+				j = _next[j]
+			if k == 4:
+				break
+			j = _head[base + _noff[k]]
+			k += 1
 		pos[i] = p
 
 

@@ -70,6 +70,8 @@ var _col := PackedColorArray()
 var _trail := PackedByteArray()
 var _trail_pos := PackedVector2Array()
 var _var := PackedByteArray()
+var _sort_cnt := PackedInt32Array()
+var _order := PackedInt32Array()
 
 
 func _ready() -> void:
@@ -350,10 +352,12 @@ func _add(kind: int, tex_id: int, p: Vector2, v: Vector2, rot: float, spin: floa
 func _physics_process(delta: float) -> void:
 	var lo := arena.position + Vector2.ONE * 6.0
 	var hi := arena.end - Vector2.ONE * 6.0
+	var spin_decay := exp(-3.0 * delta)
 	var i := count - 1
 	while i >= 0:
 		_age[i] += delta
-		if not _update_special(i, delta):
+		# GIB и CORPSE (почти все обломки) особого поведения не имеют: функцию не вызываем
+		if _kind[i] >= Kind.BURNING and not _update_special(i, delta):
 			_remove(i)
 			i -= 1
 			continue
@@ -370,7 +374,7 @@ func _physics_process(delta: float) -> void:
 			_pos[i] = p
 			_vel[i] = v * exp(-_drag[i] * delta)
 			_rot[i] += _spin[i] * delta
-			_spin[i] *= exp(-3.0 * delta)
+			_spin[i] *= spin_decay
 			if _trail[i] == 1:
 				var wide := _kind[i] == Kind.CORPSE or _kind[i] == Kind.CRAWLER
 				if v.length_squared() > 8100.0 and not wide:
@@ -478,7 +482,26 @@ func _remove(i: int) -> void:
 
 
 func _draw() -> void:
+	var view := PixelArt.view_rect(self, 40.0)
+	# Порядок по текстуре (подсчётом): подряд идущие одинаковые текстуры Godot склеивает в один draw call.
+	var nt := _textures.size()
+	if _sort_cnt.size() != nt + 1:
+		_sort_cnt.resize(nt + 1)
+		_order.resize(MAX_DEBRIS)
+	_sort_cnt.fill(0)
 	for i in count:
+		if view.has_point(_pos[i]):
+			_sort_cnt[_tex[i] + 1] += 1
+	for t in nt:
+		_sort_cnt[t + 1] += _sort_cnt[t]
+	var shown := _sort_cnt[nt]
+	for i in count:
+		if view.has_point(_pos[i]):
+			var t := _tex[i]
+			_order[_sort_cnt[t]] = i
+			_sort_cnt[t] += 1
+	for n in shown:
+		var i := _order[n]
 		var tex := _textures[_tex[i]]
 		var col := _col[i]
 		var rot := _rot[i]

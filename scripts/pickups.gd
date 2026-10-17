@@ -141,7 +141,10 @@ func _remove(i: int) -> void:
 
 func _draw() -> void:
 	var k := PixelArt.ART_SCALE
+	var view := PixelArt.view_rect(self, 40.0)
 	for i in count:
+		if not view.has_point(_pos[i]):
+			continue
 		draw_set_transform(Vector2.ZERO) # после прошлого предмета остался масштаб
 		var kind := _kind[i]
 		var tex := _tex[kind]

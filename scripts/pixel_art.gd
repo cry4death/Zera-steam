@@ -43,6 +43,12 @@ static func draw_dot(ci: CanvasItem, p: Vector2, r: float, color: Color) -> void
 	ci.draw_texture_rect(dot(), Rect2(p - Vector2(r, r), Vector2(r, r) * 2.0), false, color)
 
 
+## Видимая часть мира в локальных координатах узла (с запасом): всё, что вне её, не рисуем (P1).
+static func view_rect(ci: CanvasItem, margin := 16.0) -> Rect2:
+	var screen := Rect2(Vector2.ZERO, ci.get_viewport().get_visible_rect().size)
+	return (ci.get_global_transform_with_canvas().affine_inverse() * screen).grow(margin)
+
+
 static func tex(name: String) -> Texture2D:
 	return load("res://art/%s.png" % name)
 
