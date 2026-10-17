@@ -18,6 +18,7 @@ var floor_decals: FloorDecals
 var effects: Effects
 var camera: GameCamera
 var minutes := 0.0
+var acid_life_mul := 1.0 # Профиль операции; ёмкость пула и DPS прежние.
 
 var _shot_count := 0
 var _shot_pos := PackedVector2Array()
@@ -117,7 +118,7 @@ func acid_pool(p: Vector2, radius := 20.0, dps := 5.0, duration := 3.0) -> void:
 	_pool_pos[i] = p
 	_pool_radius[i] = radius
 	_pool_dps[i] = maxf(dps, 0.0)
-	_pool_life[i] = duration
+	_pool_life[i] = duration * acid_life_mul
 	_pool_seed[i] = randf() * TAU
 	_pool_rot[i] = randf() * TAU
 	_pool_art[i] = randi() % 3

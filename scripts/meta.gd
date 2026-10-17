@@ -84,7 +84,7 @@ func _ready() -> void:
 	reset()
 	var args := OS.get_cmdline_user_args()
 	# Эти проверки никогда не читают профиль, даже с --save-file.
-	if args.has("--base-test") or args.has("--campaign-test") or args.has("--globe-test"):
+	if args.has("--base-test") or args.has("--campaign-test") or args.has("--globe-test") or args.has("--c2-checks"):
 		persist = false
 		return
 	var custom := ""
@@ -486,6 +486,13 @@ func _apply_cmdline(args: PackedStringArray) -> void:
 
 ## Готовые состояния для тестов: "maxed" — всё открыто и прокачано.
 func apply_preset(name: String) -> void:
+	if name == "mid":
+		dna_earned = dna_for_level(7)
+		for id: String in ["fire_1", "fire_2", "mag_1", "mag_2", "surv_1", "surv_2"]:
+			tree[id] = true
+		for id: String in owned:
+			workshop[id] = {"damage": 2, "rate": 2, "mag": 2, "reload": 2}
+		return
 	if name != "maxed":
 		push_warning("Meta: неизвестный пресет «%s»" % name)
 		return

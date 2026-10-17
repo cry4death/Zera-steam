@@ -34,6 +34,8 @@ var arena: Rect2
 var minutes := 0.0
 
 var hp := MAX_HP
+var max_hp := MAX_HP
+var armor_threshold := 0.5
 var phase := 1
 
 enum State { WALK, TELEGRAPH, CHARGE, RECOVER, SLAM, ROAR, SHED }
@@ -82,8 +84,14 @@ func _ready() -> void:
 	visible = _alive
 
 
+## Параметры задаются до старта; телеграфы и урон атак не меняются.
+func set_mission_profile(hp_mul: float, shed_fraction: float) -> void:
+	max_hp = MAX_HP * clampf(hp_mul, 1.0, 1.25)
+	armor_threshold = clampf(shed_fraction, 0.35, 0.5)
+
+
 func start(p: Vector2) -> void:
-	hp = MAX_HP
+	hp = max_hp
 	phase = 1
 	_alive = true
 	_state = State.WALK
@@ -126,7 +134,7 @@ func take_damage(amount: float, dir: Vector2, at: Vector2) -> bool:
 		while _plate_damage >= 1500.0:
 			_plate_damage -= 1500.0
 			armor_plate.emit(at, dir.normalized() if dir != Vector2.ZERO else _facing)
-		if hp <= MAX_HP * 0.5:
+		if hp <= max_hp * armor_threshold:
 			_shed_armor()
 	elif effects:
 		effects.blood_hit(at, dir, false)

@@ -30,6 +30,13 @@ const DIRECTIONAL_CHANCE := 0.2 # доля групп «стеной» с одн
 const WAVE_WIDTH := 120.0 # длина стены направленной волны
 const ELITE_START := 300.0
 const ELITE_PERIOD := 30.0
+# Профиль операции: лимиты и здоровье врагов остаются из исходной кривой.
+const MISSION_BALANCE := {
+	"rate": [1.0, 1.075, 1.15, 1.225, 1.3], "runner_step": 3.0, "spitter_step": 1.0,
+	"elite_step": 2.0, "direction_step": 0.05, "runner_bonus": 25.0, "runner_rate": 1.12,
+	"acid_bonus": 18.0, "hunt_start": 180.0, "hunt_period": 90.0, "hunt_count": 3,
+	"acid_life": 1.75, "boss_hp": 1.25, "boss_shed": 0.35,
+}
 
 var horde: Horde
 var player: Player
@@ -44,6 +51,55 @@ var _next_pack := false # следующая группа — пачка бег�
 var _next_elite := ELITE_START
 var _wave_angle := 0.0
 var _last_directional := false
+var profile: Dictionary = {}
+var _rows: Array = []
+var _alarm_row: Array = []
+var _next_hunt := INF
+
+
+## Бой знает только параметры; география и состояние мира сюда не попадают.
+static func combat_profile(config: Dictionary) -> Dictionary:
+	if config.is_empty():
+		return {}
+	var tier := clampi(int(config["threat"]), 1, 5) - 1
+	var mods: Array = config["modifiers"]
+	return {"rate_mul": float(MISSION_BALANCE["rate"][tier]) * (float(MISSION_BALANCE["runner_rate"]) if mods.has("runner_surge") else 1.0),
+		"runner_add": tier * float(MISSION_BALANCE["runner_step"]) + (float(MISSION_BALANCE["runner_bonus"]) if mods.has("runner_surge") else 0.0),
+		"spitter_add": tier * float(MISSION_BALANCE["spitter_step"]), "acid": mods.has("acid_rain"),
+		"elite_period": ELITE_PERIOD - tier * float(MISSION_BALANCE["elite_step"]),
+		"directional": DIRECTIONAL_CHANCE + tier * float(MISSION_BALANCE["direction_step"]),
+		"hunt": mods.has("elite_hunt"), "extra_alarm": mods.has("blood_frenzy"),
+		"acid_life_mul": float(MISSION_BALANCE["acid_life"]) if mods.has("acid_rain") else 1.0,
+		"boss_hp_mul": float(MISSION_BALANCE["boss_hp"]) if mods.has("hardened_boss") else 1.0,
+		"boss_shed": float(MISSION_BALANCE["boss_shed"]) if mods.has("hardened_boss") else 0.5}
+
+
+func set_profile(value: Dictionary) -> void:
+	profile = value.duplicate(true)
+	_rows.clear()
+	_alarm_row.clear()
+	_next_elite = ELITE_START
+	_next_hunt = float(MISSION_BALANCE["hunt_start"]) if profile.get("hunt", false) else INF
+	if profile.is_empty():
+		return
+	# Строки считаются один раз, без словарей и копирования в горячем цикле.
+	for row: Array in CURVE:
+		_rows.append(_mission_row(row))
+	_alarm_row = _mission_row(ALARM_ROW)
+
+
+func _mission_row(source: Array) -> Array:
+	var row := source.duplicate(true)
+	var shares: Array = row[3]
+	var runners := float(profile["runner_add"])
+	var spitters := float(profile["spitter_add"]) if float(source[0]) >= 300.0 else 0.0
+	if profile["acid"] and float(source[0]) >= 120.0:
+		spitters += float(MISSION_BALANCE["acid_bonus"])
+	shares[0] = maxi(10, int(shares[0]) - int(runners + spitters))
+	shares[1] = int(shares[1]) + int(runners)
+	shares[3] = int(shares[3]) + int(spitters)
+	row[1] = float(row[1]) * float(profile["rate_mul"])
+	return row
 
 
 func _physics_process(delta: float) -> void:
@@ -55,10 +111,14 @@ func _physics_process(delta: float) -> void:
 	var shares: Array = row[3]
 
 	if time >= _next_elite:
-		_next_elite += ELITE_PERIOD
+		var period := float(profile.get("elite_period", ELITE_PERIOD))
+		_next_elite += period
 		if _next_elite < time: # перемотка времени — не выдаём очередь элиток
-			_next_elite = time + ELITE_PERIOD
+			_next_elite = time + period
 		spawn_elites(1)
+	if time >= _next_hunt:
+		_next_hunt = time + float(MISSION_BALANCE["hunt_period"])
+		spawn_elites(int(MISSION_BALANCE["hunt_count"]))
 
 	_budget += rate * delta
 	# копим «бюджет» и выпускаем зомби группами — так орда читается как волна
@@ -76,9 +136,10 @@ func _physics_process(delta: float) -> void:
 ## Строка кривой для текущего момента (тревога подменяет её).
 func current_row() -> Array:
 	if alarm:
-		return ALARM_ROW
-	var row: Array = CURVE[0]
-	for p: Array in CURVE:
+		return ALARM_ROW if profile.is_empty() else _alarm_row
+	var curve: Array = CURVE if profile.is_empty() else _rows
+	var row: Array = curve[0]
+	for p: Array in curve:
 		if time >= p[0]:
 			row = p
 	return row
@@ -94,9 +155,18 @@ func spawn_elites(n: int) -> void:
 	var origin := horde.spawn_point(player.global_position)
 	var base := randf() * TAU
 	for j in n:
+		if not profile.is_empty() and horde.count >= int(current_row()[2]):
+			break
 		var p := origin + Vector2.from_angle(base + TAU * j / maxf(n, 1.0)) * (24.0 if n > 1 else 0.0)
-		horde.spawn(p, _pick_kind(shares, true), true)
-		elites_spawned += 1
+		if horde.spawn(p, _pick_kind(shares, true), true) >= 0:
+			elites_spawned += 1
+
+
+## Фиксированная плотность бенчмарка, но настоящий состав профиля операции.
+func fill_benchmark(n: int) -> void:
+	var shares: Array = current_row()[3]
+	_roll_group(shares)
+	_spawn_group(n, shares)
 
 
 ## Решаем, чем будет следующая группа: пачка бегунов или общая.
@@ -114,7 +184,7 @@ func _roll_group(shares: Array) -> void:
 
 func _spawn_group(n: int, shares: Array) -> void:
 	var center := player.global_position
-	var directional := randf() < DIRECTIONAL_CHANCE
+	var directional := randf() < float(profile.get("directional", DIRECTIONAL_CHANCE))
 	var origin := Vector2.ZERO
 	var tangent := Vector2.ZERO
 	if directional:
