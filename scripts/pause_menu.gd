@@ -11,8 +11,8 @@ var _selected := 0
 var _ui := 3.0
 var _rows: Array[Rect2] = []
 var _drag := -1
-const KEYS := ["master", "weapons", "world", "ui", "gore", "shake", "fullscreen", "auto_fire"]
-const LABELS := ["Общая", "Оружие", "Мир", "Интерфейс", "Жестокость", "Тряска экрана", "Полный экран", "Автострельба"]
+const KEYS := ["master", "weapons", "world", "ui", "gore", "shake", "fullscreen", "auto_fire", "reduce_motion"]
+const LABELS := ["Общая", "Оружие", "Мир", "Интерфейс", "Жестокость", "Тряска экрана", "Полный экран", "Автострельба", "Уменьшить движение"]
 const GOLD := Color(1.0, 0.82, 0.35)
 const WHITE := Color(0.92, 0.90, 0.85)
 const DIM := Color(0.60, 0.60, 0.57)
@@ -130,7 +130,7 @@ func _change(direction: int) -> void:
 	var key: String = KEYS[_selected]
 	if key == "gore":
 		Meta.set_setting(key, posmod(int(Meta.settings[key]) + direction, 3))
-	elif key in ["fullscreen", "auto_fire"]:
+	elif key in ["fullscreen", "auto_fire", "reduce_motion"]:
 		Meta.set_setting(key, not Meta.settings[key])
 		if key == "fullscreen" and DisplayServer.get_name() != "headless":
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if Meta.settings[key] else DisplayServer.WINDOW_MODE_WINDOWED)
@@ -181,7 +181,7 @@ func _draw() -> void:
 	if settings_open:
 		_text(p + Vector2(18, 64), "ГРОМКОСТЬ", DIM, 8)
 		for i in KEYS.size():
-			var r := Rect2(p + Vector2(18, 70 + i * 26), Vector2(314, 24))
+			var r := Rect2(p + Vector2(18, 70 + i * 23), Vector2(314, 22))
 			_rows.append(r)
 			if i == _selected:
 				draw_rect(r, Color(0.18, 0.15, 0.10))
@@ -195,8 +195,9 @@ func _draw() -> void:
 				_text(r.position + Vector2(281, 16), str(roundi(float(value) * 100)), GOLD, 9)
 			else:
 				_text(r.position + Vector2(148, 16), ["Мало", "Средне", "Максимум"][int(value)] if i == 4 else ("Вкл." if value else "Выкл."), GOLD, 10)
-		_text(p + Vector2(22, 286), "ПКМ — свой прицел · правый стик — прицел" if Meta.settings["auto_fire"] else "ЛКМ / правый курок — огонь · мышь / стик — прицел", GOLD, 8)
-		_text(p + Vector2(22, 300), "Мало: меньше крови и гибов, без брызг на экране", DIM, 8)
+		_text(p + Vector2(22, 285), "ПКМ — свой прицел · правый стик — прицел" if Meta.settings["auto_fire"] else "ЛКМ / правый курок — огонь · мышь / стик — прицел", GOLD, 7)
+		_text(p + Vector2(22, 297), "Движение: без пульсов и плавного автоповорота", DIM, 8)
+		_text(p + Vector2(22, 309), "Мало: меньше крови и гибов, без брызг на экране", DIM, 8)
 		_button(Rect2(p + Vector2(18, 316), Vector2(314, 22)), "НАЗАД", KEYS.size())
 	else:
 		if confirming:

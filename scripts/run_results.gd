@@ -14,6 +14,8 @@ const COUNT_TIME := 0.3
 const INPUT_DELAY := 0.25
 
 var _stats: Dictionary = {}
+var _report: Dictionary = {}
+var _retry_button := Rect2()
 var sfx: Sfx
 var _ui := 1.0
 var _t := 0.0
@@ -37,6 +39,7 @@ func _ready() -> void:
 
 func open(stats: Dictionary) -> void:
 	_stats = stats.duplicate(true)
+	_report = {}
 	# Итоги забега уходят в мету: ДНК, ящики; сохранение пишется сразу, до нажатия кнопки.
 	var config := Campaign.pending()
 	# Снимок хранится в stats: повторное открытие после снятия pending тоже идемпотентно.
@@ -47,6 +50,9 @@ func open(stats: Dictionary) -> void:
 		stats.merge(_stats, true)
 	if Campaign.enabled() and (not config.is_empty() or _stats.has("run_id")):
 		var report := Campaign.complete_operation(_stats)
+		_report = report
+		if not _report.is_empty() and not Meta.last_save_ok:
+			_report["save_error"] = Meta.last_error
 		if report.has("stats"):
 			_stats = report["stats"].duplicate(true)
 	else:
@@ -88,8 +94,14 @@ func _activate(restart := false) -> void:
 	else:
 		_requested = true
 		if restart:
-			restart_requested.emit()
+			if _report.is_empty():
+				restart_requested.emit()
+			else:
+				get_tree().set_meta("c3_base_return", true)
+				base_requested.emit()
 		else:
+			if not _report.is_empty():
+				get_tree().set_meta("c3_map_return", str(_stats.get("region_id", "east_europe")))
 			base_requested.emit()
 
 
@@ -103,7 +115,9 @@ func _gui_input(event: InputEvent) -> void:
 	var button := event as InputEventMouseButton
 	if button != null and button.pressed:
 		if button.button_index == MOUSE_BUTTON_LEFT:
-			if _base_button.has_point(button.position / _ui):
+			if not _report.is_empty() and _retry_button.has_point(button.position / _ui):
+				_retry_save()
+			elif _base_button.has_point(button.position / _ui):
 				_activate()
 			elif _button.has_point(button.position / _ui):
 				_activate(true)
@@ -132,15 +146,16 @@ func _unhandled_input(event: InputEvent) -> void:
 	if key == null or not key.pressed:
 		return
 	var code := key.keycode
-	if key.physical_keycode == KEY_R:
-		code = KEY_R
-	if code not in [KEY_R, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE, KEY_LEFT, KEY_RIGHT, KEY_DOWN, KEY_UP, KEY_PAGEDOWN, KEY_PAGEUP]:
+	if key.physical_keycode in [KEY_R, KEY_S]:
+		code = key.physical_keycode
+	if code not in [KEY_R, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE, KEY_LEFT, KEY_RIGHT, KEY_DOWN, KEY_UP, KEY_PAGEDOWN, KEY_PAGEUP, KEY_S]:
 		return
 	get_viewport().set_input_as_handled()
 	if key.echo:
 		return
 	_hover = -1
 	match code:
+		KEY_S: if not _report.is_empty(): _retry_save()
 		KEY_R: _activate(true)
 		KEY_LEFT: _selected = 0
 		KEY_RIGHT: _selected = 1
@@ -157,6 +172,8 @@ func _draw() -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(_ui, _ui))
 	var view := size / _ui
 	var panel := Rect2((view - Vector2(260.0, 316.0)) * 0.5, Vector2(260.0, 316.0))
+	if not _report.is_empty():
+		panel.position.x = (view.x - 536.0) * 0.5
 	var p := panel.position
 	var font := ThemeDB.fallback_font
 	var victory: bool = _stats.get("victory", false)
@@ -166,7 +183,10 @@ func _draw() -> void:
 	draw_rect(panel, Color(0.08, 0.07, 0.07, 0.97))
 	draw_rect(panel, Color(accent, 0.55), false, 1.0)
 	draw_rect(Rect2(p, Vector2(260, 3)), accent)
-	_text_c(font, p + Vector2(130, 23), "ОБЪЕКТ-7 УНИЧТОЖЕН" if victory else "ВЫ ПОГИБЛИ", accent, 14)
+	var title := "ОБЪЕКТ-7 УНИЧТОЖЕН" if victory else "ВЫ ПОГИБЛИ"
+	if not _report.is_empty():
+		title = "ОПЕРАЦИЯ ВЫПОЛНЕНА" if victory else "ЕДИНИЦА ЭВАКУИРОВАНА"
+	_text_c(font, p + Vector2(130, 23), title, accent, 13 if not _report.is_empty() else 14)
 	_body = Rect2(p + Vector2(12, 34), Vector2(236, 205))
 	_draw_receipt(font)
 	draw_line(p + Vector2(12, 244), p + Vector2(248, 244), Color(GOLD, 0.4))
@@ -183,11 +203,65 @@ func _draw() -> void:
 		var c := GOLD if i == 0 else WHITE
 		draw_rect(r, Color(0.19, 0.15, 0.08) if hot else Color(0.10, 0.09, 0.07))
 		draw_rect(r, Color(c, 1.0 if hot else 0.45), false, 1.0)
-		_text_c(font, r.get_center() + Vector2(0, 4), "НА БАЗУ" if i == 0 else "ЕЩЁ РАЗ [R]", c, 10)
+		var label := "НА БАЗУ" if i == 0 else "ЕЩЁ РАЗ [R]"
+		if not _report.is_empty():
+			label = "К КАРТЕ ОПЕРАЦИЙ" if i == 0 else "БАЗА"
+		_text_c(font, r.get_center() + Vector2(0, 4), label, c, 8 if not _report.is_empty() else 10)
 	var hint := "Enter · допечатать" if not _finished else "←→ / A / Enter · R — ещё раз"
 	if _scroll_max > 0.0:
 		hint += " · ↑↓ / колесо — чек"
+	if not _report.is_empty():
+		hint = "←→ / A / Enter · ↑↓ / колесо — чек"
 	_text_c(font, p + Vector2(130, 309), hint, MUTED, 8)
+	if not _report.is_empty():
+		_draw_consequences(font, Rect2(p + Vector2(272, 0), Vector2(264, 316)))
+
+
+func _retry_save() -> void:
+	Meta.save()
+	_report["save_error"] = "" if Meta.last_save_ok else Meta.last_error
+	queue_redraw()
+
+
+func _draw_consequences(font: Font, panel: Rect2) -> void:
+	var p := panel.position
+	draw_rect(panel, Color("0e1514"))
+	draw_rect(panel, Color(GOLD, 0.45), false)
+	draw_rect(Rect2(p, Vector2(panel.size.x, 3)), GOLD)
+	_text(font, p + Vector2(14, 24), "ПОСЛЕДСТВИЯ", GOLD, 14)
+	_text(font, p + Vector2(14, 40), "ДИСПЕТЧЕР / ФРОНТ ОБНОВЛЁН", MUTED, 8)
+	var y := 63.0
+	for event: String in _report.get("events", []):
+		for line in _wrap_words(font, event, 234, 10):
+			_text(font, p + Vector2(14, y), line, WHITE, 10)
+			y += 13
+		y += 12
+	draw_line(p + Vector2(14, 201), p + Vector2(250, 201), Color(GOLD, 0.3))
+	_text(font, p + Vector2(14, 220), "Активных ульев: %d" % int(_report.get("nests_alive", 0)), GOLD, 11)
+	_text(font, p + Vector2(14, 237), "Регионов в критическом: %d" % int(_report.get("critical", 0)), MUTED, 9)
+	_text(font, p + Vector2(14, 256), "Причины изменений — в журнале региона", MUTED, 8)
+	_text(font, p + Vector2(14, 268), "на оперативной карте.", MUTED, 8)
+	_retry_button = Rect2()
+	if not str(_report.get("save_error", "")).is_empty():
+		_text(font, p + Vector2(14, 285), "НЕТ ЗАПИСИ НА ДИСК. Прогресс в памяти.", Color("ef7770"), 8)
+		_retry_button = Rect2(p + Vector2(14, 291), Vector2(236, 18))
+		draw_rect(_retry_button, Color("412824"))
+		_text_c(font, _retry_button.get_center() + Vector2(0, 3), "ПОВТОРИТЬ СОХРАНЕНИЕ [S]", GOLD, 8)
+
+
+func _wrap_words(font: Font, value: String, width: float, fs: int) -> Array[String]:
+	var lines: Array[String] = []
+	var line := ""
+	for word: String in value.split(" "):
+		var next := word if line.is_empty() else line + " " + word
+		if not line.is_empty() and _width(font, next, fs) > width:
+			lines.append(line)
+			line = word
+		else:
+			line = next
+	if not line.is_empty():
+		lines.append(line)
+	return lines
 
 
 func _draw_receipt(font: Font) -> void:
