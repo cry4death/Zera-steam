@@ -12,10 +12,14 @@ extends Node
 ##   --meta-preset=maxed   всё дерево, мастерская 5/5, все модели, много ДНК
 ##   --save-file=<путь>    писать и читать этот файл (user://имя.json) даже в тест-режиме: проверка перезапуска
 
-const SAVE_VERSION := 1
+const SAVE_VERSION := 2
+const DEFAULT_SETTINGS := {"master": 1.0, "weapons": 1.0, "world": 1.0, "ui": 1.0,
+	"gore": 2, "shake": 1.0, "fullscreen": true}
+signal settings_changed
+var settings: Dictionary = DEFAULT_SETTINGS.duplicate()
 const SAVE_PATH := "user://zera_save.json"
 ## Любой из этих флагов (по началу строки) — тест-режим игры: сохранение только в памяти.
-const TEST_FLAGS := ["--sim", "--bench", "--boss", "--alarm", "--ui-test", "--weapons-test", "--loadout", "--s3-test", "--meta-test", "--kinds", "--gore-stress", "--fresh-save"]
+const TEST_FLAGS := ["--audio-test", "--sim", "--bench", "--boss", "--alarm", "--ui-test", "--weapons-test", "--loadout", "--s3-test", "--meta-test", "--kinds", "--gore-stress", "--fresh-save"]
 
 # Уровень класса: накоплено ДНК для уровня n = 80 · (n − 1)^1.5 (BALANCE §11.2)
 const LEVEL_DNA_K := 80.0
@@ -91,6 +95,48 @@ func _ready() -> void:
 	else:
 		load_save()
 	_apply_cmdline(args)
+	apply_settings()
+
+
+## Неизвестные ключи и неверные типы не попадают в сохранение.
+func clean_settings(value: Variant) -> Dictionary:
+	var out := DEFAULT_SETTINGS.duplicate()
+	if not value is Dictionary:
+		return out
+	for key: String in out:
+		var v: Variant = value.get(key)
+		if key == "fullscreen":
+			if v is bool:
+				out[key] = v
+		elif _is_num(v) and is_finite(float(v)):
+			out[key] = clampi(int(v), 0, 2) if key == "gore" else clampf(float(v), 0.0, 1.0)
+	return out
+
+
+func set_setting(key: String, value: Variant) -> void:
+	var next := settings.duplicate()
+	next[key] = value
+	settings = clean_settings(next)
+	apply_settings()
+	save()
+
+
+func apply_settings() -> void:
+	for key: String in ["master", "weapons", "world", "ui"]:
+		var bus := AudioServer.get_bus_index(key.capitalize() if key != "ui" else "UI")
+		if bus < 0:
+			continue
+		var gain := float(settings[key])
+		var trim := -9.0 if key == "weapons" else (-12.0 if key == "world" else 0.0)
+		AudioServer.set_bus_volume_db(bus, linear_to_db(maxf(gain, 0.0001)) + trim)
+		AudioServer.set_bus_mute(bus, gain <= 0.0)
+	if DisplayServer.get_name() != "headless" and not is_test_run() and not OS.get_cmdline_user_args().has("--base-test"):
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if settings["fullscreen"] else DisplayServer.WINDOW_MODE_WINDOWED)
+	settings_changed.emit()
+
+
+func gore_multiplier() -> float:
+	return [0.18, 0.55, 1.0][int(settings["gore"])]
 
 
 ## Запущен ли любой тест-режим игры (флаги из TEST_FLAGS). S6 использует то же для маршрутизации сцен.
@@ -267,6 +313,7 @@ func add_run(stats: Dictionary) -> void:
 # --- сохранение -------------------------------------------------------------------------------
 
 func reset() -> void:
+	settings = DEFAULT_SETTINGS.duplicate()
 	dna = 0
 	dna_earned = 0
 	tree = {}
@@ -288,7 +335,7 @@ func to_dict() -> Dictionary:
 	for b in favorite:
 		fav[str(b)] = favorite[b]
 	return {"version": SAVE_VERSION, "dna": dna, "dna_earned": dna_earned, "tree": tree.duplicate(), "workshop": workshop.duplicate(true),
-		"owned": Array(owned), "favorite": fav, "crates": crates, "military_crates": military_crates, "runs": runs}
+		"owned": Array(owned), "favorite": fav, "crates": crates, "military_crates": military_crates, "runs": runs, "settings": settings.duplicate()}
 
 
 func save() -> void:
@@ -320,6 +367,8 @@ func load_save() -> bool:
 	var text := FileAccess.get_file_as_string(save_path)
 	var json := JSON.new()
 	if json.parse(text) == OK and json.data is Dictionary and from_dict(json.data):
+		if int(json.data["version"]) == 1:
+			save() # миграция v1 → v2 атомарно сохраняет весь прогресс
 		return true
 	var backup := "%s.bad-%d" % [save_path, int(Time.get_unix_time_from_system())]
 	DirAccess.copy_absolute(save_path, backup)
@@ -336,7 +385,7 @@ static func _is_num(v: Variant) -> bool:
 
 ## Разбор словаря сохранения со строгой проверкой типов. false — данные негодны целиком.
 func from_dict(d: Dictionary) -> bool:
-	if not _is_num(d.get("version")) or int(d["version"]) != SAVE_VERSION:
+	if not _is_num(d.get("version")) or int(d["version"]) not in [1, SAVE_VERSION]:
 		return false
 	for key in ["dna", "dna_earned", "crates", "military_crates", "runs"]:
 		if not _is_num(d.get(key)) or float(d[key]) < 0.0:
@@ -378,6 +427,7 @@ func from_dict(d: Dictionary) -> bool:
 	workshop = new_workshop
 	owned = new_owned
 	favorite = {}
+	settings = clean_settings(d.get("settings", {}))
 	for b in d["favorite"]:
 		var model: String = str(d["favorite"][b])
 		if str(b).is_valid_int() and WeaponDefs.MODELS.has(model) and owned.has(model) and WeaponDefs.MODELS[model]["base"] == int(b):
@@ -421,6 +471,8 @@ func apply_json(text: String) -> void:
 		push_warning("Meta: --meta= не разобран как JSON-объект")
 		return
 	var d: Dictionary = parsed
+	if d.has("settings"):
+		settings = clean_settings(d["settings"])
 	for key in ["dna", "dna_earned", "crates", "military_crates", "runs"]:
 		if d.has(key):
 			set(key, int(d[key]))

@@ -23,6 +23,7 @@ const WET_WINDOW := 30.0 # сколько секунд по пятну можн�
 var stamps_last_frame := 0
 var stamps_total := 0
 var time := 0.0
+var gore_multiplier := 1.0
 
 var _origin := Vector2.ZERO
 var _vp: SubViewport
@@ -125,27 +126,37 @@ func stamp(tex: Texture2D, pos: Vector2, rot: float, color: Color, scale_factor 
 
 ## Пятно крови по маске толщины (белое — густо).
 func blood(tex: Texture2D, pos: Vector2, rot: float, scale_factor := 1.0, thickness := 0.6) -> void:
+	if gore_multiplier < 1.0 and randf() > gore_multiplier:
+		return
 	_blood.append([0, tex, pos - _origin, rot, scale_factor * PixelArt.ART_SCALE, thickness])
 	mark_wet(pos, tex.get_size().x * 0.35 * scale_factor * PixelArt.ART_SCALE)
 
 
 ## Капля.
 func stamp_dot(pos: Vector2, size: float, _color := Color.WHITE) -> void:
+	if gore_multiplier < 1.0 and randf() > gore_multiplier:
+		return
 	_blood.append([1, pos - _origin, size * 0.45, 0.55])
 
 
 ## Сплошной мазок от a до b — след волочащегося тела или куска.
 func smear(a: Vector2, b: Vector2, width: float, thickness := 0.35) -> void:
+	if gore_multiplier < 1.0 and randf() > gore_multiplier:
+		return
 	_blood.append([2, a - _origin, b - _origin, width, thickness])
 
 
 ## След ноги: отпечаток подошвы, повёрнутый по направлению шага.
 func stamp_print(pos: Vector2, angle: float, strength: float) -> void:
+	if gore_multiplier < 1.0 and randf() > gore_multiplier:
+		return
 	_blood.append([0, _print_tex, pos - _origin, angle, PixelArt.ART_SCALE, 0.4 * strength])
 
 
 ## Лужа, которая растекается: несколько растущих слоёв, центр получается гуще краёв.
 func pool(tex: Texture2D, pos: Vector2, rot: float, scale_factor := 1.0) -> void:
+	if gore_multiplier < 1.0 and randf() > gore_multiplier:
+		return
 	_pool_tex.append(tex)
 	_pool_pos.append(pos)
 	_pool_rot.append(rot)

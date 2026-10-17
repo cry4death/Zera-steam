@@ -85,6 +85,7 @@ var _history: Array[Dictionary] = []
 var _shake := 0.0
 
 var _sfx: Sfx
+var _settings_menu: PauseMenu
 var _bg: Texture2D
 var _tex: Dictionary = {}
 var _test := false
@@ -104,6 +105,9 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_sfx = Sfx.new()
 	add_child(_sfx)
+	_settings_menu = PauseMenu.new()
+	add_child(_settings_menu)
+	_settings_menu.sfx = _sfx
 	_bg = PixelArt.tex("base_bg")
 	for id: String in WeaponDefs.MODEL_ORDER:
 		_tex[id] = PixelArt.tex("gun_" + id)
@@ -130,7 +134,7 @@ static func _goes_straight_to_battle(args: PackedStringArray) -> bool:
 # --- ввод --------------------------------------------------------------------------------------
 
 func _gui_input(event: InputEvent) -> void:
-	if _leaving:
+	if _leaving or _settings_menu != null and _settings_menu.visible:
 		return
 	var motion := event as InputEventMouseMotion
 	if motion != null:
@@ -145,7 +149,7 @@ func _gui_input(event: InputEvent) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if _leaving:
+	if _leaving or _settings_menu != null and _settings_menu.visible:
 		return
 	var key := event as InputEventKey
 	if key != null and key.pressed:
@@ -155,6 +159,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			code = key.physical_keycode
 		var handled := true
 		match code:
+			KEY_O: _settings_menu.open(true)
 			KEY_1, KEY_KP_1: _set_tab(Tab.BARRACKS)
 			KEY_2, KEY_KP_2: _set_tab(Tab.WORKSHOP)
 			KEY_3, KEY_KP_3: _set_tab(Tab.ARSENAL)
@@ -234,6 +239,7 @@ func _click(key: String) -> void:
 	var parts := key.split(":")
 	var arg := int(parts[1]) if parts.size() > 1 else 0
 	match parts[0]:
+		"settings": _settings_menu.open(true)
 		"tab": _set_tab(arg)
 		"node":
 			_sel_node = arg
@@ -273,7 +279,7 @@ func _set_tab(t: int) -> void:
 		return
 	_tab = t
 	_msg_t = 0.0
-	_play("weapons/pistol/dry", -9.0)
+	_play("ui/click", -9.0)
 
 
 func _step_tab(d: int) -> void:
@@ -281,7 +287,7 @@ func _step_tab(d: int) -> void:
 		return
 	_tab = posmod(_tab + d, 4)
 	_msg_t = 0.0
-	_play("weapons/pistol/dry", -9.0)
+	_play("ui/click", -9.0)
 
 
 func _nav(dx: int, dy: int) -> void:
@@ -347,7 +353,7 @@ func _cancel() -> void:
 
 
 func _click_sound() -> void:
-	_play("weapons/pistol/dry", -14.0)
+	_play("ui/click")
 
 
 func _play(id: String, db := 0.0) -> void:
@@ -358,7 +364,7 @@ func _play(id: String, db := 0.0) -> void:
 func _toast(text: String) -> void:
 	_msg = text
 	_msg_t = 2.2
-	_play("weapons/pistol/dry", -4.0)
+	_play("ui/deny")
 
 
 # --- действия ----------------------------------------------------------------------------------
@@ -382,7 +388,7 @@ func _unlock_selected() -> void:
 
 func _accept_unlock() -> void:
 	if Meta.unlock(_confirm_node):
-		_play("weapons/pistol/mag_in", -5.0)
+		_play("ui/confirm")
 	_confirm_node = ""
 
 
@@ -406,7 +412,7 @@ func _buy_selected() -> void:
 	elif Meta.dna < cost:
 		_toast("Не хватает ДНК: нужно %d, есть %d" % [cost, Meta.dna])
 	elif Meta.buy_upgrade(model, stat):
-		_play("weapons/pistol/mag_in", -5.0)
+		_play("ui/confirm")
 
 
 func _favorite_selected() -> void:
@@ -416,7 +422,7 @@ func _favorite_selected() -> void:
 	elif Meta.model_for(WeaponDefs.MODELS[id]["base"]) == id:
 		_toast("Уже избранная")
 	elif Meta.set_favorite(WeaponDefs.MODELS[id]["base"], id):
-		_play("weapons/pistol/mag_in", -5.0)
+		_play("ui/confirm")
 
 
 func _open_selected() -> void:
@@ -465,7 +471,7 @@ func _present(res: Dictionary, military: bool) -> void:
 	_open = Open.SHAKE
 	_open_t = 0.0
 	_open_log.append({"res": res, "mil": military})
-	_play("casings/mag_drop", -4.0)
+	_play("ui/click", -4.0)
 
 
 func _stage_dur(state: int) -> float:
@@ -482,13 +488,13 @@ func _enter_state(state: int) -> void:
 	match state:
 		Open.LID:
 			_shake = 1.0
-			_play("explosions/grenade", -9.0 if _open_res.get("rare", false) else -16.0)
+			_play("ui/confirm", -9.0 if _open_res.get("rare", false) else -16.0)
 		Open.CARD:
 			_pending_dna = 0
 			_record_history()
 			if _open_res["kind"] == "model" and not _open_res["duplicate"]:
-				_play("weapons/pistol/mag_in", -3.0)
-				_play("weapons/pistol/rack", -6.0)
+				_play("ui/confirm", -3.0)
+				_play("ui/click", -6.0)
 
 
 func _skip() -> void:
@@ -533,7 +539,7 @@ func _go_fight() -> void:
 	if _leaving:
 		return
 	_leaving = true
-	_play("weapons/pistol/rack", -3.0)
+	_play("ui/confirm")
 	_fade = 0.0
 
 
@@ -864,6 +870,7 @@ func _draw_crate_chip(font: Font, kind: int, p: Vector2, count: int, label: Stri
 
 
 func _draw_tabs(font: Font) -> void:
+	_button(font, Rect2(480, 40, 152, 19), "НАСТРОЙКИ [O]", MUTED, "settings", true, 9)
 	for i in 4:
 		var r := Rect2(8 + i * 116, 40, 112, 19)
 		var active := _tab == i
@@ -884,7 +891,6 @@ func _draw_tabs(font: Font) -> void:
 			var bc := GREEN if i == Tab.BARRACKS else GOLD
 			PixelArt.draw_dot(self, r.position + Vector2(r.size.x - 7, 5), 5.5, bc)
 			_text_c(font, r.position + Vector2(r.size.x - 7, 8.4), str(mini(badge, 99)), Color(0.05, 0.05, 0.04), 7)
-	_text_r(font, Vector2(632, 53), "забегов: %d" % Meta.runs, DIM, 8)
 
 
 func _draw_hint(font: Font) -> void:
@@ -1518,6 +1524,15 @@ func _run_test() -> void:
 	for flag: String in ["--sim=600", "--bench=500", "--boss", "--alarm", "--ui-test", "--weapons-test", "--loadout", "--loadout-w1", "--s3-test", "--meta-test", "--meta-preset=maxed", "--meta={}", "--save-file=user://test.json", "--fresh-save", "--kinds", "--gore-stress"]:
 		_check("route " + flag, _goes_straight_to_battle(PackedStringArray([flag])))
 	_check("normal launch stays on base", not _goes_straight_to_battle(PackedStringArray()))
+	_check("route --audio-test", _goes_straight_to_battle(PackedStringArray(["--audio-test"])))
+	await _wait(0.1)
+	await _test_click(Vector2(545, 49))
+	_check("settings mouse open", _settings_menu.visible and _settings_menu.settings_open and not get_tree().paused)
+	await _test_key(KEY_ESCAPE)
+	_check("settings back", not _settings_menu.visible and not get_tree().paused)
+	await _test_key(KEY_O)
+	_check("settings keyboard open", _settings_menu.visible)
+	await _test_key(KEY_ESCAPE)
 	# временное сохранение: настоящее user://zera_save.json не читается и не пишется
 	Meta.persist = false
 	Meta.reset()

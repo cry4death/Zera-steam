@@ -56,6 +56,7 @@ var _t_boss_gibs: Array[int] = []
 var _t_boss_plates: Array[int] = []
 
 var count := 0
+var gore_multiplier := 1.0
 var _kind := PackedInt32Array()
 var _tex := PackedInt32Array()
 var _pos := PackedVector2Array()
@@ -323,6 +324,8 @@ func _add_corpse(tex_id: int, p: Vector2, vel: Vector2, rot: float) -> void:
 
 
 func _add(kind: int, tex_id: int, p: Vector2, v: Vector2, rot: float, spin: float, col: Color, drag: float, trail: bool, timer := 0.0) -> int:
+	if kind == Kind.GIB and gore_multiplier < 1.0 and randf() > gore_multiplier:
+		return -1
 	if count >= MAX_DEBRIS:
 		_bake(0)
 		_remove(0)

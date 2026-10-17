@@ -119,6 +119,10 @@ var _bench_worst_ms := 0.0
 var _bench_horde_ms := 0.0
 var _bench_physics_ms := 0.0
 var _bench_enemies := 0
+var _audio_test := false
+var _audio_lowhp := false
+var horde_audio: HordeAudio
+var pause_menu: PauseMenu
 
 @onready var sfx: Sfx = $Sfx
 @onready var player: Player = $World/Player
@@ -146,13 +150,24 @@ var _bench_enemies := 0
 @onready var results: RunResults = $Overlay/RunResults
 
 
+func _apply_settings() -> void:
+	var amount := Meta.gore_multiplier()
+	gore.gore_multiplier = amount
+	effects.gore_multiplier = amount
+	floor_decals.gore_multiplier = amount
+	screen_blood.gore_multiplier = amount
+	camera.shake_multiplier = float(Meta.settings["shake"])
+
+
 func _enter_tree() -> void:
 	_setup_input()
 
 
 func _ready() -> void:
 	for arg in OS.get_cmdline_user_args():
-		if arg == "--bench":
+		if arg == "--audio-test":
+			_audio_test = true
+		elif arg == "--bench":
 			_bench = true
 		elif arg.begins_with("--bench="):
 			_bench = true
@@ -284,6 +299,31 @@ func _ready() -> void:
 	level_up.reroll_requested.connect(_on_reroll)
 	trader_ui.closed.connect(_on_trader_closed)
 	weapons.prototype_unlocked.connect(_on_prototype)
+	sfx.listener = player
+	var listener := AudioListener2D.new()
+	player.add_child(listener)
+	listener.make_current()
+	horde_audio = HordeAudio.new()
+	add_child(horde_audio)
+	horde_audio.setup(horde, player, sfx)
+	pause_menu = PauseMenu.new()
+	$Overlay.add_child(pause_menu)
+	pause_menu.game = self
+	pause_menu.sfx = sfx
+	pause_menu.surrendered.connect(func() -> void:
+		player.is_dead = true
+		_open_results(false))
+	level_up.sfx = sfx
+	trader_ui.sfx = sfx
+	results.sfx = sfx
+	Meta.settings_changed.connect(_apply_settings)
+	_apply_settings()
+	if _audio_test:
+		spawner.enabled = false
+		player.god_mode = true
+		player.autopilot = true
+		gems.collected.disconnect(progression.add_xp)
+		_run_audio_test.call_deferred()
 
 	if _meta_test:
 		weapons.process_mode = Node.PROCESS_MODE_DISABLED
@@ -341,6 +381,11 @@ func _physics_process(delta: float) -> void:
 	if game_over:
 		return
 	time += delta
+	if _audio_lowhp:
+		player.hp = player.max_hp * 0.2
+	if _audio_test and time < 36.0 and horde.count < 300:
+		for k in mini(15, 300 - horde.count):
+			horde.spawn(player.position + Vector2.from_angle(randf() * TAU) * randf_range(100.0, 330.0), randi() % 4, randf() < 0.025)
 	if not _bench and not _ui_test and not _s3_test and not _weapons_test:
 		_boss_timeline()
 	if _boss_test and boss.is_alive():
@@ -401,8 +446,7 @@ func _process(delta: float) -> void:
 	if _combo_timer <= 0.0:
 		combo = 0
 	announce_t = maxf(announce_t - delta, 0.0)
-	var hp_ratio := player.hp / player.max_hp
-	screen_blood.low_hp = 0.0 if player.is_dead else clampf(1.0 - hp_ratio / 0.35, 0.0, 1.0)
+	screen_blood.low_hp = 0.0 # мягкая виньетка теперь рисуется под HUD
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -418,8 +462,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_F4:
 			time += 60.0
 		KEY_F11:
-			var full := DisplayServer.window_get_mode() >= DisplayServer.WINDOW_MODE_FULLSCREEN
-			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if full else DisplayServer.WINDOW_MODE_FULLSCREEN)
+			Meta.set_setting("fullscreen", not Meta.settings["fullscreen"])
 		KEY_F5:
 			# отладка: перебор патронов первого ствола
 			var s: Weapons.Slot = weapons.slots[0]
@@ -563,7 +606,7 @@ func _loot_cards(count: int, with_ammo: bool, all_rare: bool) -> Array:
 func _open_loot(title: String, sub: String, count: int, with_ammo: bool, all_rare: bool) -> void:
 	if game_over:
 		return
-	if _bench or _sim or _alarm or _weapons_test or _boss_test:
+	if _bench or _sim or _alarm or _weapons_test or _boss_test or _audio_test:
 		var cards := _loot_cards(count, with_ammo, all_rare)
 		if cards.is_empty():
 			return
@@ -761,6 +804,7 @@ func _on_splatter(pos: Vector2, strength: float) -> void:
 
 
 func _on_player_hurt(_amount: float) -> void:
+	sfx.play("player/hurt", Vector2.INF, -1.0)
 	camera.shake(3.0)
 	effects.blood_hit(player.global_position, Vector2.from_angle(randf() * TAU), false)
 	player.add_dirt(2.0)
@@ -886,7 +930,182 @@ func _alarm_step(delta: float) -> void:
 		get_tree().quit()
 
 
+## Проверка миграции и настроек использует только файл внутри рабочей копии.
+func _settings_checks() -> void:
+	var saved := Meta.to_dict()
+	var old_path := Meta.save_path
+	var old_persist := Meta.persist
+	var legacy := saved.duplicate(true)
+	legacy.erase("settings")
+	legacy["version"] = 1
+	legacy["dna"] = 123
+	Meta.save_path = "res://tmp/s7_migration.json"
+	Meta.persist = true
+	assert(Meta._write_atomic(Meta.save_path, JSON.stringify(legacy)))
+	assert(Meta.load_save() and Meta.dna == 123 and Meta.settings == Meta.DEFAULT_SETTINGS)
+	var migrated: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(Meta.save_path))
+	assert(migrated["version"] == 2 and migrated.has("settings"))
+	for key: String in legacy:
+		if key != "version":
+			assert(migrated[key] == legacy[key])
+	Meta.set_setting("master", 0.42)
+	Meta.set_setting("gore", 0)
+	Meta.set_setting("shake", 0.0)
+	Meta.set_setting("fullscreen", false)
+	assert(Meta.load_save() and is_equal_approx(Meta.settings["master"], 0.42) and Meta.settings["gore"] == 0 and not Meta.settings["fullscreen"])
+	var clean := Meta.clean_settings({"master": -4.0, "world": 8.0, "ui": "bad", "shake": NAN, "gore": 99, "fullscreen": "bad", "unknown": 1})
+	assert(clean["master"] == 0.0 and clean["world"] == 1.0 and clean["ui"] == 1.0 and clean["shake"] == 1.0 and clean["gore"] == 2 and clean["fullscreen"] and not clean.has("unknown"))
+	DirAccess.remove_absolute(Meta.save_path)
+	Meta.save_path = old_path
+	Meta.persist = old_persist
+	Meta.from_dict(saved)
+	Meta.apply_settings()
+	print("S7SETTINGS migration_v1_v2=true progress_preserved=true roundtrip=true sanitize=true temporary_save=true")
+
+
+func _audio_shot(suffix: String) -> void:
+	if _shot_path == "" or DisplayServer.get_name() == "headless":
+		return
+	var debug_before: bool = $HUD/Hud.show_debug
+	$HUD/Hud.show_debug = false
+	$HUD/Hud.queue_redraw()
+	await RenderingServer.frame_post_draw
+	var path := _shot_path.replace(".png", "_" + suffix + ".png")
+	assert(get_viewport().get_texture().get_image().save_png(path) == OK)
+	$HUD/Hud.show_debug = debug_before
+	print("AUDIO screenshot: " + path)
+
+
+func _audio_key(code: Key, pad_button := -1) -> void:
+	if pad_button >= 0:
+		var event := InputEventJoypadButton.new()
+		event.button_index = pad_button as JoyButton
+		event.pressed = true
+		Input.parse_input_event(event)
+		await get_tree().process_frame
+		event.pressed = false
+		Input.parse_input_event(event)
+	else:
+		var event := InputEventKey.new()
+		event.keycode = code
+		event.pressed = true
+		Input.parse_input_event(event)
+		await get_tree().process_frame
+		event.pressed = false
+		Input.parse_input_event(event)
+	await get_tree().process_frame
+
+
+func _run_audio_test() -> void:
+	if DisplayServer.get_name() != "headless":
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+		DisplayServer.window_set_size(Vector2i(1280, 720))
+		Meta.settings["fullscreen"] = false
+	_settings_checks()
+	weapons.slots.clear()
+	for base: int in [WeaponDefs.Base.RIFLE, WeaponDefs.Base.SHOTGUN, WeaponDefs.Base.SNIPER]:
+		weapons.add_weapon(base)
+		var index := weapons.slots.size() - 1
+		weapons.slots[index].level = 3
+		weapons.refresh(index)
+		weapons.slots[index].mag = weapons.slots[index].stats["mag"]
+	for second in 30:
+		await get_tree().create_timer(1.0).timeout
+		print("AUDIO t=%02d voices=%d horde_voices=%d hits_s=%d dropped=%d horde_mix=%.2f lowpass=%.0f" % [second + 1, sfx.active_voices(), sfx.active_voices(true), sfx.hits_s, sfx.dropped, horde_audio.mix, sfx.lowpass])
+		assert(sfx.active_voices() <= Sfx.VOICES and sfx.active_voices(true) <= 6 and sfx.hits_s <= 12)
+	_audio_lowhp = true
+	player.autopilot = false
+	player.position = (player.position + Vector2(-350, 180)).clamp(ARENA.position + Vector2.ONE * 200, ARENA.end - Vector2.ONE * 200)
+	player.hp = player.max_hp * 0.2
+	for second in 5:
+		await get_tree().create_timer(1.0).timeout
+		print("AUDIO t=%02d voices=%d horde_voices=%d hits_s=%d dropped=%d horde_mix=%.2f lowpass=%.0f" % [31 + second, sfx.active_voices(), sfx.active_voices(true), sfx.hits_s, sfx.dropped, horde_audio.mix, sfx.lowpass])
+	assert(not get_tree().paused and not level_up.visible)
+	if not sfx._silent:
+		assert(sfx.lowpass < 11000.0)
+	await _audio_shot("lowhp")
+	await _audio_key(KEY_ESCAPE)
+	assert(pause_menu.visible and get_tree().paused)
+	var paused_time := time
+	await get_tree().create_timer(0.2, true).timeout
+	assert(is_equal_approx(time, paused_time))
+	await _audio_shot("pause")
+	await _audio_key(KEY_DOWN)
+	await _audio_key(KEY_ENTER)
+	assert(pause_menu.settings_open)
+	await _audio_shot("settings")
+	await _audio_key(KEY_LEFT)
+	assert(is_equal_approx(Meta.settings["master"], 0.95))
+	await _audio_key(KEY_RIGHT)
+	await _audio_key(KEY_ESCAPE)
+	pause_menu._activate(2)
+	pause_menu._back()
+	assert(not pause_menu.confirming and get_tree().paused)
+	await _audio_key(KEY_NONE, JOY_BUTTON_START)
+	assert(not pause_menu.visible and not get_tree().paused)
+	_audio_lowhp = false
+	player.hp = player.max_hp
+	await get_tree().create_timer(2.0).timeout
+	if not sfx._silent:
+		assert(sfx.lowpass > 20000.0)
+	print("AUDIO pause_freezes=true cancel_return=true lowpass_recovers=true")
+	_audio_test = false
+	weapons.set_physics_process(false)
+	player.autopilot = false
+	player.set_physics_process(false)
+	hazards.clear()
+	hazards.set_physics_process(false)
+	var placements := PackedVector2Array()
+	var placement_rng := RandomNumberGenerator.new()
+	placement_rng.seed = 73177
+	for i in 65:
+		placements.append(player.position + Vector2.from_angle(placement_rng.randf() * TAU) * placement_rng.randf_range(20.0, 130.0))
+	for mode in [0, 2]:
+		# Одинаковая постановка на чистом полу, без остатков предыдущего режима.
+		Meta.set_setting("gore", mode)
+		for i in horde.count:
+			horde.dead[i] = 1
+		await get_tree().physics_frame
+		await get_tree().physics_frame
+		gore.count = 0
+		effects._n = 0
+		while gems.count > 0:
+			gems._remove(gems.count - 1)
+		while credit_drops.count > 0:
+			credit_drops._remove(credit_drops.count - 1)
+		floor_decals._pool_tex.clear()
+		floor_decals._pool_pos.clear()
+		floor_decals._pool_rot.clear()
+		floor_decals._pool_scale.clear()
+		floor_decals._pool_age.clear()
+		floor_decals._pool_step.clear()
+		floor_decals._stamps.clear()
+		floor_decals._blood.clear()
+		for vp: SubViewport in [floor_decals._vp, floor_decals._blood_vp]:
+			vp.render_target_clear_mode = SubViewport.CLEAR_MODE_ONCE
+			vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+		await get_tree().create_timer(0.15).timeout
+		seed(73177)
+		for i in 65:
+			var at := placements[i]
+			gore.on_enemy_killed(at, (at - player.position).normalized(), Gore.Death.GIBS if i % 3 == 0 else Gore.Death.NORMAL, 0.0, i % 7)
+		screen_blood.splash(1.0)
+		await get_tree().create_timer(1.0).timeout
+		await _audio_shot("gore_low" if mode == 0 else "gore_max")
+		print("AUDIO gore=%d debris=%d particles=%d screen_drops=%d" % [mode, gore.count, effects.particle_count(), screen_blood._pos.size()])
+		if mode == 0:
+			assert(screen_blood._pos.is_empty())
+	pause_menu.open()
+	pause_menu._activate(2)
+	var runs_before := Meta.runs
+	pause_menu._activate(0)
+	assert(game_over and results.visible and Meta.runs == runs_before + 1 and not results._stats["victory"])
+	print("AUDIO surrender_results=true counted_once=true complete=true")
+	get_tree().quit()
+
+
 func _run_meta_test() -> void:
+	_settings_checks()
 	var ok: bool = await MetaTest.run(self)
 	get_tree().quit(0 if ok else 1)
 
@@ -968,6 +1187,7 @@ func _boss_timeline() -> void:
 	var edge := minf(half.x / maxf(absf(dir.x), 0.0001), half.y / maxf(absf(dir.y), 0.0001))
 	var at := camera.get_screen_center_position() + dir * (edge + Boss.RADIUS + 16.0)
 	boss.start(at)
+	sfx.play("zombies/boss_roar", at, 1.0, 0.02)
 	if _boss_test and _boss_hp > 0.0:
 		boss.hp = _boss_hp # --boss-hp=N: быстрый прогон смерти босса
 	_announce("ОБЪЕКТ-7", Color(1.0, 0.34, 0.16))
@@ -977,6 +1197,7 @@ func _boss_timeline() -> void:
 
 
 func _on_boss_roar(count: int) -> void:
+	sfx.play("zombies/boss_roar", boss.position, 1.0, 0.02)
 	for i in count:
 		var at := boss.global_position + Vector2.from_angle(TAU * i / count) * randf_range(42.0, 70.0)
 		horde.spawn(at.clamp(ARENA.position + Vector2.ONE * 12.0, ARENA.end - Vector2.ONE * 12.0), Horde.Kind.RUNNER)
@@ -993,6 +1214,7 @@ func _on_boss_plate(at: Vector2, dir: Vector2) -> void:
 
 
 func _on_boss_phase(_phase: int) -> void:
+	sfx.play("zombies/boss_roar", boss.position, 1.0, 0.02)
 	boss_phase_flash = 0.7
 	_announce("БРОНЯ СОРВАНА", Color(1.0, 0.36, 0.18))
 
@@ -1074,6 +1296,7 @@ func _result_stats(victory: bool) -> Dictionary:
 
 
 func _open_results(victory: bool) -> void:
+	pause_menu.visible = false
 	game_over = true
 	Engine.time_scale = 1.0
 	level_up.close()

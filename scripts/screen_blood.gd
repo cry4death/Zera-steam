@@ -5,6 +5,7 @@ extends Control
 const MAX_DROPS := 60
 
 var low_hp := 0.0 # 0..1, насколько близко к смерти
+var gore_multiplier := 1.0
 
 var _pos := PackedVector2Array()
 var _start_y := PackedFloat32Array()
@@ -18,7 +19,9 @@ var _time := 0.0
 
 ## strength 0..1; from — направление события на экране (капли кучнее с той стороны).
 func splash(strength: float, from := Vector2.ZERO) -> void:
-	var n := int(4 + strength * 10)
+	if gore_multiplier <= 0.18:
+		return
+	var n := roundi((4 + strength * 10) * gore_multiplier)
 	var view := size / _ui() # рисуем в «игровых» пикселях, как HUD
 	var center := view * 0.5 + from * view * 0.3
 	for k in n:
@@ -36,6 +39,9 @@ func splash(strength: float, from := Vector2.ZERO) -> void:
 
 
 func _process(delta: float) -> void:
+	if gore_multiplier <= 0.18:
+		while not _pos.is_empty():
+			_remove(_pos.size() - 1)
 	_time += delta
 	var i := _pos.size() - 1
 	while i >= 0:

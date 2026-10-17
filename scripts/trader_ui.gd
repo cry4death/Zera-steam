@@ -16,6 +16,7 @@ const GAP := 8.0
 const INPUT_DELAY := 0.25
 
 var _trader: Trader
+var sfx: Sfx
 var _progression: Progression
 var _weapons: Weapons
 var _minutes := 0.0
@@ -64,6 +65,7 @@ func open(trader: Trader, progression: Progression, weapons: Weapons, minutes: f
 func close() -> void:
 	if not visible:
 		return
+	_sound("confirm")
 	visible = false
 	_disconnect_trader()
 	_rects.clear()
@@ -118,6 +120,7 @@ func _on_changed() -> void:
 
 
 func _set_step(value: Step) -> void:
+	_sound("click")
 	_step = value
 	_hover = -1
 	_scroll = 0.0
@@ -207,6 +210,9 @@ func _rect_at(point: Vector2) -> int:
 
 
 func _activate(action: int) -> void:
+	if action < 0:
+		return
+	_sound("click")
 	if action == Action.CLOSE:
 		close()
 	elif action == Action.BACK:
@@ -220,13 +226,15 @@ func _activate(action: int) -> void:
 	elif _step == Step.SHOP:
 		match action:
 			Action.HEAL:
-				_trader.buy_heal()
+				_sound("confirm" if _trader.buy_heal() else "deny")
 			Action.REROLL:
+				_sound("confirm" if _trader.can_afford(_trader.reroll_price) else "deny")
 				if _trader.can_afford(_trader.reroll_price):
 					_offer_cache.clear()
 					if _trader.reroll(_minutes):
 						_set_step(Step.SHOP)
 			Action.MOVE:
+				_sound("click" if _any_moves() else "deny")
 				if _any_moves():
 					_set_step(Step.MOVE_SOURCE)
 	queue_redraw()
@@ -236,14 +244,16 @@ func _pick(index: int) -> void:
 	match _step:
 		Step.SHOP:
 			if not _trader.can_buy(index):
+				_sound("deny")
 				return
 			var card: Dictionary = _trader.offers[index]["card"]
 			if Progression.needs_slot(card):
 				_offer = index
 				_set_step(Step.INSTALL)
 			else:
-				_trader.buy(index)
+				_sound("confirm" if _trader.buy(index) else "deny")
 		Step.INSTALL:
+			_sound("confirm" if index < _weapons.slots.size() and _progression.slot_status(_trader.offers[_offer]["card"], index) != "" else "deny")
 			if index < _weapons.slots.size() and _trader.buy(_offer, index):
 				_set_step(Step.SHOP)
 		Step.MOVE_SOURCE:
@@ -255,8 +265,14 @@ func _pick(index: int) -> void:
 				_module = index
 				_set_step(Step.MOVE_TARGET)
 		Step.MOVE_TARGET:
+			_sound("confirm" if _trader.can_move(_source, _module, index) else "deny")
 			if _trader.can_move(_source, _module, index) and _trader.move_module(_source, _module, index):
 				_set_step(Step.SHOP)
+
+
+func _sound(id: String) -> void:
+	if sfx != null:
+		sfx.play("ui/" + id)
 
 
 func _module_can_move(source: int, module_index: int) -> bool:

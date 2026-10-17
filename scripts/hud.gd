@@ -12,6 +12,8 @@ const PANEL_W := 118.0
 var show_debug := true
 var _ui := 2.0
 var _grenade_icon: Texture2D
+var _danger := 0.0
+var _heartbeat_phase := 0.0
 
 @onready var game = owner # скрипт game.gd корневой сцены
 
@@ -20,7 +22,11 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS # при паузе убираем анонс из-под экрана награды
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	if not get_tree().paused:
+		var target := 0.0 if game.player.is_dead else clampf(1.0 - game.player.hp / game.player.max_hp / 0.3, 0.0, 1.0)
+		_danger = lerpf(_danger, target, 1.0 - exp(-delta * 4.0))
+		_heartbeat_phase = fposmod(_heartbeat_phase + delta, 1.0)
 	queue_redraw()
 
 
@@ -40,6 +46,11 @@ func _draw() -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(_ui, _ui))
 	var w := size.x / _ui
 	var h := size.y / _ui
+	# Тот же мягкий край, что у тревоги; рисуем до HUD, центр остаётся прозрачным.
+	if _danger > 0.001:
+		var beat := pow(maxf(1.0 - absf(_heartbeat_phase - 0.1) / 0.1, 0.0), 2.0)
+		beat += 0.65 * pow(maxf(1.0 - absf(_heartbeat_phase - 0.3) / 0.08, 0.0), 2.0)
+		draw_texture_rect(game.alarm_overlay._vignette, Rect2(0, 0, w, h), false, Color(1, 1, 1, _danger * (0.8 + beat * 0.2)))
 
 	# опыт — полоса во всю ширину сверху
 	var need := Progression.xp_to_next(prog.level)
