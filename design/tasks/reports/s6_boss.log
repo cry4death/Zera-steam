@@ -1,0 +1,25 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+BOSS t=595.13 hp=24000 phase=1 fps=1
+BOSS t=596.02 hp=24000 phase=1 fps=45
+BOSS t=597.02 hp=24000 phase=1 fps=145
+BOSS t=598.02 hp=24000 phase=1 fps=145
+BOSS t=599.02 hp=24000 phase=1 fps=145
+BOSS spawn t=600.02 pos=(1518.485, 559.2429) hp=300
+BOSS t=600.02 hp=300 phase=1 fps=145
+BOSS t=601.02 hp=292 phase=2 fps=144
+BOSS death cpu: burst=0.70 ms, total handler=0.78 ms
+BOSS killed fight_s=1.73 military_crates=1
+BOSS summary victory=true fight_s=1.73 death_worst_frame_ms=0.00 death_physics_ms=0.00 fight_avg_frame_ms=0.00 fight_worst_frame_ms=0.00 dna=157
+BOSS damage rifle=88.64
+BOSS damage shotgun=0.00
+BOSS damage rail=0.00
+BOSS damage launcher=211.36
+BOSS damage pistol=0.00
+BOSS damage revolver=0.00
+BOSS damage smg=0.00
+BOSS damage sniper=0.00
+BOSS sources { "bullet": 85.6375014781952, "explosion": 211.362498521805, "fire": 3.0, "rail": 0.0 }
+BOSS death frames ms (first 1.5 s): 
+ERROR: Failed to read the root certificate store.
+   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2582)

@@ -3,6 +3,7 @@ extends Control
 ## Итоги забега. Данные и перезапуск принадлежат игре; чек работает на паузе.
 
 signal restart_requested
+signal base_requested
 
 const GOLD := Color(1.0, 0.82, 0.35)
 const WHITE := Color(0.92, 0.90, 0.85)
@@ -17,8 +18,10 @@ var _ui := 1.0
 var _t := 0.0
 var _finished := false
 var _requested := false
-var _hover := false
+var _hover := -1
+var _selected := 0 # основная кнопка — на базу, R всегда повторяет забег
 var _button := Rect2()
+var _base_button := Rect2()
 var _body := Rect2()
 var _scroll := 0.0
 var _scroll_max := 0.0
@@ -39,7 +42,8 @@ func open(stats: Dictionary) -> void:
 	_t = 0.0
 	_finished = false
 	_requested = false
-	_hover = false
+	_hover = -1
+	_selected = 0
 	_scroll = 0.0
 	_scroll_max = 0.0
 	visible = true
@@ -59,7 +63,7 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
-func _activate() -> void:
+func _activate(restart := false) -> void:
 	if _t < INPUT_DELAY or _requested:
 		return
 	if not _finished:
@@ -68,7 +72,10 @@ func _activate() -> void:
 		queue_redraw()
 	else:
 		_requested = true
-		restart_requested.emit()
+		if restart:
+			restart_requested.emit()
+		else:
+			base_requested.emit()
 
 
 func _gui_input(event: InputEvent) -> void:
@@ -76,11 +83,15 @@ func _gui_input(event: InputEvent) -> void:
 		return
 	var motion := event as InputEventMouseMotion
 	if motion != null:
-		_hover = _button.has_point(motion.position / _ui)
+		var at := motion.position / _ui
+		_hover = 0 if _base_button.has_point(at) else (1 if _button.has_point(at) else -1)
 	var button := event as InputEventMouseButton
 	if button != null and button.pressed:
-		if button.button_index == MOUSE_BUTTON_LEFT and _button.has_point(button.position / _ui):
-			_activate()
+		if button.button_index == MOUSE_BUTTON_LEFT:
+			if _base_button.has_point(button.position / _ui):
+				_activate()
+			elif _button.has_point(button.position / _ui):
+				_activate(true)
 		elif button.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			_scroll = minf(_scroll + 22.0, _scroll_max)
 		elif button.button_index == MOUSE_BUTTON_WHEEL_UP:
@@ -92,21 +103,35 @@ func _gui_input(event: InputEvent) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not visible:
 		return
+	var pad := event as InputEventJoypadButton
+	if pad != null and pad.pressed:
+		_hover = -1
+		match pad.button_index:
+			JOY_BUTTON_DPAD_LEFT: _selected = 0
+			JOY_BUTTON_DPAD_RIGHT: _selected = 1
+			JOY_BUTTON_A, JOY_BUTTON_START: _activate(_selected == 1)
+			JOY_BUTTON_X: _activate(true)
+		get_viewport().set_input_as_handled()
+		return
 	var key := event as InputEventKey
 	if key == null or not key.pressed:
 		return
 	var code := key.keycode
 	if key.physical_keycode == KEY_R:
 		code = KEY_R
-	if code not in [KEY_R, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE, KEY_DOWN, KEY_UP, KEY_PAGEDOWN, KEY_PAGEUP]:
+	if code not in [KEY_R, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE, KEY_LEFT, KEY_RIGHT, KEY_DOWN, KEY_UP, KEY_PAGEDOWN, KEY_PAGEUP]:
 		return
 	get_viewport().set_input_as_handled()
 	if key.echo:
 		return
+	_hover = -1
 	match code:
+		KEY_R: _activate(true)
+		KEY_LEFT: _selected = 0
+		KEY_RIGHT: _selected = 1
 		KEY_DOWN, KEY_PAGEDOWN: _scroll = minf(_scroll + 33.0, _scroll_max)
 		KEY_UP, KEY_PAGEUP: _scroll = maxf(_scroll - 33.0, 0.0)
-		_: _activate()
+		_: _activate(_selected == 1)
 	queue_redraw()
 
 
@@ -135,11 +160,16 @@ func _draw() -> void:
 	_pair(font, p + Vector2(12, 258), 236.0, "ИТОГО ДНК", str(roundi(int(_stats.get("dna_total", 0)) * total_progress)), GOLD, 13)
 	if total_progress >= 1.0:
 		_text_c(font, p + Vector2(130, 268), "ДНК всего: %d" % int(_stats.get("dna_bank", 0)), MUTED, 8)
-	_button = Rect2(p + Vector2(58, 274), Vector2(144, 24))
-	draw_rect(_button, Color(0.19, 0.15, 0.08) if _hover else Color(0.12, 0.10, 0.07))
-	draw_rect(_button, Color(GOLD, 1.0 if _hover else 0.55), false, 1.0)
-	_text_c(font, _button.position + Vector2(72, 16), "ЕЩЁ РАЗ", GOLD, 11)
-	var hint := "R / Enter · допечатать" if not _finished else "R / Enter"
+	_base_button = Rect2(p + Vector2(12, 274), Vector2(116, 24))
+	_button = Rect2(p + Vector2(134, 274), Vector2(114, 24))
+	for i in 2:
+		var r := _base_button if i == 0 else _button
+		var hot := _hover == i or (_hover < 0 and _selected == i)
+		var c := GOLD if i == 0 else WHITE
+		draw_rect(r, Color(0.19, 0.15, 0.08) if hot else Color(0.10, 0.09, 0.07))
+		draw_rect(r, Color(c, 1.0 if hot else 0.45), false, 1.0)
+		_text_c(font, r.get_center() + Vector2(0, 4), "НА БАЗУ" if i == 0 else "ЕЩЁ РАЗ [R]", c, 10)
+	var hint := "Enter · допечатать" if not _finished else "←→ / A / Enter · R — ещё раз"
 	if _scroll_max > 0.0:
 		hint += " · ↑↓ / колесо — чек"
 	_text_c(font, p + Vector2(130, 309), hint, MUTED, 8)
