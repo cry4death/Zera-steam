@@ -524,6 +524,8 @@ func _ready() -> void:
 	Meta.settings_changed.connect(_apply_settings)
 	_apply_settings()
 	player.force_auto_aim = Meta.is_test_run() and not _aim_test
+	if OS.get_cmdline_user_args().has("--guns-test"):
+		_run_guns_test.call_deferred()
 	if _aim_test:
 		spawner.enabled = false
 		player.god_mode = true
@@ -2271,6 +2273,165 @@ func _aim_verify_shots(label: String, count: int) -> void:
 			print("AIMTEST %s model=%s shot_deg=%.3f cursor_deg=%.3f projectile_error_deg=%.3f spread_limit_deg=%.3f" % [label, shot["model"], shot["angle"], shot["cursor"], shot["error"], shot["limit"]])
 			models[shot["model"] + "_printed"] = true
 	_aim_check(ok and models.size() == count * 2, label + "_all_guns_to_cursor")
+
+
+## W3: реальная геометрия слотов и выстрелы, фиксированный шаг без случайного кадра вспышки.
+func _guns_step(frames: int) -> void:
+	for frame in frames:
+		weapons._age_fx(1.0 / 60.0)
+		player.sprite.rotation = player.aim_dir.angle()
+		for i in weapons.slots.size():
+			weapons._update_slot(i, 1.0 / 60.0)
+		effects._physics_process(1.0 / 60.0)
+		weapons._update_gun_layers()
+
+
+func _guns_image(label: String) -> Image:
+	_guns_label.text = label
+	weapons.queue_redraw()
+	weapons._flash_layer.queue_redraw()
+	weapons._update_gun_layers()
+	effects.queue_redraw()
+	await RenderingServer.frame_post_draw
+	var frame := get_viewport().get_texture().get_image()
+	var center := Vector2i(player.get_global_transform_with_canvas().origin)
+	var crop := frame.get_region(Rect2i(center - Vector2i(96, 72), Vector2i(192, 144)))
+	crop.resize(576, 432, Image.INTERPOLATE_NEAREST)
+	return crop
+
+
+var _guns_label: Label
+
+
+func _run_guns_test() -> void:
+	seed(33117)
+	get_window().mode = Window.MODE_WINDOWED
+	get_window().size = Vector2i(1280, 720)
+	set_physics_process(false)
+	spawner.enabled = false
+	weapons.set_physics_process(false)
+	player.set_physics_process(false)
+	horde.set_physics_process(false)
+	effects.set_physics_process(false)
+	player.god_mode = true
+	player.position = ARENA.get_center()
+	player.aim_dir = Vector2.RIGHT
+	player.force_auto_aim = true
+	player.fire_requested = true
+	$HUD.visible = false
+	camera.target = null
+	camera.position_smoothing_enabled = false
+	camera.shake_multiplier = 0.0
+	camera.position = player.position
+	camera.zoom = Vector2.ONE * 3.0
+	weapons.camera = null
+	var overlay := CanvasLayer.new()
+	add_child(overlay)
+	_guns_label = Label.new()
+	overlay.add_child(_guns_label)
+	_guns_label.add_theme_font_size_override("font_size", 12)
+	_guns_label.position = get_viewport_rect().size * 0.5 + Vector2(-90, 52)
+	var path := _shot_path if not _shot_path.is_empty() else "res://design/tasks/reports/w3_guns.png"
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(path.get_base_dir()))
+	await get_tree().create_timer(0.2).timeout
+	var targets := PackedVector2Array([Vector2(90, 0), Vector2(32, 88), Vector2(32, -88), Vector2(-41, -88)])
+	for at: Vector2 in targets:
+		var e := horde.spawn(player.position + at)
+		horde.speed[e] = 0.0
+		horde.hp[e] = 1000000.0
+	weapons.slots.clear()
+	weapons.add_weapon(WeaponDefs.Base.RIFLE, "ak_s")
+	_guns_step(30)
+	weapons.clear_projectiles()
+	weapons._flashes.clear()
+	effects._update_lights(1.0)
+	(await _guns_image("01 / AK-S")).save_png(path.get_basename() + "_single.png")
+	for id: String in ["butcher", "needle", "colt"]:
+		weapons.add_weapon(WeaponDefs.MODELS[id]["base"], id)
+	weapons.refill_all()
+	_guns_step(50)
+	var unique := {}
+	for s: Weapons.Slot in weapons.slots:
+		unique[s.target] = true
+	assert(unique.size() == 4)
+	# Останавливаем все стволы в одном моменте выстрела; проверяем реальные источники.
+	weapons.clear_projectiles()
+	weapons._flashes.clear()
+	for i in 4:
+		var s := weapons.slots[i]
+		s.reloading = false
+		s.mag = 10
+		var before := weapons.bullet_count
+		weapons._fire_shot(i, s, s.target)
+		var muzzle := weapons.gun_point(i, s.muzzle)
+		assert(Vector2(weapons._flashes.back()[0]).distance_to(muzzle) < 0.001)
+		if s.base == WeaponDefs.Base.RAIL:
+			assert(Vector2(weapons._beams.back()[0]).distance_to(muzzle) < 0.001)
+		else:
+			assert(weapons._bpos[before].distance_to(muzzle) < 0.001)
+		assert(s.recoil >= 1.0 and s.recoil <= 2.0)
+		print("GUNSTEST slot=%d model=%s target=%d angle=%.2f muzzle=%s" % [i, s.model, s.target, rad_to_deg(s.angle), muzzle])
+	(await _guns_image("04 / AUTO + FLASH")).save_png(path.get_basename() + "_auto.png")
+	weapons._flashes.clear()
+	weapons.clear_projectiles()
+	player.manual_aim = true
+	player.aim_dir = Vector2(1, -0.35).normalized()
+	player.aim_point = player.position + player.aim_dir * 140.0
+	weapons.refill_all()
+	_guns_step(30)
+	for s: Weapons.Slot in weapons.slots:
+		assert(absf(angle_difference(s.angle, player.aim_dir.angle())) < 0.001)
+	weapons.clear_projectiles()
+	weapons._flashes.clear()
+	effects._update_lights(1.0)
+	(await _guns_image("04 / MANUAL")).save_png(path.get_basename() + "_manual.png")
+	weapons._flashes.clear()
+	weapons.clear_projectiles()
+	for s: Weapons.Slot in weapons.slots:
+		s.reloading = true
+		s.reload_t = float(s.stats["reload"]) * 0.5
+		s.recoil = 0.0
+	(await _guns_image("04 / RELOAD")).save_png(path.get_basename() + "_reload.png")
+	# Урон синхронно скрывает оба слоя; спинной слой стоит перед Sprite.
+	player.sprite.visible = false
+	weapons._update_gun_layers()
+	assert(not weapons._gun_layers[0].visible and not weapons._gun_layers[1].visible)
+	player.sprite.visible = true
+	assert(weapons._gun_layers[0].get_index() < player.sprite.get_index())
+	assert(weapons._gun_layers[1].get_index() > player.sprite.get_index())
+	# Цель за сектором не должна расходовать патроны; затем корпус доворачивается.
+	player.manual_aim = false
+	var servo := weapons.slots[1]
+	servo.reloading = false
+	servo.recoil = 0.0
+	servo.angle = 0.0
+	player.aim_dir = Vector2.RIGHT
+	weapons._aim_gun(1, player.position + Vector2(-100, 0), 1.0)
+	assert(not weapons._gun_aligned(1, player.position + Vector2(-100, 0)))
+	player.aim_dir = Vector2.LEFT
+	player.sprite.rotation = PI
+	weapons._aim_gun(1, player.position + Vector2(-100, 0), 1.0)
+	assert(weapons._gun_aligned(1, player.position + Vector2(-100, 0)))
+	player.manual_aim = true
+	player.aim_dir = Vector2.RIGHT
+	player.sprite.rotation = 0.0
+	effects._cn = 0
+	effects._n = 0
+	effects._update_lights(1.0)
+	var sheet := Image.create(2304, 1728, false, Image.FORMAT_RGB8)
+	var n := 0
+	for id: String in WeaponDefs.MODELS:
+		weapons.slots.clear()
+		weapons.add_weapon(WeaponDefs.MODELS[id]["base"], id)
+		var s := weapons.slots[0]
+		s.cooldown = 1000.0
+		_guns_step(1)
+		var model_image := await _guns_image("%02d / %s" % [n + 1, id.to_upper()])
+		sheet.blit_rect(model_image, Rect2i(0, 0, 576, 432), Vector2i((n % 4) * 576, (n >> 2) * 432))
+		n += 1
+	sheet.save_png(path.get_basename() + "_models.png")
+	print("GUNSTEST ok=true models=%d independent_targets=4 muzzle_sources=4 recoil=true sector=true blink=true layers=true" % n)
+	get_tree().quit()
 
 
 func _run_aim_test() -> void:
