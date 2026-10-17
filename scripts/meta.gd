@@ -12,14 +12,14 @@ extends Node
 ##   --meta-preset=maxed   всё дерево, мастерская 5/5, все модели, много ДНК
 ##   --save-file=<путь>    писать и читать этот файл (user://имя.json) даже в тест-режиме: проверка перезапуска
 
-const SAVE_VERSION := 2
+const SAVE_VERSION := 3
 const DEFAULT_SETTINGS := {"master": 1.0, "weapons": 1.0, "world": 1.0, "ui": 1.0,
 	"gore": 2, "shake": 1.0, "fullscreen": true, "auto_fire": true}
 signal settings_changed
 var settings: Dictionary = DEFAULT_SETTINGS.duplicate()
 const SAVE_PATH := "user://zera_save.json"
 ## Любой из этих флагов (по началу строки) — тест-режим игры: сохранение только в памяти.
-const TEST_FLAGS := ["--aim-test", "--audio-test", "--sim", "--bench", "--boss", "--alarm", "--ui-test", "--weapons-test", "--loadout", "--s3-test", "--meta-test", "--kinds", "--gore-stress", "--fresh-save"]
+const TEST_FLAGS := ["--campaign-test", "--campaign-op", "--base-test", "--aim-test", "--audio-test", "--sim", "--bench", "--boss", "--alarm", "--ui-test", "--weapons-test", "--loadout", "--s3-test", "--meta-test", "--kinds", "--gore-stress", "--fresh-save"]
 
 # Уровень класса: накоплено ДНК для уровня n = 80 · (n − 1)^1.5 (BALANCE §11.2)
 const LEVEL_DNA_K := 80.0
@@ -67,6 +67,10 @@ var favorite := {} # Base → model_id
 var crates := 0
 var military_crates := 0
 var runs := 0
+var campaign: Dictionary = {}
+var campaign_recovered := false
+var last_save_ok := true
+var save_calls := 0 # диагностика числа транзакций
 
 var persist := true # false — состояние только в памяти (тест-режимы)
 var save_path := SAVE_PATH
@@ -79,8 +83,8 @@ func _ready() -> void:
 	rng.randomize()
 	reset()
 	var args := OS.get_cmdline_user_args()
-	# База тестируется только в памяти, даже если одновременно передан --save-file.
-	if args.has("--base-test"):
+	# Эти проверки никогда не читают профиль, даже с --save-file.
+	if args.has("--base-test") or args.has("--campaign-test"):
 		persist = false
 		return
 	var custom := ""
@@ -300,6 +304,12 @@ func set_favorite(base: int, model: String) -> bool:
 
 ## stats — словарь экрана итогов: dna_total, crates, military_crates.
 func add_run(stats: Dictionary) -> void:
+	apply_run(stats)
+	save()
+
+
+## Часть транзакции без записи: кампании нужен один общий снимок наград и мира.
+func apply_run(stats: Dictionary) -> void:
 	var gain := maxi(int(stats.get("dna_total", 0)), 0)
 	last_run = {"dna": gain, "crates": maxi(int(stats.get("crates", 0)), 0), "military_crates": maxi(int(stats.get("military_crates", 0)), 0)}
 	dna += gain
@@ -307,12 +317,14 @@ func add_run(stats: Dictionary) -> void:
 	crates += int(last_run["crates"])
 	military_crates += int(last_run["military_crates"])
 	runs += 1
-	save()
 
 
 # --- сохранение -------------------------------------------------------------------------------
 
 func reset() -> void:
+	campaign = CampaignRules.initial(int(CampaignCatalog.BALANCE["seed"]))
+	campaign_recovered = false
+	last_save_ok = true
 	settings = DEFAULT_SETTINGS.duplicate()
 	dna = 0
 	dna_earned = 0
@@ -335,13 +347,16 @@ func to_dict() -> Dictionary:
 	for b in favorite:
 		fav[str(b)] = favorite[b]
 	return {"version": SAVE_VERSION, "dna": dna, "dna_earned": dna_earned, "tree": tree.duplicate(), "workshop": workshop.duplicate(true),
-		"owned": Array(owned), "favorite": fav, "crates": crates, "military_crates": military_crates, "runs": runs, "settings": settings.duplicate()}
+		"owned": Array(owned), "favorite": fav, "crates": crates, "military_crates": military_crates, "runs": runs, "settings": settings.duplicate(), "campaign": campaign.duplicate(true)}
 
 
 func save() -> void:
+	save_calls += 1
+	last_save_ok = true
 	if not persist:
 		return
 	if not _write_atomic(save_path, JSON.stringify(to_dict(), "\t")):
+		last_save_ok = false
 		last_error = "запись %s не удалась" % save_path
 		push_warning("Meta: " + last_error)
 
@@ -354,8 +369,9 @@ static func _write_atomic(path: String, text: String) -> bool:
 		return false
 	f.store_string(text)
 	f.flush()
+	var write_ok := f.get_error() == OK
 	f.close()
-	return DirAccess.rename_absolute(tmp, path) == OK
+	return write_ok and DirAccess.rename_absolute(tmp, path) == OK
 
 
 ## Читает save_path. Нет файла — чистое состояние. Битый или чужой версии — резервная копия
@@ -367,8 +383,15 @@ func load_save() -> bool:
 	var text := FileAccess.get_file_as_string(save_path)
 	var json := JSON.new()
 	if json.parse(text) == OK and json.data is Dictionary and from_dict(json.data):
-		if int(json.data["version"]) == 1:
-			save() # миграция v1 → v2 атомарно сохраняет весь прогресс
+		if campaign_recovered:
+			var backup := "%s.campaign-bad-%d" % [save_path, Time.get_ticks_usec()]
+			var copied := DirAccess.copy_absolute(save_path, backup) == OK
+			last_error = "блок campaign повреждён; профиль сохранён; новая кампания; " + ("копия в " + backup if copied else "резервная копия не записана")
+			print("Meta: " + last_error)
+			if copied:
+				save()
+		elif int(json.data["version"]) < SAVE_VERSION:
+			save() # v1/v2 → v3 без сброса профиля и без пометки повреждения
 		return true
 	var backup := "%s.bad-%d" % [save_path, int(Time.get_unix_time_from_system())]
 	DirAccess.copy_absolute(save_path, backup)
@@ -385,7 +408,7 @@ static func _is_num(v: Variant) -> bool:
 
 ## Разбор словаря сохранения со строгой проверкой типов. false — данные негодны целиком.
 func from_dict(d: Dictionary) -> bool:
-	if not _is_num(d.get("version")) or int(d["version"]) not in [1, SAVE_VERSION]:
+	if not _is_num(d.get("version")) or int(d["version"]) not in [1, 2, SAVE_VERSION]:
 		return false
 	for key in ["dna", "dna_earned", "crates", "military_crates", "runs"]:
 		if not _is_num(d.get(key)) or float(d[key]) < 0.0:
@@ -415,8 +438,12 @@ func from_dict(d: Dictionary) -> bool:
 				levels[stat] = clampi(int(d["workshop"][model][stat]), 0, WORKSHOP_MAX)
 		new_workshop[model] = levels
 	var new_owned := PackedStringArray()
+	# Порядок уже открытых моделей — часть профиля; миграция его сохраняет.
+	for id: Variant in d["owned"]:
+		if id is String and WeaponDefs.MODELS.has(id) and not new_owned.has(id):
+			new_owned.append(id)
 	for id: String in WeaponDefs.MODEL_ORDER:
-		if WeaponDefs.MODELS[id]["rarity"] == WeaponDefs.Rarity.SERIAL or d["owned"].has(id):
+		if WeaponDefs.MODELS[id]["rarity"] == WeaponDefs.Rarity.SERIAL and not new_owned.has(id):
 			new_owned.append(id)
 	dna = int(d["dna"])
 	dna_earned = int(d["dna_earned"])
@@ -432,6 +459,14 @@ func from_dict(d: Dictionary) -> bool:
 		var model: String = str(d["favorite"][b])
 		if str(b).is_valid_int() and WeaponDefs.MODELS.has(model) and owned.has(model) and WeaponDefs.MODELS[model]["base"] == int(b):
 			favorite[int(b)] = model
+	campaign_recovered = false
+	if not d.has("campaign") and int(d["version"]) < SAVE_VERSION:
+		campaign = CampaignRules.initial(int(CampaignCatalog.BALANCE["seed"]))
+	elif CampaignRules.valid(d.get("campaign")):
+		campaign = CampaignRules.normalized(d["campaign"])
+	else:
+		campaign = CampaignRules.initial(int(CampaignCatalog.BALANCE["seed"]))
+		campaign_recovered = true
 	return true
 
 

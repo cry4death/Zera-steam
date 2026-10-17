@@ -96,6 +96,7 @@ var _ui_test := false
 var _s3_test := false
 var _weapons_test := false
 var _meta_test := false
+var mission_config: Dictionary = {} # Неизменяемый профиль для C2.
 var _wtest_shot := false
 var _wtest_started := 0.0
 var _sim := false
@@ -167,6 +168,21 @@ func _enter_tree() -> void:
 
 
 func _ready() -> void:
+	if OS.get_cmdline_user_args().has("--campaign-test"):
+		var ok: bool = await CampaignTest.run(self)
+		get_tree().quit(0 if ok else 1)
+		return
+	for arg: String in OS.get_cmdline_user_args():
+		if arg.begins_with("--campaign-op=") and Campaign.enabled():
+			var id := arg.trim_prefix("--campaign-op=")
+			if id == "first":
+				id = Campaign.offers()[0]["id"]
+			if Campaign.pending().is_empty():
+				if Campaign.start_operation(id).is_empty():
+					push_error("Campaign: операция недоступна: " + id)
+					get_tree().quit(1)
+					return
+	mission_config = Campaign.pending()
 	for arg in OS.get_cmdline_user_args():
 		if arg == "--aim-test":
 			_aim_test = true
@@ -948,6 +964,7 @@ func _settings_checks() -> void:
 	var old_persist := Meta.persist
 	var legacy := saved.duplicate(true)
 	legacy.erase("settings")
+	legacy.erase("campaign") # В настоящей схеме v1 кампании ещё не было.
 	legacy["version"] = 1
 	legacy["dna"] = 123
 	Meta.save_path = "res://tmp/s7_migration.json"
@@ -955,7 +972,7 @@ func _settings_checks() -> void:
 	assert(Meta._write_atomic(Meta.save_path, JSON.stringify(legacy)))
 	assert(Meta.load_save() and Meta.dna == 123 and Meta.settings == Meta.DEFAULT_SETTINGS)
 	var migrated: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(Meta.save_path))
-	assert(migrated["version"] == 2 and migrated.has("settings"))
+	assert(migrated["version"] == Meta.SAVE_VERSION and migrated.has("settings"))
 	for key: String in legacy:
 		if key != "version":
 			assert(migrated[key] == legacy[key])
@@ -971,7 +988,7 @@ func _settings_checks() -> void:
 	Meta.persist = old_persist
 	Meta.from_dict(saved)
 	Meta.apply_settings()
-	print("S7SETTINGS migration_v1_v2=true progress_preserved=true roundtrip=true sanitize=true temporary_save=true")
+	print("S7SETTINGS migration_v1_v%d=true progress_preserved=true roundtrip=true sanitize=true temporary_save=true" % Meta.SAVE_VERSION)
 
 
 func _audio_shot(suffix: String) -> void:

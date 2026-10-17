@@ -38,7 +38,19 @@ func _ready() -> void:
 func open(stats: Dictionary) -> void:
 	_stats = stats.duplicate(true)
 	# Итоги забега уходят в мету: ДНК, ящики; сохранение пишется сразу, до нажатия кнопки.
-	Meta.add_run(_stats)
+	var config := Campaign.pending()
+	# Снимок хранится в stats: повторное открытие после снятия pending тоже идемпотентно.
+	if not config.is_empty() and not _stats.has("run_id"):
+		for key: String in ["run_id", "operation_id", "region_id", "type"]:
+			_stats[key] = config[key]
+		_stats["outcome"] = "victory" if _stats.get("victory", false) else "defeat"
+		stats.merge(_stats, true)
+	if Campaign.enabled() and (not config.is_empty() or _stats.has("run_id")):
+		var report := Campaign.complete_operation(_stats)
+		if report.has("stats"):
+			_stats = report["stats"].duplicate(true)
+	else:
+		Meta.add_run(_stats)
 	_stats["dna_bank"] = Meta.dna
 	_t = 0.0
 	_finished = false

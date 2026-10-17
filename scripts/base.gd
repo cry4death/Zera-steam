@@ -101,6 +101,10 @@ func _ready() -> void:
 		return
 	if get_tree().has_meta("s6_return_to_base"):
 		get_tree().remove_meta("s6_return_to_base")
+	if not Meta.is_test_run():
+		_msg = Campaign.abandon_pending()
+		if not _msg.is_empty():
+			_msg_t = 8.0
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_sfx = Sfx.new()
