@@ -12,7 +12,7 @@ const EXIT_TIME := 0.4
 const FINISH_TIME := 1.5
 const FLASH_TIME := 0.3
 const CENTER_FLASH_ALPHA := 30.0 / 255.0 # не выше 0.12 после округления RGBA8
-const STRIPE_HEIGHT := 10.0
+const STRIPE_HEIGHT := 7.0
 const STRIPE_PERIOD := 32.0
 const GOLD := Color(1.0, 0.82, 0.35)
 const RED := Color(0.55, 0.0, 0.02)
@@ -39,7 +39,7 @@ var _active_title_width := 0.0
 var _result_width := 0.0
 var _ui := 3.0
 var _font: Font
-var _vignette: GradientTexture2D
+var _vignette: ImageTexture
 var _stripes: GradientTexture2D
 
 
@@ -165,7 +165,7 @@ func _update_visuals(delta: float) -> void:
 			var period := 0.6 if _remaining <= 5.0 else 1.1
 			_heartbeat_phase = fposmod(_heartbeat_phase + delta / period, 1.0)
 			var beat := maxf(_thump(_heartbeat_phase, 0.1, 0.1), _thump(_heartbeat_phase, 0.3, 0.08) * 0.7)
-			_edge_alpha = 0.35 if reduced_motion else 0.3 + beat * 0.15
+			_edge_alpha = 0.58 if reduced_motion else 0.46 + beat * 0.24
 			_stripe_amount = 0.0 if reduced_motion else _stripe_exit_from * (1.0 - _ease_out(_elapsed / EXIT_TIME))
 			if not reduced_motion:
 				_flash_alpha = CENTER_FLASH_ALPHA * clampf(1.0 - _elapsed / FLASH_TIME, 0.0, 1.0)
@@ -205,16 +205,30 @@ func _thump(phase: float, center: float, width: float) -> float:
 
 
 func _make_textures() -> void:
+	# Два краевых спада запекаются один раз: один draw, без плоских углов.
 	var gradient := Gradient.new()
-	gradient.offsets = PackedFloat32Array([0.0, 0.86, 1.0])
-	gradient.colors = PackedColorArray([Color(RED, 0.0), Color(RED, 0.0), Color(RED, 1.0)])
-	_vignette = GradientTexture2D.new()
-	_vignette.width = 512
-	_vignette.height = 512
-	_vignette.gradient = gradient
-	_vignette.fill = GradientTexture2D.FILL_RADIAL
-	_vignette.fill_from = Vector2(0.5, 0.5)
-	_vignette.fill_to = Vector2(0.5, 0.0)
+	gradient.offsets = PackedFloat32Array([0.0, 0.55, 0.6625, 0.775, 0.8875, 1.0])
+	gradient.colors = PackedColorArray([
+		Color(0, 0, 0, 0), Color(0, 0, 0, 0), Color(0, 0, 0, 0.015625),
+		Color(0, 0, 0, 0.125), Color(0, 0, 0, 0.421875), Color(0, 0, 0, 1),
+	])
+	var image := Image.create(1024, 576, false, Image.FORMAT_RGBA8)
+	var horizontal := PackedFloat32Array()
+	horizontal.resize(1024)
+	for x in 1024:
+		# В 16:9 ширина спада в пикселях одинакова у всех четырёх краёв.
+		var radius := 1.0 - (1.0 - absf(2.0 * float(x) / 1023.0 - 1.0)) * (16.0 / 9.0)
+		horizontal[x] = gradient.sample(clampf(radius, 0.0, 1.0)).a
+	for y in 576:
+		var vertical := gradient.sample(absf(2.0 * float(y) / 575.0 - 1.0)).a
+		for x in 1024:
+			var side := horizontal[x]
+			var corner := side * vertical
+			var color := Color(0.35, 0.0, 0.02).lerp(Color(0.12, 0.0, 0.01), corner)
+			# При среднем пульсе: 0.40 у середины края, 0.58 в углу.
+			color.a = (0.4 * (side + vertical) - 0.22 * corner) / 0.58
+			image.set_pixel(x, y, color)
+	_vignette = ImageTexture.create_from_image(image)
 	var stripes := Gradient.new()
 	stripes.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_CONSTANT
 	stripes.offsets = PackedFloat32Array([0.0, 0.5, 1.0])

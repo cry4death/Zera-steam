@@ -205,54 +205,72 @@ def spit(frame):
 
 
 def acid(frame):
-    """Слитые лопасти одной лужи; кайма и альфа без Canvas.outline."""
-    rng = random.Random(4120 + frame)
+    """Мутная кислота, рваный край и разъеденный асфальт; без outline."""
+    seed = 4120 + frame
     cv = ga.Canvas(40, 40)
-    lobes = [(19.5, 20.0, 10.0, 9.0)]
-    for i in range(7):
-        angle = i * math.tau / 7 + rng.uniform(-0.3, 0.3)
-        d = rng.uniform(6.0, 11.0)
-        lobes.append((20 + math.cos(angle) * d, 20 + math.sin(angle) * d,
-                      rng.uniform(5.0, 8.0), rng.uniform(4.5, 7.0)))
+    phase = frame * 1.7
+    rx, ry = ((20.5, 18.0), (18.5, 21.0), (21.0, 18.5))[frame]
+    dark, light = ga.hexc("41591a"), ga.hexc("66882a")
+    earth = (72, 66, 56)
+    rim = (40, 38, 22)
 
-    def depth(x, y):
-        return 1 - min(math.hypot((x - cx) / rx, (y - cy) / ry) for cx, cy, rx, ry in lobes)
+    def depth(nx, ny):
+        # Расстояние до шумного контура в родных пикселях, а не союза кругов.
+        dx, dy = (nx + 0.5 - 30) / rx, (ny + 0.5 - 30) / ry
+        angle = math.atan2(dy, dx)
+        radius = 1 + math.sin(angle * 3 + phase) * 0.12
+        radius += math.sin(angle * 5 - phase) * 0.09
+        radius += math.sin(angle * 9 + phase) * 0.055
+        for i in range(5):
+            tongue = i * math.tau / 5 + phase * 0.35
+            delta = math.atan2(math.sin(angle - tongue), math.cos(angle - tongue))
+            radius += max(0.0, 1 - abs(delta) / 0.13) * 0.16
+        radius += ga.hnoise(nx // 2, ny // 2, seed) * 0.026
+        radius += ga.hnoise(nx, ny, seed + 10) * 0.019
+        return (radius - math.hypot(dx, dy)) * min(rx, ry)
 
-    # Объём и текстура сначала рисуются штатными эллипсами генератора.
-    for i, (cx, cy, rx, ry) in enumerate(lobes):
-        cv.ellipse(cx, cy, rx, ry, ga.ACID, bias=-0.18, tex=0.16, seed=4120 + frame * 10 + i)
     for ny in range(cv.h):
         for nx in range(cv.w):
-            x, y = (nx + 0.5) / cv.s, (ny + 0.5) / cv.s
-            d = depth(x, y)
-            if -0.065 < d < 0:
-                cv.putn(nx, ny, ga.mix(DARK_METAL[0], ga.ACID[0], 0.15), 110)
+            d = depth(nx, ny)
+            if -1.5 <= d < 0:
+                cv.putn(nx, ny, rim, 140)
             elif d >= 0:
-                c = cv.getn(nx, ny)
-                if c is not None:
-                    # Внешние 1–2 пикселя прозрачнее; центр около 200.
-                    alpha = round(100 + 100 * min(1.0, d / 0.4))
-                    light = ((x - 20) * ga.LIGHT[0] + (y - 20) * ga.LIGHT[1]) / 18
-                    sh = -0.25 + min(d, 0.45) * 0.8 + light * 0.22
-                    sh += ga.hnoise(nx // 2, ny // 2, 4120 + frame) * 0.1
-                    # Общее освещение поверхности убирает швы полусфер.
-                    col = ga.mix(c, ga.pick(ga.ACID, sh), 0.9)
-                    cv.putn(nx, ny, col, alpha)
-    # Пузырьки внутри плотного участка, с тёмным ободком и бликом слева.
-    for _ in range(20):
-        x, y = rng.uniform(5, 35), rng.uniform(5, 35)
-        r = rng.uniform(0.55, 1.25)
-        if depth(x, y) < 0.23:
-            continue
-        cv.ellipse(x, y, r, r * 0.8, ga.ACID, bias=-0.65)
-        cv.ellipse(x, y, r * 0.6, r * 0.5, ga.PUS, bias=-0.2)
-        cv.dot(x - r * 0.35, y - r * 0.3, ga.PUS[5])
-    # Сохраняем полупрозрачность и у пузырей, не создаём твёрдых точек декали.
-    for ny in range(cv.h):
-        for nx in range(cv.w):
-            c = cv.getn(nx, ny)
-            if c is not None and c[3] > 200:
-                cv.putn(nx, ny, c[:3], 200)
+                grain = ga.hnoise(nx // 4, ny // 4, seed + 20)
+                lighting = ((nx - 30) * ga.LIGHT[0] + (ny - 30) * ga.LIGHT[1]) / 30
+                shade = max(0.0, min(1.0, 0.35 + grain * 0.18 + lighting * 0.3))
+                col = ga.mix(ga.mix(dark, light, shade), earth, 0.38)
+                alpha = round(85 + 90 * min(1.0, max(0.0, (d - 2) / 10)) + grain * 4)
+                cv.putn(nx, ny, col, alpha)
+                # Редкие островки грязной пены вдоль внутреннего края.
+                if 0.8 < d < 2.0 and ga.hnoise(nx, ny, seed + 30) > 0.92:
+                    cv.putn(nx, ny, (97, 106, 64), 115)
+
+    # Три самостоятельные капли с прозрачным зазором до основного пятна.
+    for i, (cx, cy) in enumerate(((5, 8 + frame), (51 - frame, 5), (55, 51 - frame))):
+        for ny in range(cy - 3, cy + 4):
+            for nx in range(cx - 3, cx + 4):
+                d = math.hypot((nx - cx) / (1.4 + i * 0.25), (ny - cy) / 1.7)
+                if d < 1.0 and depth(nx, ny) < -3:
+                    cv.putn(nx, ny, rim if d > 0.7 else ga.mix(dark, earth, 0.38),
+                            140 if d > 0.7 else 95)
+
+    # Пять пузырей радиусом 1–3 родных пикселя: тень снизу-справа, блик слева.
+    for i, (cx, cy, r) in enumerate(((24, 23, 2), (37, 22, 1), (33, 35, 3),
+                                      (21, 37, 1), (42, 31, 2))):
+        cx += round(ga.hnoise(i, frame, seed) * 2)
+        cy += round(ga.hnoise(frame, i, seed + 1) * 2)
+        for ny in range(cy - r, cy + r + 1):
+            for nx in range(cx - r, cx + r + 1):
+                dx, dy = nx - cx, ny - cy
+                d = math.hypot(dx, dy) / r
+                if d > 1 or depth(nx, ny) < 2:
+                    continue
+                col = (46, 50, 29) if dx + dy >= 0 else (100, 112, 65)
+                if d < 0.65:
+                    col = (65, 76, 39)
+                cv.putn(nx, ny, col, 165)
+        cv.putn(cx - (1 if r > 1 else 0), cy - 1,
+                ga.ACID[4] if i in (0, 2) else (119, 128, 79), 125)
     return cv
 
 
@@ -270,10 +288,10 @@ def sprites():
 
 
 def preview(images, path):
-    """Одинаковые ячейки, честный масштаб x4, серый фон из ТЗ."""
+    """Все спрайты x4; дополнительный ряд луж на двух фонах в масштабе боя x2."""
     cols, cell_w, cell_h, pad = 3, 264, 280, 12
     rows = math.ceil(len(images) / cols)
-    sheet = Image.new("RGB", (cols * cell_w, rows * cell_h), (61, 63, 67))
+    sheet = Image.new("RGB", (cols * cell_w, (rows + 1) * cell_h), (61, 63, 67))
     draw = ImageDraw.Draw(sheet)
     for i, (name, img) in enumerate(images):
         x, y = (i % cols) * cell_w, (i // cols) * cell_h
@@ -281,6 +299,15 @@ def preview(images, path):
         enlarged = img.resize((img.width * 4, img.height * 4), Image.Resampling.NEAREST)
         sheet.paste(enlarged, (x + (cell_w - enlarged.width) // 2,
                                y + 30 + (cell_h - 30 - enlarged.height) // 2), enlarged)
+    for i, (name, img) in enumerate((item for item in images if item[0].startswith("acid_"))):
+        x, y = i * cell_w, rows * cell_h
+        draw.text((x + pad, y + pad), name + "  red / asphalt  x2 + x1", fill=(211, 213, 206))
+        for j, bg in enumerate(((60, 12, 14), (61, 63, 67))):
+            left = x + j * (cell_w // 2)
+            draw.rectangle((left, y + 32, left + cell_w // 2 - 1, y + cell_h - 1), fill=bg)
+            enlarged = img.resize((img.width * 2, img.height * 2), Image.Resampling.NEAREST)
+            sheet.paste(enlarged, (left + 6, y + 45), enlarged)
+            sheet.paste(img, (left + 36, y + 192), img)
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     sheet.save(path)
 
