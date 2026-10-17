@@ -6,8 +6,16 @@ extends Node2D
 signal hurt(amount: float)
 signal died
 signal dashed
+signal grenade_landed(at: Vector2) # граната приземлилась: взрыв делает игра
 
 const RADIUS := 5.0
+# граната (BALANCE.md §1): бросок на 100 px, дугой за 0.45 с
+const GRENADE_DAMAGE := 40.0
+const GRENADE_RADIUS := 50.0
+const GRENADE_DISTANCE := 100.0
+const GRENADE_COOLDOWN := 8.0
+const GRENADE_TIME := 0.45
+const GRENADE_ARC := 16.0 # высота дуги
 
 @export var max_hp := 100.0
 @export var move_speed := 80.0
@@ -28,6 +36,7 @@ var effects: Effects
 var facing := Vector2.RIGHT
 var aim_dir := Vector2.ZERO # куда смотрит ствол; задаёт оружие при выстреле
 var dash_cd := 0.0
+var grenade_cd := 0.0
 var dirt := 0.0 # насколько боец перемазан кровью
 
 var _dash_t := 0.0
@@ -39,6 +48,11 @@ var _dirt_stage := 0
 var _frames: Array[Texture2D] = [] # стадия грязи × 4 + кадр ходьбы
 var _walk := 0.0
 var _kick := 0.0
+var _moving := false
+var _gren_t := -1.0 # время полёта гранаты, < 0 — не летит
+var _gren_from := Vector2.ZERO
+var _gren_to := Vector2.ZERO
+var _gren_tex: Texture2D
 
 const DIRT_STAGES := [0.0, 15.0, 50.0, 120.0]
 
@@ -53,18 +67,24 @@ func _ready() -> void:
 			_frames.append(PixelArt.frame(sheet, a, d))
 	sprite.texture = _frames[0]
 	sprite.scale = Vector2(PixelArt.ART_SCALE, PixelArt.ART_SCALE)
+	_gren_tex = PixelArt.tex("grenade")
 
 
 func _physics_process(delta: float) -> void:
+	_update_grenade(delta)
 	if is_dead:
 		return
 	dash_cd = maxf(dash_cd - delta, 0.0)
+	grenade_cd = maxf(grenade_cd - delta, 0.0)
 	_iframes = maxf(_iframes - delta, 0.0)
 	_hurt_t = maxf(_hurt_t - delta, 0.0)
 
 	var input := _read_input(delta)
-	if input != Vector2.ZERO:
+	_moving = input != Vector2.ZERO
+	if _moving:
 		facing = input.normalized()
+	if Input.is_action_just_pressed("grenade"):
+		throw_grenade()
 
 	if Input.is_action_just_pressed("dash") and dash_cd <= 0.0:
 		_dash_dir = facing
@@ -134,3 +154,54 @@ func kick() -> void:
 
 func is_dashing() -> bool:
 	return _dash_t > 0.0
+
+
+## Бросок гранаты: туда, куда бежим; стоим на месте — туда, куда смотрит ствол.
+## Возвращает false, если граната ещё на перезарядке.
+func throw_grenade() -> bool:
+	if is_dead or grenade_cd > 0.0 or _gren_t >= 0.0:
+		return false
+	grenade_cd = GRENADE_COOLDOWN
+	_gren_t = 0.0
+	_gren_from = position
+	_gren_to = grenade_target()
+	return true
+
+
+## Куда полетит граната.
+func grenade_dir() -> Vector2:
+	if _moving or aim_dir == Vector2.ZERO:
+		return facing
+	return aim_dir
+
+
+## Точка, куда упадёт граната, брошенная сейчас.
+func grenade_target() -> Vector2:
+	return (position + grenade_dir() * GRENADE_DISTANCE).clamp(arena.position + Vector2.ONE * 8.0, arena.end - Vector2.ONE * 8.0)
+
+
+func _update_grenade(delta: float) -> void:
+	if _gren_t < 0.0:
+		return
+	_gren_t += delta
+	if _gren_t >= GRENADE_TIME:
+		_gren_t = -1.0
+		grenade_landed.emit(_gren_to)
+	queue_redraw()
+
+
+## Граната в полёте: тень на полу, спрайт приподнят дугой и вращается, метка радиуса.
+func _draw() -> void:
+	if _gren_t < 0.0:
+		return
+	var k := _gren_t / GRENADE_TIME
+	var ground := to_local(_gren_from.lerp(_gren_to, k))
+	var lift := sin(k * PI) * GRENADE_ARC
+	draw_arc(to_local(_gren_to), GRENADE_RADIUS, 0.0, TAU, 32, Color(1.0, 0.45, 0.2, 0.18 + 0.2 * k), 1.0)
+	PixelArt.draw_dot(self, ground, 2.6 - lift * 0.05, Color(0, 0, 0, 0.4))
+	var sc := PixelArt.ART_SCALE * 2.0
+	var air := ground + Vector2(0.0, -lift - 2.0)
+	PixelArt.draw_dot(self, air, 4.0, Color(1.0, 0.55, 0.2, 0.25 + 0.25 * k)) # подсветка: на крови олива не видна
+	draw_set_transform(air, k * TAU * 3.0, Vector2(sc, sc))
+	draw_texture(_gren_tex, -_gren_tex.get_size() * 0.5)
+	draw_set_transform(Vector2.ZERO)

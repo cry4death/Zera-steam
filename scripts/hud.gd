@@ -11,6 +11,7 @@ const PANEL_W := 118.0
 
 var show_debug := true
 var _ui := 2.0
+var _grenade_icon: Texture2D
 
 @onready var game = owner # скрипт game.gd корневой сцены
 
@@ -47,7 +48,8 @@ func _draw() -> void:
 	var dash_ready := 1.0 - player.dash_cd / player.dash_cooldown
 	_bar(Rect2(8, 19, 40, 3), dash_ready, Color(0.4, 0.75, 1.0) if dash_ready >= 1.0 else Color(0.3, 0.45, 0.6))
 	_text(font, Vector2(8, 34), "УР. %d" % prog.level, XP_COLOR, 11)
-	_text(font, Vector2(52, 34), "%d кр." % prog.credits, CREDIT_COLOR, 9)
+	_text(font, Vector2(78, 34), "%d кр." % prog.credits, CREDIT_COLOR, 9)
+	_draw_grenade(font, player, Vector2(52, 18))
 
 	# время и убийства
 	var t := int(game.time)
@@ -89,18 +91,36 @@ func _draw() -> void:
 	# комбо и надписи
 	if game.combo >= 5:
 		_text_right(font, Vector2(w - 8, h * 0.5), "×%d" % game.combo, Color(0.95, 0.5, 0.4))
-	if game.announce_t > 0.0:
+	if game.announce_t > 0.0 and not game.level_up.visible:
 		var k: float = game.announce_t / 1.4
 		var fs := int(lerpf(18.0, 26.0, clampf((k - 0.85) / 0.15, 0.0, 1.0))) # «удар» при появлении
 		var col: Color = game.announce_color
 		col.a = clampf(k * 2.0, 0.0, 1.0)
 		var jitter := Vector2(randf_range(-1, 1), randf_range(-1, 1)) * (k * 2.0)
-		_text_centered(font, Vector2(w * 0.5, 70) + jitter, game.announce_text, col, fs)
+		# пока на экране тревога (заголовок, полоса, «ТРЕВОГА ОТБИТА»), анонсы идут ниже неё
+		var ay := 112.0 if game.alarm_overlay.visible else 70.0
+		_text_centered(font, Vector2(w * 0.5, ay) + jitter, game.announce_text, col, fs)
 
 	if game.game_over:
 		draw_rect(Rect2(Vector2.ZERO, Vector2(w, h)), Color(0.25, 0.0, 0.0, 0.45))
 		_text_centered(font, Vector2(w * 0.5, h * 0.5 - 6), "ТЫ ПОГИБ", Color(1.0, 0.85, 0.8), 24)
-		_text_centered(font, Vector2(w * 0.5, h * 0.5 + 16), "продержался %02d:%02d · уровень %d · убито %d · лучшее комбо %d · Enter — заново" % [t / 60, t % 60, prog.level, game.kills, game.best_combo], TEXT)
+		_text_centered(font, Vector2(w * 0.5, h * 0.5 + 16), "продержался %02d:%02d · уровень %d · убито %d · лучшее комбо %d · ящиков: %d" % [t / 60, t % 60, prog.level, game.kills, game.best_combo, game.crates], TEXT)
+		_text_centered(font, Vector2(w * 0.5, h * 0.5 + 30), "Enter — заново", DIM)
+
+
+## Активка «граната»: иконка, затемнение-кулдаун сверху вниз, секунды или клавиша.
+func _draw_grenade(font: Font, player: Player, p: Vector2) -> void:
+	if _grenade_icon == null:
+		_grenade_icon = PixelArt.tex("icon_grenade")
+	var cd := player.grenade_cd / Player.GRENADE_COOLDOWN
+	var r := Rect2(p, _grenade_icon.get_size())
+	draw_rect(r.grow(1.0), Color(0.05, 0.05, 0.05, 0.75))
+	draw_texture(_grenade_icon, p, Color.WHITE if cd <= 0.0 else Color(1, 1, 1, 0.5))
+	if cd > 0.0:
+		draw_rect(Rect2(p, Vector2(r.size.x, r.size.y * cd)), Color(0, 0, 0, 0.6))
+		_text_centered(font, p + Vector2(r.size.x * 0.5, r.size.y * 0.5 + 3.0), "%d" % ceili(player.grenade_cd), TEXT, 8)
+	else:
+		_text(font, p + Vector2(r.size.x + 3.0, r.size.y * 0.5 + 3.0), "G", Color(1.0, 0.8, 0.45), 8)
 
 
 ## Панель ствола: имя и уровень, патроны, модули, магазин или перезарядка.

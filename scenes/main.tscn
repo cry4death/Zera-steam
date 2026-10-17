@@ -1,4 +1,4 @@
-[gd_scene load_steps=21 format=3]
+[gd_scene load_steps=22 format=3]
 
 [ext_resource type="Script" path="res://scripts/game.gd" id="1_game"]
 [ext_resource type="Script" path="res://scripts/ground.gd" id="2_ground"]
@@ -20,6 +20,7 @@
 [ext_resource type="Script" path="res://scripts/hazards.gd" id="18_hazards"]
 [ext_resource type="Script" path="res://scripts/alarm_overlay.gd" id="19_alarm_overlay"]
 [ext_resource type="Script" path="res://scripts/blood_alarm.gd" id="20_blood_alarm"]
+[ext_resource type="Script" path="res://scripts/pickups.gd" id="21_pickups"]
 
 [node name="Main" type="Node2D"]
 script = ExtResource("1_game")
@@ -45,6 +46,9 @@ script = ExtResource("13_gems")
 script = ExtResource("13_gems")
 art = "credit"
 glow = Color(1, 0.8, 0.3, 1)
+
+[node name="Pickups" type="Node2D" parent="World"]
+script = ExtResource("21_pickups")
 
 [node name="Effects" type="Node2D" parent="World"]
 script = ExtResource("3_effects")
