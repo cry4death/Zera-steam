@@ -75,6 +75,10 @@ func _ready() -> void:
 	rng.randomize()
 	reset()
 	var args := OS.get_cmdline_user_args()
+	# База тестируется только в памяти, даже если одновременно передан --save-file.
+	if args.has("--base-test"):
+		persist = false
+		return
 	var custom := ""
 	for a in args:
 		if a.begins_with("--save-file="):

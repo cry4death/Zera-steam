@@ -16,6 +16,7 @@ extends Node2D
 ## в конце — худший кадр. С --no-fire зомби не убиваются (пик 500 живых).
 
 const ARENA := Rect2(0, 0, 2560, 1440)
+const BaseScreen := preload("res://scripts/base.gd")
 const BENCH_TARGET := 500
 var _bench_target := BENCH_TARGET
 const BENCH_WARMUP := 3.0
@@ -246,6 +247,7 @@ func _ready() -> void:
 		sfx.play("explosions/grenade", at, 1.0, 0.02))
 	boss.died.connect(_on_boss_died)
 	results.restart_requested.connect(_restart_run)
+	results.base_requested.connect(_return_to_base)
 	_boss_crate_tex = PixelArt.tex("military_crate")
 	_boss_reward = Node2D.new()
 	_boss_reward.z_index = 10
@@ -288,6 +290,10 @@ func _ready() -> void:
 		spawner.enabled = false
 		gems.collected.disconnect(progression.add_xp)
 		_run_meta_test.call_deferred()
+	if OS.get_cmdline_user_args().has("--base-test"):
+		spawner.enabled = false
+		player.god_mode = true
+		_run_base_test.call_deferred()
 	if _weapons_test:
 		weapons.process_mode = Node.PROCESS_MODE_DISABLED
 		_run_weapons_test.call_deferred()
@@ -1080,7 +1086,55 @@ func _open_results(victory: bool) -> void:
 func _restart_run() -> void:
 	Engine.time_scale = 1.0
 	get_tree().paused = false
-	get_tree().reload_current_scene()
+	get_tree().change_scene_to_file.call_deferred("res://scenes/main.tscn")
+
+
+func _return_to_base() -> void:
+	Engine.time_scale = 1.0
+	get_tree().paused = false
+	# Возврат из тестового боя тоже показывает базу, не повторяя маршрутизацию CLI.
+	get_tree().set_meta("s6_return_to_base", true)
+	get_tree().change_scene_to_file.call_deferred("res://scenes/base.tscn")
+
+
+## Проверяет обе кнопки итогов на настоящих переходах сцен и состояние Meta между ними.
+func _run_base_test() -> void:
+	await get_tree().create_timer(0.4).timeout
+	BaseScreen._check("battle favorite+workshop applied", weapons.slots[0].model == "m4" and is_equal_approx(float(weapons.slots[0].stats["damage"]), 8.0 * 1.10 * 1.08))
+	if BaseScreen._test_stage == 1:
+		time = 60.0
+		kills = 100
+		await _on_player_died()
+		await get_tree().create_timer(1.8, true).timeout
+		await _boss_screenshot("base_defeat")
+		BaseScreen._check("defeat rewards once+paused", Meta.runs == 1 and get_tree().paused)
+		BaseScreen._test_stage = 2
+		var again := InputEventKey.new()
+		again.keycode = KEY_R
+		again.physical_keycode = KEY_R
+		again.pressed = true
+		Input.parse_input_event(again)
+		again = again.duplicate()
+		again.pressed = false
+		Input.parse_input_event(again)
+	else:
+		BaseScreen._check("restart main scene+meta kept", Meta.runs == 1 and not game_over and not get_tree().paused)
+		time = 120.0
+		kills = 200
+		crates = 2
+		military_crates = 1
+		_open_results(true)
+		await get_tree().create_timer(1.8, true).timeout
+		await _boss_screenshot("base_results")
+		BaseScreen._check("victory rewards once+paused", Meta.runs == 2 and get_tree().paused)
+		var home := InputEventMouseButton.new()
+		home.position = results._base_button.get_center() * results._ui
+		home.button_index = MOUSE_BUTTON_LEFT
+		home.pressed = true
+		Input.parse_input_event(home)
+		home = home.duplicate()
+		home.pressed = false
+		Input.parse_input_event(home)
 
 
 func _draw_boss_reward() -> void:

@@ -1,0 +1,17 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+D3D12 12_0 - Forward+ - Using Device #0: AMD - AMD Radeon(TM) Graphics
+
+S3TEST direction standing=true moving=true dashing=true
+S3TEST throw ok=true cd=8.0 target=(1380.0, 720.0)
+S3TEST throw again (должно быть false): false
+S3TEST grenade alive_before=29 alive_after=5 killed=24 gibs=24 nades=1
+S3TEST frozen_grenade_gibs=true
+S3TEST medkit hp=85 items_left=3
+S3TEST crate crates=1 announce=ОРУЖЕЙНЫЙ ЯЩИК items_left=2
+S3TEST part loot_open=true paused=true cards=2
+S3TEST part chosen paused=false
+S3TEST container crates=2 loot_open=true cards=3
+S3TEST done paused=false items_left=0
+S3TEST lifetime ordinary_expired=true container_kept=true
+ERROR: Failed to read the root certificate store.
+   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2582)
