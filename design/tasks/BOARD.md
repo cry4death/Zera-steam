@@ -106,4 +106,4 @@ C1 модель мира + commit (Codex high) ──┬──► C2 опера�
 |---|---|---|---|---|---|
 | [C1](C/C1_campaign_model.md) | Codex | high | регионы, заражение, операции, сохранение v3, единый commit, симуляция | — | ПРИНЯТО ([ревью](reviews/C1.md)), в main |
 | [C2](C/C2_mission_config.md) | Codex/Sonnet | high | угроза I–V и модификаторы в бою, исход | C1 ✅ | в работе (Codex high) |
-| [C3](C/C3_globe_screen.md) | Codex/Sonnet | high | вкладка «Операции»: глобус, брифинг, сводка последствий | C1 ✅ | в работе (Codex high) |
+| [C3](C/C3_globe_screen.md) | Codex/Sonnet | high | вкладка «Операции»: глобус, брифинг, сводка последствий | C1 ✅ | ПРИНЯТО ([ревью](reviews/C3.md)), в main |
