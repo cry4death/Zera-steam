@@ -79,6 +79,13 @@ func _ready() -> void:
 	aim_mouse_position = get_viewport().get_mouse_position()
 	apply_bonuses(Meta.run_bonuses())
 	var sheet := PixelArt.tex("player")
+	# Убираем запечённый кончик старого автомата: модели теперь рисует Weapons.
+	# Чистим каждый кадр один раз, сохраняя каску, рукава и стадии крови.
+	var image := sheet.get_image()
+	for y in 4:
+		for x in PixelArt.ANIM_FRAMES:
+			image.fill_rect(Rect2i(x * 48 + 34, y * 48 + 25, 14, 8), Color.TRANSPARENT)
+	sheet = ImageTexture.create_from_image(image)
 	for d in DIRT_STAGES.size():
 		for a in PixelArt.ANIM_FRAMES:
 			_frames.append(PixelArt.frame(sheet, a, d))

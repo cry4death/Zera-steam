@@ -132,7 +132,8 @@ func casing(origin: Vector2, dir: Vector2, kind := "brass_small") -> void:
 	var i := _cn
 	_cn += 1
 	var mag := k >= 3
-	_cp[i] = origin
+	# origin — видимая точка окна выброса, высота полёта вычитается при рисовании.
+	_cp[i] = origin + Vector2(0, 5.0)
 	_cv[i] = (-dir.orthogonal()).rotated(randf_range(-0.35, 0.35)) * randf_range(28.0, 55.0) - dir * 12.0
 	if mag:
 		_cv[i] *= 0.25
