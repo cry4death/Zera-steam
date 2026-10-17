@@ -475,7 +475,7 @@ func _unlock_selected() -> void:
 		_confirm_node = id
 		_click_sound()
 	elif Meta.skill_points() <= 0:
-		_toast("Нет очков навыков: растёт уровень класса от ДНК за забеги")
+		_toast("Нет очков подготовки: сдавайте образцы с операций")
 	else:
 		_toast("Узлы открываются по порядку внутри ветки")
 
@@ -522,7 +522,7 @@ func _favorite_selected() -> void:
 func _open_selected() -> void:
 	var count := Meta.military_crates if _crate_sel == 1 else Meta.crates
 	if count <= 0:
-		_toast("Таких ящиков нет: падают с элиток, контейнеров тревоги и босса")
+		_toast("Таких ящиков нет: трофеи с элиток, сбросы снабжения, награда за объект")
 		return
 	_begin_sequence(false)
 	_start_open(_crate_sel == 1)
@@ -936,7 +936,7 @@ func _draw_top(font: Font) -> void:
 	var hi := Meta.dna_for_level(level + 1)
 	var frac := clampf(float(Meta.dna_earned - lo) / maxf(float(hi - lo), 1.0), 0.0, 1.0)
 	_text(font, Vector2(8, 27), "УР. %d" % level, GOLD, 15)
-	_text(font, Vector2(56, 13), "ШТУРМОВИК", MUTED, 8)
+	_text(font, Vector2(56, 13), "ФОРПОСТ Z.E.R.A.", MUTED, 8)
 	draw_rect(Rect2(56, 17, 132, 6), Color(0.14, 0.12, 0.1))
 	draw_rect(Rect2(56, 17, 132.0 * frac, 6), Color(GOLD, 0.85))
 	draw_rect(Rect2(56, 17, 132, 6), Color(GOLD, 0.4), false, 1.0)
@@ -947,11 +947,11 @@ func _draw_top(font: Font) -> void:
 	_text(font, Vector2(206, 13), "ОЧКИ НАВЫКОВ", MUTED, 7)
 	_text(font, Vector2(206, 31), str(points), pc, 16)
 	if points > 0:
-		_text(font, Vector2(226, 31), "к тратам", Color(pc, 0.8), 7)
+		_text(font, Vector2(226, 31), "доступно", Color(pc, 0.8), 7)
 	# ДНК
 	var shown := Meta.dna - _pending_dna
 	_dna_icon(Vector2(300, 20), 16.0, GOLD)
-	_text(font, Vector2(312, 13), "ДНК", MUTED, 7)
+	_text(font, Vector2(312, 13), "ОБРАЗЦЫ (ДНК)", MUTED, 7)
 	_text(font, Vector2(312, 31), _num(shown), GOLD, 16)
 	# ящики
 	_draw_crate_chip(font, 0, Vector2(440, 6), Meta.crates, "ЯЩИКИ")
@@ -1293,7 +1293,7 @@ func _draw_arsenal(font: Font) -> void:
 	else:
 		_text(font, Vector2(452, y), "ЗАКРЫТАЯ МОДЕЛЬ", MUTED, 11)
 		y += 12
-		for line in _wrap(font, "Выпадает из оружейных ящиков: обычные — из забега и тревоги, военные — с босса. Дубликат даёт ДНК.", 172.0, 8):
+		for line in _wrap(font, "Выдаётся из ящиков: обычные — с операций и сбросов, военные — за объект. Дубликат сдаётся за образцы.", 172.0, 8):
 			y += 9.5
 			_text(font, Vector2(452, y), line, DIM, 8)
 		y += 13
@@ -1347,16 +1347,16 @@ func _draw_crates(font: Font) -> void:
 	_button(font, Rect2(160, 206, 148, 24), "ВСКРЫТЬ ВСЕ (%d) [R]" % total, GOLD, "call:0", total > 0, 9)
 	# справка
 	var y := 244.0
-	for line in ["Ящики падают с элиток, из кровавых контейнеров и с босса.",
+	for line in ["Ящики: трофеи с элиток, сбросы снабжения, награда за объект.",
 			"Новая модель навсегда попадает в Арсенал, дубликат",
-			"превращается в ДНК: обычная 40, редкая 100."]:
+			"сдаётся за образцы (ДНК): обычная 40, редкая 100."]:
 		_text(font, Vector2(10, y), line, MUTED, 8)
 		y += 11
 	# журнал вскрытий этого визита
 	var log_r := Rect2(316, 64, 316, 238)
 	draw_rect(log_r, PANEL)
 	draw_rect(log_r, Color(GOLD, 0.25), false, 1.0)
-	_text(font, Vector2(324, 77), "НАЙДЕНО НА ЭТОЙ БАЗЕ", GOLD, 9)
+	_text(font, Vector2(324, 77), "ЖУРНАЛ ПОСТАВОК", GOLD, 9)
 	if _history.is_empty():
 		_text(font, Vector2(324, 100), "Пока ничего не вскрыто.", DIM, 9)
 		_text(font, Vector2(324, 113), "Выбери ящик слева и нажми «ВСКРЫТЬ».", DIM, 8)

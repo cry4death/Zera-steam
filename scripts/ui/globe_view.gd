@@ -268,6 +268,131 @@ func matches_filter(info: Dictionary) -> bool:
 	return true
 
 
+
+## Сначала резервируем все значки, затем подписи: выбранная, операции, остальные.
+func _layout_labels() -> void:
+	_hits.clear()
+	var k := size.y / 238.0
+	var occupied: Array[Rect2] = []
+	for info: Dictionary in _regions:
+		if not matches_filter(info):
+			continue
+		var at := project_region(info["id"])
+		if not at.is_finite():
+			continue
+		var number := ""
+		for i in _offers.size():
+			if _offers[i]["region_id"] == info["id"]:
+				if filter == 2 and int(_offers[i]["threat"]) > 2 or filter == 3 and _offers[i]["type"] != "nest":
+					continue
+				number += ("/" if not number.is_empty() else "") + str(i + 1)
+		_hits.append({"id": info["id"], "point": at, "rect": Rect2(), "label": "",
+			"stage": info["stage"], "number": number, "priority": 0 if selected == info["id"] else (1 if number != "" else 2)})
+		occupied.append(Rect2(at - Vector2.ONE * 10 * k, Vector2.ONE * 20 * k))
+	_hits.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["priority"]) < int(b["priority"]))
+	var font := ThemeDB.fallback_font
+	var fs := maxi(1, roundi(7 * k))
+	var bounds := Rect2(Vector2.ONE * 3 * k, size - Vector2(6, 20) * k)
+	var icons: Array[Rect2] = occupied.duplicate()
+	var labels: Array[Rect2] = []
+	var leaders: Array[PackedVector2Array] = []
+	for hit: Dictionary in _hits:
+		var name_text: String = CampaignCatalog.REGIONS[hit["id"]]["name"]
+		var prefix := "[" + str(hit["number"]) + "] " if hit["number"] != "" else ""
+		var normal := (Vector2(hit["point"]) - size * 0.5).normalized()
+		if normal.length_squared() < 0.01:
+			normal = Vector2.RIGHT
+		# Короткое имя — запасной вариант, без потери номера операции.
+		var short_name := name_text.replace("Северная", "Сев.").replace("Восточная", "Вост.").replace("Западная", "Зап.").replace("Ближний", "Бл.").replace("Южная", "Юж.")
+		var variants: Array[String] = [prefix + name_text, prefix + short_name]
+		# Сначала ищем место с чистой выноской (не режет чужие подписи и значки),
+		# и только если его нет — любое свободное место.
+		for strict: bool in [true, false]:
+			for label: String in variants:
+				var extent := Vector2(font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 6 * k, 12 * k)
+				var rect := _find_slot(hit, normal, extent, bounds, k, strict, occupied, icons, labels, leaders)
+				if rect.has_area():
+					_commit_label(hit, label, rect, k, occupied, labels, leaders)
+					break
+			if not str(hit["label"]).is_empty():
+				break
+
+		# У горизонта нормаль может вести за край: приоритетной подписи ищем
+		# ближайшее свободное место внутри дисплея. Обычную допустимо скрыть.
+		if str(hit["label"]).is_empty() and hit["priority"] < 2:
+			var label := prefix + short_name
+			var extent := Vector2(font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 6 * k, 12 * k)
+			for strict: bool in [true, false]:
+				var best := INF
+				var fallback := Rect2()
+				for row in maxi(0, floori((bounds.size.y - extent.y) / (14 * k)) + 1):
+					for column in maxi(0, floori((bounds.size.x - extent.x) / (8 * k)) + 1):
+						var rect := Rect2(bounds.position + Vector2(column * 8, row * 14) * k, extent)
+						var distance := rect.get_center().distance_squared_to(hit["point"])
+						if distance < best and _slot_free(hit, rect, k, strict, occupied, icons, labels, leaders):
+							best = distance
+							fallback = rect
+				if fallback.has_area():
+					_commit_label(hit, label, fallback, k, occupied, labels, leaders)
+					break
+
+
+## Первое свободное место подписи: по нормали от центра шара, со сдвигом вдоль касательной.
+func _find_slot(hit: Dictionary, normal: Vector2, extent: Vector2, bounds: Rect2, k: float, strict: bool,
+		occupied: Array[Rect2], icons: Array[Rect2], labels: Array[Rect2], leaders: Array[PackedVector2Array]) -> Rect2:
+	var tangent := normal.orthogonal()
+	for distance in [16, 30, 46, 64, 86]:
+		for slide in [0, -1, 1, -2, 2, -3, 3]:
+			var anchor := Vector2(hit["point"]) + normal * float(distance) * k + tangent * float(slide) * 14 * k
+			var offset := Vector2(extent.x if normal.x < -0.15 else (0.0 if normal.x > 0.15 else extent.x * 0.5), extent.y * 0.5)
+			var rect := Rect2(anchor - offset, extent)
+			if bounds.encloses(rect) and _slot_free(hit, rect, k, strict, occupied, icons, labels, leaders):
+				return rect
+	return Rect2()
+
+
+## Прямоугольник свободен; в строгом режиме ещё и выноска не пересекает чужие подписи, значки и выноски.
+func _slot_free(hit: Dictionary, rect: Rect2, k: float, strict: bool,
+		occupied: Array[Rect2], icons: Array[Rect2], labels: Array[Rect2], leaders: Array[PackedVector2Array]) -> bool:
+	var grown := rect.grow(k)
+	for other: Rect2 in occupied:
+		if grown.intersects(other):
+			return false
+	if not strict:
+		return true
+	var from: Vector2 = hit["point"]
+	var to := from.clamp(rect.position, rect.end)
+	for other: Rect2 in labels:
+		if _segment_hits_rect(from, to, other):
+			return false
+	for other: Rect2 in icons:
+		if not other.has_point(from) and _segment_hits_rect(from, to, other):
+			return false
+	for leader: PackedVector2Array in leaders:
+		if _segment_hits_rect(leader[0], leader[1], rect):
+			return false
+	return true
+
+
+func _commit_label(hit: Dictionary, label: String, rect: Rect2, k: float,
+		occupied: Array[Rect2], labels: Array[Rect2], leaders: Array[PackedVector2Array]) -> void:
+	hit["rect"] = rect
+	hit["label"] = label
+	occupied.append(rect.grow(k))
+	labels.append(rect)
+	leaders.append(PackedVector2Array([Vector2(hit["point"]), Vector2(hit["point"]).clamp(rect.position, rect.end)]))
+
+
+static func _segment_hits_rect(a: Vector2, b: Vector2, r: Rect2) -> bool:
+	if r.has_point(a) or r.has_point(b):
+		return true
+	var c := [r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)]
+	for i in 4:
+		if Geometry2D.segment_intersects_segment(a, b, c[i], c[(i + 1) % 4]) != null:
+			return true
+	return false
+
+
 func _draw() -> void:
 	if not active or size.x < 2.0 or size.y < 2.0:
 		return
@@ -280,8 +405,7 @@ func _draw() -> void:
 	for i in 4:
 		var direction := Vector2.from_angle(i * PI * 0.5)
 		draw_line(center + direction * (radius + 8 * k), center + direction * (radius + 15 * k), Color("71877c"), k)
-	_hits.clear()
-	var occupied: Array[Rect2] = []
+	_layout_labels()
 	for info: Dictionary in _regions:
 		if not matches_filter(info):
 			continue
@@ -327,26 +451,16 @@ func _draw() -> void:
 			draw_line(at + Vector2(0, -2 * k), at + Vector2(0, 2 * k), c, 2 * k)
 		if chosen or (_flash > 0.0 and _changed.has(info["id"])):
 			draw_arc(at, 8 * k, 0.0, TAU, 24, Color(0.95, 0.85, 0.57, 0.8), k, true)
-		var label := ("[" + number + "] " if number != "" else "") + str(info["name"])
-		var font := ThemeDB.fallback_font
-		var fs := roundi(7 * k)
-		var width := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-		var rect := Rect2(at + Vector2(8 * k, -6 * k), Vector2(width + 6 * k, 12 * k))
-		rect.position.x = clampf(rect.position.x, 3 * k, size.x - rect.size.x - 3 * k)
-		for attempt in 8:
-			var overlap := false
-			for other: Rect2 in occupied:
-				if rect.intersects(other):
-					overlap = true
-					break
-			if not overlap:
-				break
-			rect.position.y += 13 * k
-		occupied.append(rect)
-		draw_line(at, rect.get_center(), Color(c, 0.55), k)
+	for hit: Dictionary in _hits:
+		if str(hit["label"]).is_empty():
+			continue
+		var rect: Rect2 = hit["rect"]
+		var at: Vector2 = hit["point"]
+		var c: Color = COLORS[int(hit["stage"])]
+		var edge := at.clamp(rect.position, rect.end)
+		draw_line(at, edge, Color(c, 0.55), k)
 		draw_rect(rect, Color(0.025, 0.04, 0.04, 0.93))
-		draw_string(font, rect.position + Vector2(3 * k, 9 * k), label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color.WHITE if chosen or number != "" else c)
-		_hits.append({"id": info["id"], "rect": rect, "point": at})
+		draw_string(ThemeDB.fallback_font, rect.position + Vector2(3 * k, 9 * k), hit["label"], HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(7 * k), Color.WHITE if hit["priority"] < 2 else c)
 	if _flash > 0.0:
 		draw_string(ThemeDB.fallback_font, Vector2(8, size.y - 6 * k), "ФРОНТ ОБНОВЛЁН · Esc / B — пропустить", HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(7 * k), Color("e4ce87"))
 
@@ -376,6 +490,55 @@ static func run_test(base: Control, path: String) -> void:
 	var globe: GlobeView = base.get("_globe")
 	_check_test(state, "viewport_active", globe.active and globe.viewport.render_target_update_mode == SubViewport.UPDATE_ALWAYS)
 	_check_test(state, "eight_zones_three_offers", globe._regions.size() == 8 and globe._offers.size() == 3)
+	# Плотный перебор проекций, фильтров, масштабов и размеров дисплея.
+	var pose := Vector3(globe.yaw, globe.pitch, globe.zoom)
+	var original_size := globe.size
+	var labels_clear := true
+	var priority_visible := true
+	var crossings := 0 # выноска режет чужую подпись (допустимо только когда чистого места нет)
+	var cases := 0
+	for display_size: Vector2 in [Vector2(238, 238), Vector2(714, 714), Vector2(580, 400)]:
+		globe.size = display_size
+		for test_zoom in [2.25, 2.65, 3.5]:
+			globe.zoom = test_zoom
+			for test_pitch in [-1.4, 0.0, 1.4]:
+				globe.pitch = test_pitch
+				for turn in 24:
+					globe.yaw = turn * TAU / 24.0
+					globe.selected = CampaignCatalog.REGIONS.keys()[turn % 8]
+					globe._update_pose()
+					for test_filter in 4:
+						globe.filter = test_filter
+						globe._layout_labels()
+						cases += 1
+						var k := globe.size.y / 238.0
+						for hit: Dictionary in globe._hits:
+							var rect: Rect2 = hit["rect"]
+							if hit["priority"] < 2 and str(hit["label"]).is_empty():
+								priority_visible = false
+							if not rect.has_area():
+								continue
+							labels_clear = labels_clear and Rect2(Vector2.ZERO, globe.size).encloses(rect)
+							for other: Dictionary in globe._hits:
+								labels_clear = labels_clear and not rect.intersects(Rect2(Vector2(other["point"]) - Vector2.ONE * 9 * k, Vector2.ONE * 18 * k))
+								if other != hit and Rect2(other["rect"]).has_area():
+									labels_clear = labels_clear and not rect.intersects(other["rect"])
+									if _segment_hits_rect(hit["point"], Vector2(hit["point"]).clamp(rect.position, rect.end), other["rect"]):
+										crossings += 1
+	print("GLOBETEST label_projection_cases=%d leader_crossings=%d" % [cases, crossings])
+	_check_test(state, "labels_no_overlap_or_clipping", labels_clear)
+	_check_test(state, "selected_and_operation_labels_visible", priority_visible)
+	globe.size = original_size
+	globe.zoom = pose.z
+	globe.filter = 0
+	for id: String in ["east_europe", "east_asia", "north_america"]:
+		base.call("_select_region", id)
+		globe.skip_motion()
+		await tree.process_frame
+		await _test_shot(tree, path, id)
+	base.call("_select_region", "east_europe")
+	globe.skip_motion()
+
 	var before := Campaign.world()
 	await _test_shot(tree, path, "globe")
 	base.call("_select_operation", 2)
@@ -522,6 +685,18 @@ static func run_test(base: Control, path: String) -> void:
 	await tree.create_timer(0.8).timeout
 	var game := tree.current_scene
 	_check_test(state, "battle_config_and_globe_unloaded", game.scene_file_path == "res://scenes/main.tscn" and not Dictionary(game.get("mission_config")).is_empty() and game.find_children("GlobeView", "", true, false).is_empty())
+	var dispatch: Dictionary = game.get_script().get_script_constant_map()["DISPATCH"]
+	var radio_ok := true
+	for event: String in dispatch:
+		var variants: Array = dispatch[event]
+		radio_ok = radio_ok and variants.size() >= 2 and variants.size() <= 3
+		for line: String in variants:
+			radio_ok = radio_ok and not line.contains("\n") and ThemeDB.fallback_font.get_string_size("ДИСПЕТЧЕР: " + line, HORIZONTAL_ALIGNMENT_LEFT, -1, 26).x <= 608.0
+		var first := str(game.call("_dispatch_line", event))
+		var second := str(game.call("_dispatch_line", event))
+		radio_ok = radio_ok and first != second
+	_check_test(state, "dispatcher_variants_fit_one_line", radio_ok)
+
 	game.set("time", 640.0)
 	game.set("kills", 3100)
 	game.set("game_over", true)
@@ -541,6 +716,19 @@ static func run_test(base: Control, path: String) -> void:
 	_check_test(state, "results_reopen_idempotent", Meta.dna == dna0 and Meta.runs == 1 and int(Campaign.world()["turn"]) == 1)
 	results._retry_save()
 	_check_test(state, "save_retry_clears_warning", results._report["save_error"] == "" and Meta.runs == 1)
+	_check_test(state, "reward_factors_separate", results.multiplier_text().contains("победа") and results.multiplier_text().contains("операция") and not results.multiplier_text().contains("2.1 победа"))
+
+	var receipt := RunResults.new()
+	receipt._report = {"run_id": "test"}
+	receipt._stats = {"victory": true, "dna_mult": 2.1, "reward": {"dna_mul": 1.4}}
+	_check_test(state, "reward_factors_exact", receipt.multiplier_text() == "× 1.5 победа · × 1.4 операция")
+	receipt._stats = {"victory": false, "dna_mult": 1.0, "reward": {"dna_mul": 1.4}}
+	_check_test(state, "defeat_no_operation_bonus", receipt.multiplier_text().is_empty())
+	receipt._report = {}
+	receipt._stats = {"victory": true, "dna_mult": 1.5}
+	_check_test(state, "free_victory_factor", receipt.multiplier_text() == "× 1.5 победа")
+	receipt.free()
+
 	await _test_shot(tree, path, "results")
 	results._activate(false)
 	await tree.create_timer(0.7).timeout
