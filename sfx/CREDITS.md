@@ -12,6 +12,10 @@ A3: model voices (m4, shkval, guard, cowboy, osa, winchester) use Prepared near 
 
 W2: all mechanics use a second-order Butterworth high-pass at 80 Hz. Burst tails use attack-free near reflections, 35 ms smooth entry, 160 ms fade out; A1 files unchanged.
 
+A4: [Zombies Sound Pack](https://opengameart.org/content/zombies-sound-pack) — artisticdude, CC0 1.0 (24 recordings).
+[Monster Sound Pack, Volume 1](https://opengameart.org/content/monster-sound-pack-volume-1) — Ogrebane, CC0 1.0 (18 recordings; archive folder Monster-Sounds-Volume-2).
+A4 voice edits, gore/player synthesis and UI edits are dedicated to CC0 1.0. Original voice packs: 24-bit stereo 44.1 kHz; export: PCM16 mono 48 kHz, including ambience. Loops use forward playback; ambience has 100 ms overlap, heartbeat 50 ms.
+
 | Output file | Source / synthesis | Take; original crop; pitch |
 |---|---|---|
 | `weapons/pistol/shot_0.wav` | 1911/A_42P.wav | take 1; 0.939937–1.589938 s; ×1.0 |
@@ -211,3 +215,96 @@ W2: all mechanics use a second-order Butterworth high-pass at 80 Hz. Burst tails
 | `weapons/hive/stick_2.wav` | synthesis: wet slap, 170 Hz thud, squelch, three rising bubble pops | seed 109731 |
 | `weapons/hive/shot_3.wav` | weapons/shotgun/shot_3.wav pitch x0.636 (launcher recipe) + synthesized wet pops | seed 110732 |
 | `weapons/hive/stick_3.wav` | synthesis: wet slap, 170 Hz thud, squelch, three rising bubble pops | seed 109732 |
+| `zombies/groan_0.wav` | zombies/zombie-1.wav | ×1.0 |
+| `zombies/groan_1.wav` | zombies/zombie-2.wav | ×0.95 |
+| `zombies/groan_2.wav` | zombies/zombie-3.wav | ×1.06 |
+| `zombies/groan_3.wav` | zombies/zombie-7.wav | ×0.92 |
+| `zombies/groan_4.wav` | zombies/zombie-8.wav | ×1.0 |
+| `zombies/groan_5.wav` | zombies/zombie-14.wav | ×1.09 |
+| `zombies/groan_6.wav` | zombies/zombie-15.wav | ×0.9 |
+| `zombies/groan_7.wav` | zombies/zombie-18.wav | ×1.03 |
+| `zombies/groan_8.wav` | zombies/zombie-20.wav | ×0.96 |
+| `zombies/groan_9.wav` | zombies/zombie-21.wav | ×1.07 |
+| `zombies/groan_10.wav` | zombies/zombie-22.wav | ×0.87 |
+| `zombies/groan_11.wav` | zombies/zombie-23.wav | ×1.12 |
+| `zombies/groan_12.wav` | zombies/zombie-4.wav | ×0.8 |
+| `zombies/groan_13.wav` | zombies/zombie-17.wav | ×1.18 |
+| `zombies/attack_0.wav` | zombies/zombie-24.wav | seed 134829 |
+| `zombies/attack_1.wav` | zombies/zombie-5.wav | seed 134830 |
+| `zombies/attack_2.wav` | zombies/zombie-11.wav | seed 134831 |
+| `zombies/attack_3.wav` | zombies/zombie-13.wav + synthesized bite | seed 134832 |
+| `zombies/attack_4.wav` | monsters/Monster-Sounds-Volume-2/Monster-5.wav + synthesized bite | seed 134833 |
+| `zombies/attack_5.wav` | monsters/Monster-Sounds-Volume-2/Monster-7.wav + synthesized bite | seed 134834 |
+| `zombies/death_0.wav` | zombies/zombie-12.wav (pitch glide down) + drips | seed 134929 |
+| `zombies/death_1.wav` | zombies/zombie-19.wav (pitch glide down) + drips | seed 134930 |
+| `zombies/death_2.wav` | zombies/zombie-9.wav (pitch glide down) + drips | seed 134931 |
+| `zombies/death_3.wav` | zombies/zombie-10.wav (pitch glide down) + drips | seed 134932 |
+| `zombies/death_4.wav` | zombies/zombie-6.wav (pitch glide down) + drips | seed 134933 |
+| `zombies/death_5.wav` | monsters/Monster-Sounds-Volume-2/Monster-1.wav (pitch glide down) + drips | seed 134934 |
+| `zombies/death_6.wav` | monsters/Monster-Sounds-Volume-2/Monster-2.wav (pitch glide down) + drips | seed 134935 |
+| `zombies/death_7.wav` | monsters/Monster-Sounds-Volume-2/Monster-3.wav (pitch glide down) + drips | seed 134936 |
+| `zombies/runner_0.wav` | monsters/Monster-Sounds-Volume-2/Monster-4.wav (pitch up, saturation, tremolo) | seed 135029 |
+| `zombies/runner_1.wav` | monsters/Monster-Sounds-Volume-2/Monster-6.wav (pitch up, saturation, tremolo) | seed 135030 |
+| `zombies/runner_2.wav` | monsters/Monster-Sounds-Volume-2/Monster-7.wav (pitch up, saturation, tremolo) | seed 135031 |
+| `zombies/runner_3.wav` | monsters/Monster-Sounds-Volume-2/Monster-8.wav (pitch up, saturation, tremolo) | seed 135032 |
+| `zombies/runner_4.wav` | monsters/Monster-Sounds-Volume-2/monster-16.wav (pitch up, saturation, tremolo) | seed 135033 |
+| `zombies/runner_5.wav` | monsters/Monster-Sounds-Volume-2/monster-18.wav (pitch up, saturation, tremolo) | seed 135034 |
+| `zombies/fat_0.wav` | monsters/Monster-Sounds-Volume-2/monster-11.wav (pitch down) + gurgles + sub | seed 135129 |
+| `zombies/fat_1.wav` | monsters/Monster-Sounds-Volume-2/monster-12.wav (pitch down) + gurgles + sub | seed 135130 |
+| `zombies/fat_2.wav` | monsters/Monster-Sounds-Volume-2/monster-13.wav (pitch down) + gurgles + sub | seed 135131 |
+| `zombies/fat_3.wav` | monsters/Monster-Sounds-Volume-2/monster-14.wav (pitch down) + gurgles + sub | seed 135132 |
+| `zombies/fat_4.wav` | monsters/Monster-Sounds-Volume-2/monster-15.wav (pitch down) + gurgles + sub | seed 135133 |
+| `zombies/fat_5.wav` | zombies/zombie-16.wav (pitch down) + gurgles + sub | seed 135134 |
+| `zombies/spit_0.wav` | synthesis: spray, thud, drips + monsters/Monster-Sounds-Volume-2/monster-9.wav fragment | seed 135229 |
+| `zombies/spit_1.wav` | synthesis: spray, thud, drips + monsters/Monster-Sounds-Volume-2/monster-10.wav fragment | seed 135230 |
+| `zombies/spit_2.wav` | synthesis: spray, thud, drips + monsters/Monster-Sounds-Volume-2/monster-17.wav fragment | seed 135231 |
+| `zombies/spit_3.wav` | synthesis: spray, thud, drips + monsters/Monster-Sounds-Volume-2/monster-14.wav fragment | seed 135232 |
+| `zombies/boss_roar_0.wav` | monsters/Monster-Sounds-Volume-2/Monster-2.wav + zombies/zombie-17.wav + monsters/Monster-Sounds-Volume-2/Monster-1.wav (3 layers, pitch x0.5-0.8, saturation, sub 40 Hz) | seed 135329 |
+| `zombies/boss_roar_1.wav` | monsters/Monster-Sounds-Volume-2/Monster-3.wav + zombies/zombie-16.wav + monsters/Monster-Sounds-Volume-2/Monster-7.wav (3 layers, pitch x0.5-0.8, saturation, sub 40 Hz) | seed 135330 |
+| `zombies/boss_roar_2.wav` | monsters/Monster-Sounds-Volume-2/Monster-1.wav + zombies/zombie-18.wav + monsters/Monster-Sounds-Volume-2/Monster-2.wav (3 layers, pitch x0.5-0.8, saturation, sub 40 Hz) | seed 135331 |
+| `gore/hit_0.wav` | synthesis: bandpass flesh slap, 70-125 Hz thud, snap, drips | seed 135729 |
+| `gore/hit_1.wav` | synthesis: bandpass flesh slap, 70-125 Hz thud, snap, drips | seed 135730 |
+| `gore/hit_2.wav` | synthesis: bandpass flesh slap, 70-125 Hz thud, snap, drips | seed 135731 |
+| `gore/hit_3.wav` | synthesis: bandpass flesh slap, 70-125 Hz thud, snap, drips | seed 135732 |
+| `gore/hit_4.wav` | synthesis: bandpass flesh slap, 70-125 Hz thud, snap, drips | seed 135733 |
+| `gore/hit_5.wav` | synthesis: bandpass flesh slap, 70-125 Hz thud, snap, drips | seed 135734 |
+| `gore/hit_6.wav` | synthesis: bandpass flesh slap, 70-125 Hz thud, snap, drips | seed 135735 |
+| `gore/hit_7.wav` | synthesis: bandpass flesh slap, 70-125 Hz thud, snap, drips | seed 135736 |
+| `gore/hit_8.wav` | synthesis: bandpass flesh slap, 70-125 Hz thud, snap, drips | seed 135737 |
+| `gore/hit_9.wav` | synthesis: bandpass flesh slap, 70-125 Hz thud, snap, drips | seed 135738 |
+| `gore/splat_0.wav` | synthesis: slap + sub thud, bubbling gush, chunk slaps, drip tail + monster gurgle fragment (monsters/Monster-Sounds-Volume-2/monster-14.wav) | seed 136729 |
+| `gore/splat_1.wav` | synthesis: slap + sub thud, bubbling gush, chunk slaps, drip tail + monster gurgle fragment (monsters/Monster-Sounds-Volume-2/monster-10.wav) | seed 136730 |
+| `gore/splat_2.wav` | synthesis: slap + sub thud, bubbling gush, chunk slaps, drip tail + monster gurgle fragment (monsters/Monster-Sounds-Volume-2/monster-12.wav) | seed 136731 |
+| `gore/splat_3.wav` | synthesis: slap + sub thud, bubbling gush, chunk slaps, drip tail + monster gurgle fragment (monsters/Monster-Sounds-Volume-2/monster-14.wav) | seed 136732 |
+| `gore/splat_4.wav` | synthesis: slap + sub thud, bubbling gush, chunk slaps, drip tail + monster gurgle fragment (monsters/Monster-Sounds-Volume-2/monster-10.wav) | seed 136733 |
+| `gore/splat_5.wav` | synthesis: slap + sub thud, bubbling gush, chunk slaps, drip tail + monster gurgle fragment (monsters/Monster-Sounds-Volume-2/monster-14.wav) | seed 136734 |
+| `gore/splat_6.wav` | synthesis: slap + sub thud, bubbling gush, chunk slaps, drip tail + monster gurgle fragment (monsters/Monster-Sounds-Volume-2/monster-13.wav) | seed 136735 |
+| `gore/splat_7.wav` | synthesis: slap + sub thud, bubbling gush, chunk slaps, drip tail + monster gurgle fragment (monsters/Monster-Sounds-Volume-2/monster-15.wav) | seed 136736 |
+| `gore/gib_0.wav` | synthesis: wet burst + sub, tearing, bone crack series, chunk slaps 50-300 ms, drips | seed 137729 |
+| `gore/gib_1.wav` | synthesis: wet burst + sub, tearing, bone crack series, chunk slaps 50-300 ms, drips | seed 137730 |
+| `gore/gib_2.wav` | synthesis: wet burst + sub, tearing, bone crack series, chunk slaps 50-300 ms, drips | seed 137731 |
+| `gore/gib_3.wav` | synthesis: wet burst + sub, tearing, bone crack series, chunk slaps 50-300 ms, drips | seed 137732 |
+| `gore/gib_4.wav` | synthesis: wet burst + sub, tearing, bone crack series, chunk slaps 50-300 ms, drips | seed 137733 |
+| `gore/gib_5.wav` | synthesis: wet burst + sub, tearing, bone crack series, chunk slaps 50-300 ms, drips | seed 137734 |
+| `gore/bone_0.wav` | synthesis: stepped crack series (three broad noise resonances), knock | seed 138729 |
+| `gore/bone_1.wav` | synthesis: stepped crack series (three broad noise resonances), knock | seed 138730 |
+| `gore/bone_2.wav` | synthesis: stepped crack series (three broad noise resonances), knock | seed 138731 |
+| `gore/bone_3.wav` | synthesis: stepped crack series (three broad noise resonances), knock | seed 138732 |
+| `gore/bone_4.wav` | synthesis: stepped crack series (three broad noise resonances), knock | seed 138733 |
+| `gore/bone_5.wav` | synthesis: stepped crack series (three broad noise resonances), knock | seed 138734 |
+| `ambience/horde_0.wav` | synthesis: 26 groans of zombies/groan (pitch .7-1.12, distance lowpass, pan) + rumble + murmur + 7 shuffling walkers, mono, circular layers + 100 ms crossfade | seed 141729 |
+| `ambience/horde_1.wav` | synthesis: 76 groans of zombies/groan (pitch .7-1.12, distance lowpass, pan) + rumble + murmur + 22 shuffling walkers, mono, circular layers + 100 ms crossfade | seed 141730 |
+| `player/hurt_0.wav` | synthesis: glottal harmonic source through vowel formants + breath, saturation, body-hit layer | seed 143729 |
+| `player/hurt_1.wav` | synthesis: glottal harmonic source through vowel formants + breath, saturation, body-hit layer | seed 143730 |
+| `player/hurt_2.wav` | synthesis: glottal harmonic source through vowel formants + breath, saturation, body-hit layer | seed 143731 |
+| `player/hurt_3.wav` | synthesis: glottal harmonic source through vowel formants + breath, saturation, body-hit layer | seed 143732 |
+| `player/hurt_4.wav` | synthesis: glottal harmonic source through vowel formants + breath, saturation, body-hit layer | seed 143733 |
+| `player/hurt_5.wav` | synthesis: glottal harmonic source through vowel formants + breath, saturation, body-hit layer | seed 143734 |
+| `player/heartbeat_0.wav` | synthesis: lub-dub, noisy sub thuds + muffled valve click, exactly 1.000 s loop | seed 142729 |
+| `ui/click_0.wav` | weapons/pistol/dry_0.wav x0.96 (A2 mechanics), lowpass 4.5 kHz, soft attack | ×0.96 |
+| `ui/click_1.wav` | weapons/pistol/dry_1.wav x1.06 (A2 mechanics), lowpass 4.5 kHz, soft attack | ×1.06 |
+| `ui/click_2.wav` | weapons/smg/dry_0.wav x1.0 (A2 mechanics), lowpass 4.5 kHz, soft attack | ×1.0 |
+| `ui/confirm_0.wav` | weapons/pistol/dry_1.wav + weapons/smg/dry_0.wav x1.28 (A2 mechanics), two clicks 75 ms apart | ×1.28 |
+| `ui/confirm_1.wav` | weapons/rifle/dry_0.wav + weapons/pistol/dry_0.wav x1.28 (A2 mechanics), two clicks 75 ms apart | ×1.28 |
+| `ui/deny_0.wav` | weapons/revolver/dry_0.wav x0.6 (A2 mechanics), lowpass 1.1 kHz + dull thud, two soft knocks | seed 144229 |
+| `ui/deny_1.wav` | weapons/revolver/dry_0.wav x0.52 (A2 mechanics), lowpass 1.1 kHz + dull thud, two soft knocks | seed 144230 |

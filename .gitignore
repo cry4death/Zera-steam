@@ -6,3 +6,4 @@ __pycache__/
 # служебные файлы Godot в design/ (папка под .gdignore)
 design/**/*.uid
 design/**/*.import
+design/tasks/reports/*.wav

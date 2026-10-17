@@ -704,6 +704,680 @@ def models(builder: Builder) -> None:
     model_synthesis(builder)
 
 
+# ---- A4: орда, gore, игрок, интерфейс -----------------------------------------
+# Источники голосов — два CC0-пака (см. CREDITS.md). Gore и игрок — синтез.
+# Все случайные числа — от независимых seed A4_SEED + <группа>*1000 + <вариант>, поэтому
+# сборка детерминирована, а добавление звука не меняет остальные.
+DEFAULT_ZSRC = Path(r"C:\Users\Dev\Desktop\zera-assets\zombies_cc0\extracted")
+A4_SEED = SEED + 30000
+# Пики, дБFS. Голоса и гул тише gore: gore звучит на каждом попадании, голосов много.
+HORDE_PEAKS = {"groan": -14, "attack": -9, "death": -9, "runner": -10, "fat": -10, "spit": -11,
+               "boss_roar": -3, "hit": -12, "splat": -8, "gib": -5, "bone": -9,
+               "hurt": -6, "heartbeat": -9, "click": -17, "confirm": -14, "deny": -16}
+HORDE_RMS = {"horde_0": -34.0, "horde_1": -26.0}   # RMS всего лупа, дБFS
+
+
+def _monster(i: int) -> str:
+    return f"monsters/Monster-Sounds-Volume-2/{'Monster' if i <= 8 else 'monster'}-{i}.wav"
+
+
+def _zombie(i: int) -> str:
+    return f"zombies/zombie-{i}.wav"
+
+
+def biquad(x: np.ndarray, kind: str, f: float, q: float = .70710678, gain_db: float = 0.0) -> np.ndarray:
+    """БИХ-фильтр RBJ (lowpass/highpass/bandpass/peaking), моно. bandpass — усиление 0 дБ в пике."""
+    w, a_gain = 2 * np.pi * f / RATE, 10 ** (gain_db / 40)
+    c, alpha = np.cos(w), np.sin(w) / (2 * q)
+    if kind == "lowpass":
+        b0, b1, b2, a0, a1, a2 = (1 - c) / 2, 1 - c, (1 - c) / 2, 1 + alpha, -2 * c, 1 - alpha
+    elif kind == "highpass":
+        b0, b1, b2, a0, a1, a2 = (1 + c) / 2, -(1 + c), (1 + c) / 2, 1 + alpha, -2 * c, 1 - alpha
+    elif kind == "bandpass":
+        b0, b1, b2, a0, a1, a2 = alpha, 0.0, -alpha, 1 + alpha, -2 * c, 1 - alpha
+    else:
+        b0, b1, b2 = 1 + alpha * a_gain, -2 * c, 1 - alpha * a_gain
+        a0, a1, a2 = 1 + alpha / a_gain, -2 * c, 1 - alpha / a_gain
+    b0, b1, b2, a1, a2 = b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0
+    out = [0.0] * len(x)
+    z1 = z2 = 0.0
+    for i, s in enumerate(x.tolist()):
+        y = b0 * s + z1
+        z1 = b1 * s - a1 * y + z2
+        z2 = b2 * s - a2 * y
+        out[i] = y
+    return np.array(out)
+
+
+def svf(x: np.ndarray, fc: np.ndarray, q: float, mode: str) -> np.ndarray:
+    """Фильтр с переменной частотой (TPT state-variable): мокрые «ползущие» полосы."""
+    g = np.tan(np.pi * np.minimum(fc, RATE * .42) / RATE)
+    k = 1 / q
+    a1 = 1 / (1 + g * (g + k))
+    a2, a3 = g * a1, g * g * a1
+    ic1 = ic2 = 0.0
+    out = [0.0] * len(x)
+    for i, (s, b1, b2, b3) in enumerate(zip(x.tolist(), a1.tolist(), a2.tolist(), a3.tolist())):
+        v3 = s - ic2
+        v1 = b1 * ic1 + b2 * v3
+        v2 = ic2 + b2 * ic1 + b3 * v3
+        ic1, ic2 = 2 * v1 - ic1, 2 * v2 - ic2
+        out[i] = v1 if mode == "bp" else v2
+    return np.array(out)
+
+
+def sweep(n: int, f0: float, f1: float, length: float, start: float = 0.0) -> np.ndarray:
+    """Экспоненциальная траектория частоты f0 -> f1 за length секунд, дальше f1."""
+    t = np.maximum(np.arange(n) / RATE - start, 0)
+    return f1 + (f0 - f1) * np.exp(-t / (length / 3))
+
+
+def env_exp(n: int, start: float, attack: float, tau: float) -> np.ndarray:
+    local = np.maximum(np.arange(n) / RATE - start, 0)
+    return (np.arange(n) / RATE >= start) * (1 - np.exp(-local / attack)) * np.exp(-local / tau)
+
+
+def slow_noise(rng: np.random.Generator, n: int, hz: float) -> np.ndarray:
+    """Плавный случайный сигнал единичной дисперсии с шириной полосы порядка hz (косинусная интерполяция)."""
+    step = max(1, round(RATE / hz))
+    knots = rng.standard_normal(n // step + 3)
+    pos = np.arange(n) / step
+    i = pos.astype(int)
+    frac = (1 - np.cos(np.pi * (pos - i))) / 2
+    out = knots[i] * (1 - frac) + knots[i + 1] * frac
+    return out / max(out.std(), 1e-9)
+
+
+def white(rng: np.random.Generator, n: int) -> np.ndarray:
+    return rng.standard_normal(n)
+
+
+def place(buf: np.ndarray, clip: np.ndarray, start: float, gain: float = 1.0) -> None:
+    offset = round(start * RATE)
+    size = max(0, min(len(clip), len(buf) - offset))
+    if size:
+        buf[offset:offset + size] += gain * clip[:size]
+
+
+# ---- Строительные блоки gore (все моно, длина n) ------------------------------
+def g_slap(rng, n, start, fc0, fc1, q, tau, gain):
+    """Шлепок плоти: шум через широкую полосу, частота быстро падает; мягкая атака 0.3 мс."""
+    local = np.arange(n) / RATE
+    body = svf(white(rng, n), sweep(n, fc0, fc1, .03, start), q, "bp")
+    return gain * env_exp(n, start, .0003, tau) * body * 2.0 * (1 + .25 * np.sin(2 * np.pi * rng.uniform(60, 140) * local))
+
+
+def g_thud(rng, n, start, f0, f1, tau, gain):
+    """Низкий «тук»: падающая синусоида, смешанная с низким шумом — не чистый тон."""
+    t = np.maximum(np.arange(n) / RATE - start, 0)
+    phase = 2 * np.pi * (f1 * t + (f0 - f1) * .018 * (1 - np.exp(-t / .018)))
+    grit = biquad(white(rng, n), "lowpass", 220, .8) * 6
+    return gain * env_exp(n, start, .0006, tau) * (np.sin(phase) + .5 * grit)
+
+
+def g_drip(rng, n, start, f0, f1, length, gain):
+    """Капля/пузырь: растущая широкая шумовая полоса + шипящая кромка, без осциллятора."""
+    m = max(8, round(length * RATE))
+    t = np.arange(m) / RATE
+    env = np.sin(np.pi * np.minimum(t / length, 1)) ** 1.4 * np.exp(-t / (length * .55))
+    center = f0 + (f1 - f0) * np.minimum(t / length, 1) ** 1.2
+    bubble = svf(white(rng, m), center, rng.uniform(1.0, 1.7), "bp")
+    bubble /= max(bubble.std(), 1e-9)
+    hiss = biquad(white(rng, m), "bandpass", rng.uniform(1500, 3800), .9) * 1.4
+    clip = (bubble * .48 + hiss * .65) * env
+    out = np.zeros(n)
+    place(out, clip, start, gain)
+    return out
+
+
+def g_crack(rng, n, start, gain, fmin=1800, fmax=4500, tau_range=(.0015, .004)):
+    """Хруст: импульс + три широких шумовых резонанса кости, затухание за несколько мс."""
+    m = round(.02 * RATE)
+    t = np.arange(m) / RATE
+    clip = white(rng, m) * np.exp(-t / .0005) * .5
+    for _ in range(3):
+        f = rng.uniform(fmin, fmax)
+        resonance = biquad(white(rng, m), "bandpass", f, rng.uniform(1.3, 2.3))
+        resonance /= max(resonance.std(), 1e-9)
+        clip += rng.uniform(.4, 1.0) * resonance * np.exp(-t / rng.uniform(*tau_range))
+    clip *= 1 - np.exp(-t / .00012)
+    out = np.zeros(n)
+    place(out, clip, start, gain)
+    return out
+
+
+def g_rip(rng, n, start, length, gain, f0=600, f1=2800):
+    """Рвущийся шум: полоса ползёт вверх, амплитуда — зернистая («волокна»), плюс редкие щелчки."""
+    local = np.arange(n) / RATE - start
+    window = np.clip(local / length, 0, 1)
+    shape = np.sin(np.pi * window) ** .8 * (local >= 0) * (local <= length)
+    grain = np.maximum(.15 + slow_noise(rng, n, 150) * .8, 0) ** 1.6
+    band = svf(white(rng, n), sweep(n, f0, f1, length, start) * (.5 + .5 * np.minimum(window * 3, 1)), 1.4, "bp") * 2.4
+    sticks = (rng.random(n) < 260 / RATE) * rng.standard_normal(n) * 6
+    sticks = biquad(sticks, "bandpass", rng.uniform(2200, 3600), .8)
+    return gain * shape * (band * grain + .25 * sticks)
+
+
+def g_gush(rng, n, start, length, gain, f0=3000, f1=700):
+    """Фонтан/хлюп: низкочастотный шум, частота падает, амплитуда булькает (медленный случайный AM)."""
+    local = np.arange(n) / RATE - start
+    body = svf(white(rng, n), sweep(n, f0, f1, length, start), .8, "lp")
+    bubbling = np.maximum(.3 + .95 * slow_noise(rng, n, 38), 0) ** 1.4
+    return gain * env_exp(n, start, .006, length / 2.2) * (local >= 0) * body * bubbling * 1.3
+
+
+def g_chunk(rng, n, start, gain):
+    """Шлепок куска о землю: приглушённый шлепок + глухой тук + пузырёк."""
+    return (g_slap(rng, n, start, rng.uniform(600, 1100), rng.uniform(220, 380), .9, rng.uniform(.012, .022), gain)
+            + g_thud(rng, n, start, rng.uniform(95, 140), rng.uniform(55, 80), rng.uniform(.02, .035), gain * .55)
+            + g_drip(rng, n, start + rng.uniform(.008, .02), rng.uniform(250, 500), rng.uniform(700, 1400),
+                     rng.uniform(.012, .026), gain * .35))
+
+
+def gore_hit(rng, variant):
+    n = round(.14 * RATE)
+    out = g_slap(rng, n, 0, rng.uniform(900, 1500), rng.uniform(300, 600), rng.uniform(.7, 1.1), rng.uniform(.010, .018), 1.0)
+    out += g_slap(rng, n, .002, 1200, 500, .8, rng.uniform(.028, .042), .25)   # влажный «хвост» шлепка
+    out += g_thud(rng, n, 0, rng.uniform(100, 125), rng.uniform(70, 85), rng.uniform(.022, .035), .8)
+    out += g_crack(rng, n, 0, rng.uniform(.12, .28), 2000, 4200, (.001, .002))
+    for _ in range(rng.integers(2, 4)):
+        out += g_drip(rng, n, rng.uniform(.035, .11), rng.uniform(300, 700), rng.uniform(800, 1500),
+                      rng.uniform(.010, .022), rng.uniform(.10, .24))
+    return out
+
+
+def gore_splat(rng, variant, builder):
+    n = round(.78 * RATE)
+    out = g_slap(rng, n, 0, rng.uniform(800, 1200), rng.uniform(220, 320), .8, rng.uniform(.035, .05), 1.2)
+    out += g_thud(rng, n, 0, rng.uniform(65, 80), rng.uniform(42, 55), rng.uniform(.07, .10), 1.0)
+    out += g_gush(rng, n, rng.uniform(.01, .025), rng.uniform(.26, .38), rng.uniform(.8, 1.05))
+    for _ in range(rng.integers(2, 4)):
+        out += g_chunk(rng, n, rng.uniform(.07, .32), rng.uniform(.28, .5))
+    for k in range(rng.integers(6, 11)):
+        t0 = rng.uniform(.18, .70)
+        out += g_drip(rng, n, t0, rng.uniform(250, 600), rng.uniform(700, 1700), rng.uniform(.012, .03),
+                      .22 * np.exp(-(t0 - .18) / .3))
+    # Мокрые призвуки из исходников: щелчки/бульканье монстров 11–15, питч ниже, без верха
+    src = _monster(int(rng.choice([10, 11, 12, 13, 14, 15])))
+    frag = revoice(load_voice(builder, src), rng.uniform(.8, 1.0))
+    a = int(rng.uniform(0, max(1, len(frag) - round(.3 * RATE))))
+    frag = biquad(frag[a:a + round(.3 * RATE)], "lowpass", 2800)
+    frag = frag * np.sin(np.linspace(0, np.pi, len(frag))) ** 2
+    place(out, frag, rng.uniform(.04, .12), rng.uniform(.22, .34))
+    return out, src
+
+
+def gore_gib(rng, variant):
+    n = round(.95 * RATE)
+    out = g_slap(rng, n, 0, 1400, 280, .8, .05, 1.3)
+    out += g_thud(rng, n, 0, rng.uniform(60, 75), rng.uniform(38, 48), .11, 1.4)
+    out += g_gush(rng, n, .005, rng.uniform(.25, .34), 1.0, 3400, 600)
+    out += g_rip(rng, n, .0, rng.uniform(.17, .26), 1.1, rng.uniform(500, 800), rng.uniform(2300, 3200))
+    # хруст костей — серия из 7–12 щелчков в первые 220 мс
+    for _ in range(rng.integers(7, 13)):
+        out += g_crack(rng, n, rng.uniform(.01, .22), rng.uniform(.35, .9), 1900, 4200)
+    # шлепки кусков с задержками 50–300 мс
+    for t0 in np.sort(rng.uniform(.05, .30, rng.integers(3, 6))):
+        out += g_chunk(rng, n, t0, rng.uniform(.4, .75) * (1.2 - t0))
+    # дальний шлепок и капли
+    out += g_chunk(rng, n, rng.uniform(.38, .52), .25)
+    for k in range(rng.integers(8, 14)):
+        t0 = rng.uniform(.2, .88)
+        out += g_drip(rng, n, t0, rng.uniform(250, 600), rng.uniform(700, 1700), rng.uniform(.012, .03),
+                      .22 * np.exp(-(t0 - .2) / .3))
+    return out
+
+
+def gore_bone(rng, variant):
+    n = round(.24 * RATE)
+    out = np.zeros(n)
+    t0 = 0.0
+    for k in range(rng.integers(3, 6)):                # серия: излом идёт по кости ступенями
+        out += g_crack(rng, n, t0, rng.uniform(.6, 1.0) * (1 - .1 * k), 1500, 4300, (.002, .0045))
+        out += g_slap(rng, n, t0, rng.uniform(1800, 2600), 900, 1.2, .004, .25)
+        t0 += rng.uniform(.006, .028)
+    out += g_thud(rng, n, 0, rng.uniform(150, 230), rng.uniform(90, 130), rng.uniform(.012, .02), .55)
+    out += g_crack(rng, n, t0 + .02, .35, 1200, 3000, (.003, .006))
+    return out
+
+
+# ---- Голоса ------------------------------------------------------------------
+def load_voice(builder: Builder, rel: str) -> np.ndarray:
+    """Исходник → моно 48 кГц: ФВЧ 60 Гц (Баттерворт 2-го порядка), обрезка тишины (−42 дБ), пик 1."""
+    cache = builder.__dict__.setdefault("voices", {})
+    if rel in cache:
+        return cache[rel]
+    path = builder.zsrc / rel
+    raw, rate = read_pcm(path)
+    if rate != 44100:
+        raise ValueError(f"Expected 44.1 kHz: {path}")
+    x = pitch(raw.mean(axis=1, keepdims=True), rate / RATE)[:, 0]
+    x = biquad(x, "highpass", 60)
+    env = np.sqrt(np.convolve(x * x, np.ones(240) / 240, "same"))
+    loud = np.flatnonzero(env > env.max() * 10 ** (-42 / 20))
+    x = x[max(0, loud[0] - 288):min(len(x), loud[-1] + 288)]
+    cache[rel] = x / np.abs(x).max()
+    builder.source_info[f"zombies_cc0/{rel}"] = {
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "seconds": round(len(raw) / rate, 4), "kept_s": round(len(x) / RATE, 4)}
+    return cache[rel]
+
+
+def revoice(x: np.ndarray, ratio: float, tilt: float = 0.0, eq: tuple | None = None) -> np.ndarray:
+    """Ресемплинг (питч и форманты вместе) + лёгкий наклон тембра и/или колокол EQ (f, Q, дБ)."""
+    y = pitch(x[:, None], ratio)[:, 0]
+    if tilt:
+        low = lowpass(y[:, None], 1800)[:, 0]
+        y = low * (1 - tilt) + (y - low) * (1 + tilt)
+    if eq:
+        y = biquad(y, "peaking", *eq)
+    return y
+
+
+def warp(x: np.ndarray, r0: float, r1: float) -> np.ndarray:
+    """Ресемплинг с плавно меняющимся питчем (r0 → r1): «падающий» предсмертный хрип."""
+    count = int(len(x) / min(r0, r1)) + 1
+    steps = np.exp(np.linspace(np.log(r0), np.log(r1), count))
+    pos = np.cumsum(steps) - steps[0]
+    pos = pos[pos < len(x) - 1]
+    cutoff = .46 / max(1.0, r0, r1)
+    out = np.empty(len(pos))
+    offsets = np.arange(-32, 33)
+    for start in range(0, len(pos), 4096):
+        p = pos[start:start + 4096]
+        idx = np.floor(p).astype(int)[:, None] + offsets
+        delta = p[:, None] - idx
+        w = 2 * cutoff * np.sinc(2 * cutoff * delta)
+        w *= np.where(np.abs(delta) < 33, .5 + .5 * np.cos(np.pi * delta / 33), 0)
+        w /= w.sum(axis=1, keepdims=True)
+        out[start:start + len(p)] = (w * x[np.clip(idx, 0, len(x) - 1)]).sum(axis=1)
+    return out
+
+
+def sat(x: np.ndarray, drive: float) -> np.ndarray:
+    return np.tanh(drive * x) / np.tanh(drive)
+
+
+def fade_in_out(x: np.ndarray, fade_in: float) -> np.ndarray:
+    x = x.copy()
+    m = min(round(fade_in * RATE), len(x) // 3)
+    x[:m] *= np.sin(np.linspace(0, np.pi / 2, m)) ** 2
+    return x
+
+
+# (источник, ресемплинг, наклон тембра, колокол EQ) — каждый источник один раз: повторов не узнать
+GROAN_VOICES = [(_zombie(1), 1.00, 0.00, None), (_zombie(2), .95, .04, (700, 1.0, 3.0)),
+                (_zombie(3), 1.06, -.03, None), (_zombie(7), .92, .05, (1400, 1.2, -3.0)),
+                (_zombie(8), 1.00, .00, (900, 1.0, 3.0)), (_zombie(14), 1.09, -.04, None),
+                (_zombie(15), .90, .03, None), (_zombie(18), 1.03, .05, (1100, 1.1, 3.5)),
+                (_zombie(20), .96, -.04, None), (_zombie(21), 1.07, .02, (1800, 1.0, -3.0)),
+                (_zombie(22), .87, .04, None), (_zombie(23), 1.12, -.05, (600, 1.0, 3.0)),
+                (_zombie(4), .80, .06, (1000, 1.0, 3.0)), (_zombie(17), 1.18, .0, None)]
+ATTACK_VOICES = [(_zombie(24), 1.00, 0), (_zombie(5), 1.06, 0), (_zombie(11), .94, 0), (_zombie(13), 1.00, 0),
+                 (_monster(5), .90, 1), (_monster(7), .85, 1)]
+DEATH_VOICES = [(_zombie(12), .95, .78), (_zombie(19), 1.00, .80), (_zombie(9), .92, .75), (_zombie(10), 1.00, .82),
+                (_zombie(6), .96, .74), (_monster(1), .90, .72), (_monster(2), .86, .70), (_monster(3), 1.00, .78)]
+RUNNER_VOICES = [(_monster(4), 1.36), (_monster(6), 1.30), (_monster(7), 1.46), (_monster(8), 1.26),
+                 (_monster(16), 1.40), (_monster(18), 1.30)]
+FAT_VOICES = [(_monster(11), .68), (_monster(12), .72), (_monster(13), .62), (_monster(14), .70),
+              (_monster(15), .66), (_zombie(16), .68)]
+BOSS_LAYERS = [  # (источник, ресемплинг, смещение с, усиление)
+    [(_monster(2), .55, 0, 1.0), (_zombie(17), .60, .02, .8), (_monster(1), .78, .06, .45)],
+    [(_monster(3), .52, 0, 1.0), (_zombie(16), .56, .03, .8), (_monster(7), .74, .08, .4)],
+    [(_monster(1), .50, 0, 1.0), (_zombie(18), .58, .04, .8), (_monster(2), .70, .1, .45)]]
+
+
+def voice_groan(builder, i):
+    src, ratio, tilt, eq = GROAN_VOICES[i]
+    y = revoice(load_voice(builder, src), ratio, tilt, eq)[:round(1.4 * RATE)]
+    y = fade_in_out(y, .03)
+    return y, src, ratio
+
+
+def voice_attack(builder, rng, i):
+    src, ratio, big = ATTACK_VOICES[i]
+    y = revoice(load_voice(builder, src), ratio, .05)
+    y = sat(y * 1.2, 2.2)
+    n = len(y) + round(.05 * RATE)
+    out = np.zeros(n)
+    place(out, y, 0)
+    if i >= 3:                                         # укус: сухой щелчок челюсти + шлепок
+        out += g_crack(rng, n, .0, .55, 1500, 3200, (.002, .004)) + g_slap(rng, n, .0, 1400, 500, 1.0, .02, .5)
+        out += g_crack(rng, n, rng.uniform(.045, .07), .4, 1200, 2800, (.002, .004))
+    return fade_in_out(out, .002), src, ratio
+
+
+def voice_death(builder, rng, i):
+    src, r0, r1 = DEATH_VOICES[i]
+    y = warp(load_voice(builder, src), r0, r1)         # питч падает: затухающий хрип
+    low = biquad(y, "lowpass", 2400)
+    mix = np.linspace(0, 1, len(y)) ** 1.3             # к концу темнее
+    y = y * (1 - mix) + low * mix
+    out = np.zeros(len(y) + round(.25 * RATE))
+    place(out, y, 0)
+    for _ in range(rng.integers(2, 5)):                # хрип переходит в бульканье
+        out += g_drip(rng, len(out), rng.uniform(.25, .9) * len(y) / RATE, rng.uniform(200, 450),
+                      rng.uniform(500, 1100), rng.uniform(.018, .04), rng.uniform(.12, .22))
+    return fade_in_out(out, .006), src, r0
+
+
+def voice_runner(builder, rng, i):
+    src, ratio = RUNNER_VOICES[i]
+    y = revoice(load_voice(builder, src), ratio)
+    t = np.arange(len(y)) / RATE
+    y *= 1 - .3 * (.5 + .5 * np.sin(2 * np.pi * rng.uniform(17, 27) * t))   # злая дрожь визга
+    y = sat(y * 1.6, 2.8)
+    y = biquad(biquad(y, "highpass", 170), "lowpass", 9500)
+    y = biquad(y, "peaking", rng.uniform(2200, 3200), 1.0, 4.0)
+    return fade_in_out(y, .004), src, ratio
+
+
+def voice_fat(builder, rng, i):
+    src, ratio = FAT_VOICES[i]
+    y = biquad(revoice(load_voice(builder, src), ratio, -.1), "lowpass", 3000)
+    n = len(y) + round(.2 * RATE)
+    out = np.zeros(n)
+    place(out, y, 0)
+    for _ in range(rng.integers(5, 9)):                # утробные пузыри и бульканье
+        out += g_drip(rng, n, rng.uniform(0, len(y) / RATE), rng.uniform(110, 260), rng.uniform(260, 700),
+                      rng.uniform(.04, .09), rng.uniform(.25, .5))
+    t = np.arange(n) / RATE
+    envelope = biquad(np.abs(out), "lowpass", 14)
+    out += np.sin(2 * np.pi * rng.uniform(46, 58) * t) * envelope * 1.2   # низ «в животе»
+    return fade_in_out(sat(out, 1.4), .01), src, ratio
+
+
+def voice_spit(builder, rng, i):
+    n = round(.5 * RATE)
+    spray = svf(white(rng, n), sweep(n, 5200, 1900, .15), .9, "bp") * env_exp(n, 0, .003, .08) * 4.0
+    spray += svf(white(rng, n), sweep(n, 3200, 2200, .3), 1.2, "bp") * env_exp(n, .02, .02, .17) * 1.4
+    out = spray + g_thud(rng, n, 0, 160, 90, .02, .5) + g_slap(rng, n, 0, 1300, 450, .9, .015, .5)
+    for _ in range(rng.integers(4, 8)):
+        out += g_drip(rng, n, rng.uniform(.02, .30), rng.uniform(450, 900), rng.uniform(1200, 2200),
+                      rng.uniform(.012, .03), rng.uniform(.18, .4))
+    src = _monster((9, 10, 17, 14)[i])
+    frag = biquad(revoice(load_voice(builder, src), 1.15 + .05 * i)[:round(.16 * RATE)], "lowpass", 4200)
+    place(out, frag * np.sin(np.linspace(0, np.pi, len(frag))), .01, .35)
+    return out, src, 1.15 + .05 * i
+
+
+def voice_boss(builder, rng, i):
+    n = round(2.9 * RATE)
+    mix = np.zeros(n)
+    for src, ratio, offset, gain in BOSS_LAYERS[i]:
+        place(mix, fade_in_out(revoice(load_voice(builder, src), ratio), .03), offset, gain)
+    t = np.arange(n) / RATE
+    mix *= 1 + .35 * np.sin(2 * np.pi * (17 + 2 * i) * t + rng.uniform(0, 6))   # рычащая дрожь
+    dist = sat(mix * 2.5, 3.2)
+    out = dist + biquad(dist, "lowpass", 150) * 1.2
+    length = (1.9, 2.1, 2.3)[i]
+    envelope = biquad(np.abs(out), "lowpass", 9)
+    out += np.sin(2 * np.pi * (40 + 3 * i) * t) * envelope * 1.0              # суб
+    out = out[:round(length * RATE)] * (1 - np.exp(-np.arange(round(length * RATE)) / RATE / .04))
+    return out, "+".join(s for s, *_ in BOSS_LAYERS[i]), BOSS_LAYERS[i][0][1]
+
+
+def emit_voices(builder: Builder) -> None:
+    def put(group, variant, y, source, ratio, fade=.05, **extra):
+        clip = normalize(finish(y, fade), HORDE_PEAKS[group])
+        builder.emit(f"zombies/{group}_{variant}.wav", clip, f"{source}", pitch_ratio=round(float(ratio), 3),
+                     peak_db=HORDE_PEAKS[group], **extra)
+        return clip
+
+    builder.groans = []
+    for i in range(len(GROAN_VOICES)):
+        y, src, ratio = voice_groan(builder, i)
+        builder.groans.append(put("groan", i, y, src, ratio, .08))
+    for i in range(len(ATTACK_VOICES)):
+        rng = np.random.default_rng(A4_SEED + 100 + i)
+        y, src, ratio = voice_attack(builder, rng, i)
+        put("attack", i, y, src + (" + synthesized bite" if i >= 3 else ""), ratio, .04, seed=A4_SEED + 100 + i)
+    for i in range(len(DEATH_VOICES)):
+        rng = np.random.default_rng(A4_SEED + 200 + i)
+        y, src, ratio = voice_death(builder, rng, i)
+        put("death", i, y, src + " (pitch glide down) + drips", ratio, .12, seed=A4_SEED + 200 + i)
+    for i in range(len(RUNNER_VOICES)):
+        rng = np.random.default_rng(A4_SEED + 300 + i)
+        y, src, ratio = voice_runner(builder, rng, i)
+        put("runner", i, y, src + " (pitch up, saturation, tremolo)", ratio, .05, seed=A4_SEED + 300 + i)
+    for i in range(len(FAT_VOICES)):
+        rng = np.random.default_rng(A4_SEED + 400 + i)
+        y, src, ratio = voice_fat(builder, rng, i)
+        put("fat", i, y, src + " (pitch down) + gurgles + sub", ratio, .1, seed=A4_SEED + 400 + i)
+    for i in range(4):
+        rng = np.random.default_rng(A4_SEED + 500 + i)
+        y, src, ratio = voice_spit(builder, rng, i)
+        put("spit", i, y, f"synthesis: spray, thud, drips + {src} fragment", ratio, .08, seed=A4_SEED + 500 + i)
+    for i in range(3):
+        rng = np.random.default_rng(A4_SEED + 600 + i)
+        y, src, ratio = voice_boss(builder, rng, i)
+        put("boss_roar", i, y, src.replace("+", " + ") + " (3 layers, pitch x0.5-0.8, saturation, sub 40 Hz)", ratio,
+            .35, seed=A4_SEED + 600 + i)
+
+
+# ---- Gore --------------------------------------------------------------------
+def emit_gore(builder: Builder) -> None:
+    for group, make, count, fade, desc in (
+            ("hit", gore_hit, 10, .035, "synthesis: bandpass flesh slap, 70-125 Hz thud, snap, drips"),
+            ("splat", gore_splat, 8, .25, "synthesis: slap + sub thud, bubbling gush, chunk slaps, drip tail + monster gurgle fragment"),
+            ("gib", gore_gib, 6, .3, "synthesis: wet burst + sub, tearing, bone crack series, chunk slaps 50-300 ms, drips"),
+            ("bone", gore_bone, 6, .05, "synthesis: stepped crack series (three broad noise resonances), knock")):
+        for variant in range(count):
+            seed = A4_SEED + {"hit": 1000, "splat": 2000, "gib": 3000, "bone": 4000}[group] + variant
+            rng = np.random.default_rng(seed)
+            if group == "splat":
+                y, src = make(rng, variant, builder)
+                note = desc + f" ({src})"
+            else:
+                y, note = make(rng, variant), desc
+            y = biquad(y, "highpass", 40)
+            builder.emit(f"gore/{group}_{variant}.wav", normalize(finish(y, fade), HORDE_PEAKS[group]), note,
+                         seed=seed, peak_db=HORDE_PEAKS[group])
+
+
+# ---- Лупы: орда и сердцебиение -------------------------------------------------
+def circ_filter(x: np.ndarray, lo: float, hi: float) -> np.ndarray:
+    """Нуль-фазовый полосовой фильтр в частотной области: циркулярный, значит лупы замкнуты по построению."""
+    spectrum = np.fft.rfft(x)
+    f = np.maximum(np.fft.rfftfreq(len(x), 1 / RATE), 1e-6)
+    spectrum *= 1 / (1 + (lo / f) ** 4) / (1 + (f / hi) ** 4)
+    return np.fft.irfft(spectrum, len(x))
+
+
+def fft_convolve(x: np.ndarray, kernel: np.ndarray) -> np.ndarray:
+    size = 1 << int(np.ceil(np.log2(len(x) + len(kernel))))
+    return np.fft.irfft(np.fft.rfft(x, size) * np.fft.rfft(kernel, size), size)[:len(x) + len(kernel) - 1]
+
+
+def add_wrap(buf: np.ndarray, clip: np.ndarray, start: int, left: float, right: float) -> None:
+    """Сложить клип в стерео-буфер по кругу: хвост за концом лупа ложится на его начало."""
+    n = len(buf)
+    for part in range(0, len(clip), n):
+        piece = clip[part:part + n]
+        index = (start + part + np.arange(len(piece))) % n
+        buf[index, 0] += left * piece
+        buf[index, 1] += right * piece
+
+
+def step_clip(rng: np.random.Generator) -> np.ndarray:
+    """Один шаг по асфальту/обломкам: шорох ботинка + глухой упор."""
+    m = round(.2 * RATE)
+    scuff = biquad(white(rng, m), "bandpass", rng.uniform(700, 1500), .6) * env_exp(m, 0, .005, rng.uniform(.035, .07)) * 2.2
+    drag = biquad(white(rng, m), "lowpass", 2000) * env_exp(m, rng.uniform(.03, .06), .03, .06) * .7
+    thud = g_thud(rng, m, 0, rng.uniform(90, 130), rng.uniform(55, 75), .03, .5)
+    clip = scuff + drag + thud
+    return clip / np.abs(clip).max()
+
+
+def horde_loop(builder: Builder, index: int) -> tuple[np.ndarray, dict]:
+    """Луп толпы: десятки стонов (сдвиг питча, затемнение «издалека», панорама), гул, шарканье.
+
+    Круговое наложение сохраняет голоса на стыке; финальный кроссфейд 100 мс
+    соединяет перекрывающиеся края. Экспорт моно по CONTRACTS §9.
+    """
+    rng = np.random.default_rng(A4_SEED + 7000 + index)
+    seconds = (10.0, 12.0)[index] + .1
+    n = round(seconds * RATE)
+    out = np.zeros((n, 2))
+    t = np.arange(n) / RATE
+
+    def modulation() -> np.ndarray:                    # целое число периодов: модуляция замкнута
+        return 1 + .3 * np.sin(2 * np.pi * rng.integers(1, 4) / seconds * t + rng.uniform(0, 6.3))
+
+    rumble = circ_filter(white(rng, n), 32, 130) * modulation()
+    murmur = circ_filter(white(rng, n), 140, 700) * modulation() * (1 + .4 * np.sin(2 * np.pi * 2 / seconds * t + 1))
+    rumble /= rumble.std()
+    murmur /= murmur.std()
+    bed = (.9, 1.25)[index] * rumble + (.35, .6)[index] * murmur
+    out += bed[:, None] * 0.018
+    # стоны: случайный исходный голос, питч .7–1.12, чем тише, тем темнее и «в зале»
+    count = (26, 76)[index]
+    for _ in range(count):
+        voice = builder.groans[rng.integers(len(builder.groans))]
+        clip = pitch(voice, rng.uniform(.7, 1.12))
+        far = rng.uniform(0, 1)
+        clip = lowpass(clip, 3400 - 2300 * far)[:, 0]
+        room = np.zeros(round(.16 * RATE))
+        room[0] = 1
+        room += (.25 + .5 * far) * white(rng, len(room)) * np.exp(-np.arange(len(room)) / RATE / .045)
+        clip = fft_convolve(clip, room)
+        gain = 10 ** ((-8 - 16 * far) / 20)
+        angle = (rng.uniform(-.9, .9) + 1) * np.pi / 4
+        add_wrap(out, clip, int(rng.integers(n)), gain * np.cos(angle), gain * np.sin(angle))
+    # шарканье: каждый «ходок» — цепочка шагов с неровным интервалом
+    pool = [step_clip(np.random.default_rng(A4_SEED + 7100 + 10 * index + k)) for k in range(24)]
+    walkers = (7, 22)[index]
+    for _ in range(walkers):
+        angle = (rng.uniform(-.9, .9) + 1) * np.pi / 4
+        gain = 10 ** (rng.uniform(-30, -21) / 20)
+        interval = rng.uniform(.42, .8)
+        time = rng.uniform(0, interval)
+        while time < seconds:
+            add_wrap(out, pool[rng.integers(len(pool))], int(time * RATE), gain * np.cos(angle) * rng.uniform(.6, 1),
+                     gain * np.sin(angle) * rng.uniform(.6, 1))
+            time += interval * rng.uniform(.8, 1.25)
+    out = loop_crossfade(out.mean(axis=1, keepdims=True), .1)
+    out -= out.mean(axis=0)
+    out *= 10 ** (HORDE_RMS[f"horde_{index}"] / 20) / np.sqrt(np.mean(out ** 2))
+    return out, {"seconds": len(out) / RATE, "groans": count, "walkers": walkers, "crossfade_s": .1}
+
+
+def loop_crossfade(x: np.ndarray, seconds: float) -> np.ndarray:
+    """Склеить перекрытие cos²/sin²; длина результата = вход минус перекрытие."""
+    n = round(seconds * RATE)
+    weight = np.sin(np.linspace(0, np.pi / 2, n))[:, None] ** 2
+    join = x[-n:] * (1 - weight) + x[:n] * weight
+    return np.concatenate((join, x[n:-n]))
+
+
+def heartbeat_loop(variant: int) -> np.ndarray:
+    """«Лаб-даб»: два глухих удара за 1 с (лаб в 0, даб в ~0.33 с), низ + глухой щелчок; период ровно 1 с."""
+    rng = np.random.default_rng(A4_SEED + 8000 + variant)
+    n = RATE + round(.05 * RATE)
+    out = np.zeros(n)
+    for start, gain, f0 in ((.10, 1.0, 62 + 3 * variant), (.40 + .015 * variant, .72, 74 + 3 * variant)):
+        body = g_thud(rng, n, start, f0 * 1.25, f0 * .62, .075, 1.0)
+        mud = biquad(white(rng, n), "lowpass", 420 + 60 * variant, .8) * env_exp(n, start, .004, .018) * 2.2
+        valve = biquad(white(rng, n), "bandpass", 900, .7) * env_exp(n, start + .004, .003, .012) * .35
+        out += gain * (body + mud + valve)
+    out = loop_crossfade(sat(out, 1.3)[:, None], .05)
+    out -= out.mean()
+    return out
+
+
+# ---- Игрок --------------------------------------------------------------------
+# (длительность, f0 начало, f0 конец, форманты (Гц, ширина, усиление), дыхание, насыщение)
+HURT_KINDS = [
+    (.24, 150, 112, [(650, 110, 1.0), (1150, 130, .6), (2500, 200, .3)], .30, 1.8),   # «хнх»: короткий кряк
+    (.46, 175, 105, [(760, 120, 1.0), (1250, 140, .55), (2600, 220, .3)], .25, 2.2),  # «ааа!»: крик боли с падением
+    (.30, 135, 100, [(560, 100, 1.0), (1000, 120, .5), (2400, 200, .25)], .45, 1.6),  # «ухх»: удар в живот
+    (.26, 190, 150, [(380, 90, 1.0), (1750, 150, .6), (2600, 220, .3)], .35, 2.0),    # «нгх»: сквозь зубы
+    (.38, 160, 120, [(700, 130, 1.0), (1100, 130, .65), (2450, 200, .3)], .55, 1.7),  # хрип-выдох
+    (.20, 205, 165, [(620, 100, 1.0), (1350, 130, .55), (2700, 220, .3)], .25, 2.4),  # короткий выкрик
+]
+
+
+def hurt_voice(rng: np.random.Generator, variant: int) -> np.ndarray:
+    dur, f_a, f_b, formants, breath, drive = HURT_KINDS[variant]
+    n = round((dur + .08) * RATE)
+    t = np.arange(n) / RATE
+    f0 = np.linspace(f_a, f_b, n) * (1 + .035 * slow_noise(rng, n, 28)) * rng.uniform(.95, 1.06)
+    phase = np.cumsum(f0) / RATE
+    harmonics = max(8, int(8500 / f0.max()))
+    source = sum(np.sin(2 * np.pi * k * phase) / k ** 1.25 for k in range(1, harmonics + 1))
+    source *= 1 + .22 * slow_noise(rng, n, 45)                              # дрожь амплитуды (шимер)
+    excitation = source / np.abs(source).max() + breath * white(rng, n) * (.6 + .4 * np.sin(np.pi * f0 * t) ** 2)
+    voice = sum(g * biquad(excitation, "bandpass", f, f / bw) for f, bw, g in formants)
+    envelope = (1 - np.exp(-t / .01)) * np.exp(-t / (dur * .55)) * np.clip((dur + .06 - t) / .06, 0, 1)
+    voice = sat(voice * envelope * 2.5, drive)                              # охриплость
+    out = voice / np.abs(voice).max()
+    out += .55 * (g_thud(rng, n, 0, 105, 62, .045, 1.0) + g_slap(rng, n, 0, 700, 280, .9, .02, .6))   # удар в тело
+    return biquad(out, "highpass", 70)
+
+
+# ---- Интерфейс (из механики A2) ------------------------------------------------
+def ui_source(builder: Builder, name: str, ratio: float = 1.0, length: float = .12) -> np.ndarray:
+    x, _ = read_pcm(builder.out / name)
+    x = x[:round(length * 1.3 * RATE), :1]
+    x = pitch(x, ratio)[:round(length * RATE), 0]
+    return x / np.abs(x).max()
+
+
+def emit_player_ui(builder: Builder) -> None:
+    for i in range(len(HURT_KINDS)):
+        seed = A4_SEED + 9000 + i
+        y = hurt_voice(np.random.default_rng(seed), i)
+        builder.emit(f"player/hurt_{i}.wav", normalize(finish(y, .05), HORDE_PEAKS["hurt"]),
+                     "synthesis: glottal harmonic source through vowel formants + breath, saturation, body-hit layer",
+                     seed=seed, peak_db=HORDE_PEAKS["hurt"])
+    beat = heartbeat_loop(0)
+    builder.emit("player/heartbeat_0.wav", normalize(beat, HORDE_PEAKS["heartbeat"]),
+                 "synthesis: lub-dub, noisy sub thuds + muffled valve click, exactly 1.000 s loop",
+                 seed=A4_SEED + 8000, peak_db=HORDE_PEAKS["heartbeat"], loop=True)
+    # click: мягче оригинала (ФНЧ 4.5 кГц, плавный вход), три высоты
+    for i, (name, ratio) in enumerate((("weapons/pistol/dry_0.wav", .96), ("weapons/pistol/dry_1.wav", 1.06),
+                                       ("weapons/smg/dry_0.wav", 1.0))):
+        x = biquad(ui_source(builder, name, ratio, .07), "lowpass", 4500)
+        x = fade_in_out(x, .0012)
+        builder.emit(f"ui/click_{i}.wav", normalize(finish(x, .02), HORDE_PEAKS["click"]),
+                     f"{name} x{ratio} (A2 mechanics), lowpass 4.5 kHz, soft attack", pitch_ratio=ratio)
+    # confirm: два щелчка «клик-клак», второй выше
+    for i, (a, b) in enumerate((("weapons/pistol/dry_1.wav", "weapons/smg/dry_0.wav"),
+                                ("weapons/rifle/dry_0.wav", "weapons/pistol/dry_0.wav"))):
+        out = np.zeros(round(.2 * RATE))
+        place(out, biquad(ui_source(builder, a, 1.0, .07), "lowpass", 4200), 0, 1.0)
+        place(out, biquad(ui_source(builder, b, 1.28, .07), "lowpass", 5200), .075, .8)
+        builder.emit(f"ui/confirm_{i}.wav", normalize(finish(fade_in_out(out, .0012), .05), HORDE_PEAKS["confirm"]),
+                     f"{a} + {b} x1.28 (A2 mechanics), two clicks 75 ms apart", pitch_ratio=1.28)
+    # deny: глухой «туп» — револьверный щелчок ниже питчем, без верха, с низким ударом
+    for i, ratio in enumerate((.6, .52)):
+        rng = np.random.default_rng(A4_SEED + 9500 + i)
+        out = np.zeros(round(.22 * RATE))
+        click = biquad(ui_source(builder, "weapons/revolver/dry_0.wav", ratio, .1), "lowpass", 1100)
+        place(out, click, 0, 1.0)
+        place(out, click, .085, .55)
+        out += g_thud(rng, len(out), 0, 120, 70, .035, .9) + g_thud(rng, len(out), .085, 100, 62, .03, .5)
+        out = biquad(out, "highpass", 50)
+        builder.emit(f"ui/deny_{i}.wav", normalize(finish(out, .08), HORDE_PEAKS["deny"]),
+                     f"weapons/revolver/dry_0.wav x{ratio} (A2 mechanics), lowpass 1.1 kHz + dull thud, two soft knocks",
+                     pitch_ratio=ratio, seed=A4_SEED + 9500 + i)
+
+
+def horde(builder: Builder) -> None:
+    """A4: голоса орды (CC0-паки), gore (синтез), лупы орды и сердцебиения, игрок, интерфейс."""
+    emit_voices(builder)
+    emit_gore(builder)
+    builder.loop_info = {}
+    for index in range(2):
+        loop, info = horde_loop(builder, index)
+        builder.loop_info[f"ambience/horde_{index}.wav"] = info
+        builder.emit(f"ambience/horde_{index}.wav", loop,
+                     f"synthesis: {info['groans']} groans of zombies/groan (pitch .7-1.12, distance lowpass, pan) + "
+                     f"rumble + murmur + {info['walkers']} shuffling walkers, mono, circular layers + 100 ms crossfade",
+                     seed=A4_SEED + 7000 + index, rms_db=HORDE_RMS[f"horde_{index}"], loop=True)
+    emit_player_ui(builder)
+
+
 def metadata(builder: Builder) -> None:
     manifest = {"format": "PCM16 48000 Hz; shots stereo, other effects mono", "seed": SEED,
                 "source_files": builder.source_info, "files": builder.entries}
@@ -716,6 +1390,9 @@ def metadata(builder: Builder) -> None:
              "Times refer to the original file; FIR delay is compensated. Exact edits/seeds and source SHA256 are in manifest.json.", "",
              "A3: model voices (m4, shkval, guard, cowboy, osa, winchester) use Prepared near shots and Raw mechanics from the same library; spear and hive are synthesized from A1 voices. Edits are CC0 1.0.", "",
              "W2: all mechanics use a second-order Butterworth high-pass at 80 Hz. Burst tails use attack-free near reflections, 35 ms smooth entry, 160 ms fade out; A1 files unchanged.", "",
+             "A4: [Zombies Sound Pack](https://opengameart.org/content/zombies-sound-pack) — artisticdude, CC0 1.0 (24 recordings).",
+             "[Monster Sound Pack, Volume 1](https://opengameart.org/content/monster-sound-pack-volume-1) — Ogrebane, CC0 1.0 (18 recordings; archive folder Monster-Sounds-Volume-2).",
+             "A4 voice edits, gore/player synthesis and UI edits are dedicated to CC0 1.0. Original voice packs: 24-bit stereo 44.1 kHz; export: PCM16 mono 48 kHz, including ambience. Loops use forward playback; ambience has 100 ms overlap, heartbeat 50 ms.", "",
              "| Output file | Source / synthesis | Take; original crop; pitch |", "|---|---|---|"]
     for e in builder.entries:
         edit = f"take {e['take']}; {e['crop_start_s']:.6f}–{e['crop_end_s']:.6f} s; ×{e['pitch_ratio']}" if "take" in e else f"seed {e['seed']}" if "seed" in e else f"×{e['pitch_ratio']}"
@@ -727,14 +1404,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--src", type=Path, default=DEFAULT_SRC)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
+    parser.add_argument("--zsrc", type=Path, default=DEFAULT_ZSRC, help="A4: zombies_cc0/extracted")
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     builder = Builder(args.src, args.out)
+    builder.zsrc = args.zsrc
     shots(builder)
     synthesis(builder)
     mechanics(builder)
     burst_tails(builder)
     models(builder)
+    horde(builder)
     metadata(builder)
     size = sum((args.out / e["file"]).stat().st_size for e in builder.entries)
     print(f"Generated {len(builder.entries)} WAV files: PCM16, 48000 Hz; {size} bytes")
