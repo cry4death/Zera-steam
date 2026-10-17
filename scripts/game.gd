@@ -150,6 +150,7 @@ var pause_menu: PauseMenu
 @onready var trader: Trader = $Trader
 @onready var trader_ui: Control = $Overlay/Trader
 @onready var effects: Effects = $World/Effects
+@onready var explosions: Explosions = $World/Explosions
 @onready var floor_decals: FloorDecals = $World/FloorDecals
 @onready var gore: Gore = $World/Gore
 @onready var ground: Node2D = $World/Ground
@@ -175,6 +176,160 @@ func _apply_settings() -> void:
 
 func _enter_tree() -> void:
 	_setup_input()
+
+
+## E1: прямые вызовы визуальной системы, без подключения боевых взрывов до E1b.
+func _run_fx_test() -> void:
+	seed(81073)
+	spawner.enabled = false
+	weapons.firing_enabled = false
+	weapons.set_physics_process(false)
+	player.god_mode = true
+	player.set_physics_process(false)
+	gems.collected.disconnect(progression.add_xp)
+	$HUD.visible = false
+	camera.target = null
+	camera.shake_multiplier = 0.0
+	camera.position_smoothing_enabled = false
+	camera.position = ARENA.get_center()
+	camera.zoom = Vector2(2.5, 2.5)
+	player.position = ARENA.get_center() + Vector2(-130, 90)
+	var dir := "res://design/tasks/reports"
+	if not _shot_path.is_empty():
+		dir = _shot_path.get_base_dir()
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir))
+	await get_tree().create_timer(0.6).timeout
+	if OS.get_cmdline_user_args().has("--fx-perf-only"):
+		await _fx_perf()
+		get_tree().quit()
+		return
+	await _fx_sequence(dir, "seq", Explosions.Kind.GRENADE, 90.0)
+	for j in 45:
+		horde.spawn(ARENA.get_center() + Vector2(randf_range(-120, 120), randf_range(-85, 85)))
+	await get_tree().physics_frame
+	_fx_kill_crowd(ARENA.get_center(), 85.0)
+	await _fx_sequence(dir, "crowd", Explosions.Kind.LAUNCHER, 65.0)
+	gore.on_enemy_killed(ARENA.get_center(), Vector2.RIGHT, Gore.Death.GIBS, 0.0, 5)
+	await _fx_sequence(dir, "fat", Explosions.Kind.FAT, 72.0)
+	# Цепь: четыре момента, затем отдельный прогон без чтения GPU для замера.
+	explosions.clear()
+	var images: Array[Image] = []
+	for j in 20:
+		var at := ARENA.get_center() + Vector2(float(j % 5) * 62.0 - 124.0, floorf(j / 5.0) * 42.0 - 63.0)
+		explosions.spawn(at, 32.0, Explosions.Kind.DETONATOR)
+		explosions.set_process(false)
+		explosions.advance(0.04)
+		explosions.set_process(false)
+		await get_tree().create_timer(0.04).timeout
+		if j % 5 == 4:
+			images.append(await _fx_image())
+	_fx_contact(images, dir.path_join("e1_chain.png"))
+	gore.boss_burst(ARENA.get_center())
+	_fx_kill_crowd(ARENA.get_center(), 200.0)
+	await _fx_sequence(dir, "boss", Explosions.Kind.BOSS, 180.0)
+	await get_tree().create_timer(3.0).timeout
+	await _fx_perf()
+	# Переполнение, очистка и завершение отложенных ступеней проверяются отдельно.
+	explosions.clear()
+	for j in 100:
+		explosions.spawn(ARENA.get_center(), 60.0, Explosions.Kind.LAUNCHER)
+	assert(explosions.active_count() <= Explosions.CAPACITY)
+	assert(explosions.layer_count(Explosions.Layer.FIRE) <= 24)
+	assert(explosions.layer_count(Explosions.Layer.SMOKE) <= 96)
+	explosions.advance(4.0)
+	assert(explosions.active_count() == 0)
+	explosions.clear()
+	print("FXTEST ok=true pool_cap=%d overflow_replaced=%d idle_process=%s" % [Explosions.CAPACITY, explosions.replaced, explosions.is_processing()])
+	get_tree().quit()
+
+
+func _fx_perf() -> void:
+	# Орда 500: те же визуальные вызовы, без урона/старых кругов и без снимков.
+	seed(81073)
+	for j in 500 - horde.count:
+		horde.spawn(ARENA.get_center() + Vector2.from_angle(float(j) * 2.4) * randf_range(170.0, 360.0))
+	await get_tree().create_timer(0.5).timeout
+	# Холодные пики сохраняем в логе отдельно; контроль получает такой же прогрев.
+	await _fx_measure("warm_chain20", false, false)
+	await get_tree().create_timer(3.0).timeout
+	await _fx_measure("warm_boss", false, true)
+	await get_tree().create_timer(3.0).timeout
+	var baseline := OS.get_cmdline_user_args().has("--fx-baseline")
+	await _fx_measure("chain20", baseline, false)
+	await get_tree().create_timer(3.0).timeout
+	await _fx_measure("boss", baseline, true)
+
+
+func _fx_kill_crowd(at: Vector2, radius: float) -> void:
+	var previous := horde.death_override
+	horde.death_override = Gore.Death.GIBS
+	for i in horde.count:
+		if horde.dead[i] == 0 and horde.pos[i].distance_squared_to(at) <= radius * radius:
+			horde.damage(i, 99999.0, (horde.pos[i] - at).normalized(), 230.0, WeaponDefs.Ammo.STANDARD, false, horde.pos[i], true)
+	horde.death_override = previous
+
+
+func _fx_sequence(dir: String, suffix: String, kind: int, radius: float) -> void:
+	explosions.clear()
+	explosions.spawn(ARENA.get_center(), radius, kind)
+	explosions.set_process(false)
+	sfx.play("explosions/grenade", ARENA.get_center())
+	var images: Array[Image] = []
+	var previous := 0.0
+	for age: float in [0.05, 0.15, 0.4, 1.5]:
+		await get_tree().create_timer(age - previous).timeout
+		explosions.advance(age - previous)
+		explosions.set_process(false)
+		images.append(await _fx_image())
+		previous = age
+	_fx_contact(images, dir.path_join("e1_%s.png" % suffix))
+	print("FXTEST sheet=%s ages=0.05,0.15,0.4,1.5" % suffix)
+
+
+func _fx_image() -> Image:
+	await RenderingServer.frame_post_draw
+	var img := get_viewport().get_texture().get_image()
+	var crop_size := Vector2i(mini(960, img.get_width()), mini(800, img.get_height()))
+	return img.get_region(Rect2i((img.get_size() - crop_size) / 2, crop_size))
+
+
+func _fx_contact(images: Array[Image], path: String) -> void:
+	var sheet := Image.create(1920, 420, false, Image.FORMAT_RGB8)
+	sheet.fill(Color(0.07, 0.075, 0.08))
+	for j in images.size():
+		images[j].resize(480, 400, Image.INTERPOLATE_NEAREST)
+		sheet.blit_rect(images[j], Rect2i(0, 0, 480, 400), Vector2i(j * 480, 20))
+	assert(sheet.save_png(path) == OK)
+
+
+func _fx_measure(label: String, baseline: bool, boss_burst: bool) -> void:
+	explosions.clear()
+	explosions.update_worst_usec = 0
+	explosions.draw_worst_usec = 0
+	explosions.peak = 0
+	var clock_state := [Time.get_ticks_usec(), 0.0, 0.0, 0.0, 0.0, 0.0]
+	var tick := func() -> void:
+		var now := Time.get_ticks_usec()
+		var ms := float(now - int(clock_state[0])) / 1000.0
+		clock_state[0] = now
+		clock_state[1] = maxf(float(clock_state[1]), ms)
+		clock_state[2] += ms
+		clock_state[3] += 1.0
+		clock_state[4] = maxf(float(clock_state[4]), Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0)
+		clock_state[5] = maxf(float(clock_state[5]), Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))
+	RenderingServer.frame_post_draw.connect(tick)
+	var spawn_worst := 0
+	for j in (1 if boss_burst else 20):
+		var start := Time.get_ticks_usec()
+		if boss_burst:
+			gore.boss_burst(ARENA.get_center())
+		if not baseline:
+			explosions.spawn(ARENA.get_center() + Vector2(float(j % 5) * 45.0 - 90.0, floorf(j / 5.0) * 36.0 - 54.0), 180.0 if boss_burst else 32.0, Explosions.Kind.BOSS if boss_burst else Explosions.Kind.DETONATOR)
+		spawn_worst = maxi(spawn_worst, Time.get_ticks_usec() - start)
+		await get_tree().create_timer(0.04).timeout
+	await get_tree().create_timer(3.0).timeout
+	RenderingServer.frame_post_draw.disconnect(tick)
+	print("FXBENCH %s baseline=%s enemies=%d frames=%d avg_ms=%.3f worst_ms=%.3f physics_worst_ms=%.3f draw_calls_peak=%d spawn_worst_ms=%.3f update_worst_ms=%.3f draw_submit_worst_ms=%.3f peak=%d" % [label, baseline, horde.count, clock_state[3], float(clock_state[2]) / maxf(1.0, float(clock_state[3])), clock_state[1], clock_state[4], clock_state[5], spawn_worst / 1000.0, explosions.update_worst_usec / 1000.0, explosions.draw_worst_usec / 1000.0, explosions.peak])
 
 
 func _ready() -> void:
@@ -234,6 +389,10 @@ func _ready() -> void:
 	ground.setup(ARENA)
 	floor_decals.setup(ARENA)
 	effects.floor_decals = floor_decals
+	explosions.floor_decals = floor_decals
+	explosions.effects = effects
+	explosions.camera = camera
+	explosions.player = player
 	effects.sfx = sfx
 	player.sfx = sfx
 	weapons.sfx = sfx
@@ -367,6 +526,8 @@ func _ready() -> void:
 	if _weapons_test:
 		weapons.process_mode = Node.PROCESS_MODE_DISABLED
 		_run_weapons_test.call_deferred()
+	if OS.get_cmdline_user_args().has("--fx-test"):
+		_run_fx_test.call_deferred()
 	if _sim:
 		print("SIM meta: class_level=%d tree=%d workshop_models=%d owned=%d bonuses=%s models=%s" % [Meta.class_level(), Meta.tree.size(), Meta.workshop.size(), Meta.owned.size(), Meta.run_bonuses(), weapons.slots[0].model])
 		player.god_mode = true
