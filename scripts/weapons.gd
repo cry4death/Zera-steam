@@ -53,6 +53,15 @@ class Slot:
 var player: Player
 var camera: GameCamera
 var horde: Horde
+var boss: Boss
+var firing_enabled := true
+const BOSS_TARGET := -2 # отдельный uid, индексы орды остаются прежними
+var _boss_active := false
+var boss_damage := PackedFloat64Array([0, 0, 0, 0, 0, 0, 0, 0])
+var boss_sources: Dictionary = {}
+var _burn_left := PackedFloat32Array([0, 0, 0, 0])
+var _burn_dps := PackedFloat32Array([0, 0, 0, 0])
+var _burn_tick := 0.0
 var effects: Effects
 var floor_decals: FloorDecals
 var sfx: Sfx
@@ -172,11 +181,13 @@ func reload_all() -> void:
 # --- кадр -----------------------------------------------------------------------------------
 
 func _physics_process(delta: float) -> void:
+	_boss_active = boss != null and boss.is_alive()
+	_update_boss_fire(delta)
 	_update_bullets(delta)
 	_update_grenades(delta)
 	_age_fx(delta)
 	queue_redraw()
-	if player == null or player.is_dead:
+	if player == null or player.is_dead or not firing_enabled:
 		return
 	_aim_hold -= delta
 	if _aim_hold <= 0.0:
@@ -210,10 +221,11 @@ func _update_slot(i: int, delta: float) -> void:
 	if s.cooldown > 0.0:
 		return
 	var origin := player.global_position
-	var target := horde.find_nearest(origin, s.stats["range"])
+	var target := _nearest_target(origin, s.stats["range"])
 	if target == -1:
 		return
-	var dir := (horde.pos[target] - origin).normalized()
+	var target_pos := _target_position(target)
+	var dir := (target_pos - origin).normalized()
 	player.aim_dir = dir
 	_aim_hold = 0.4
 	player.kick(RECOIL[s.base])
@@ -228,7 +240,7 @@ func _update_slot(i: int, delta: float) -> void:
 		WeaponDefs.Base.RAIL:
 			_fire_rail(i, muzzle, dir)
 		WeaponDefs.Base.LAUNCHER:
-			_fire_grenades(i, muzzle, horde.pos[target])
+			_fire_grenades(i, muzzle, target_pos)
 	var tint := Color(1.0, 0.78, 0.45)
 	if s.base == WeaponDefs.Base.RAIL:
 		tint = Color(0.45, 0.85, 1.0)
@@ -368,6 +380,11 @@ func _update_bullets(delta: float) -> void:
 		if hit == -1:
 			probe = p1
 			hit = _find_hit_except(probe, _blast[i])
+		if _boss_active and _blast[i] != BOSS_TARGET:
+			var nearest := Geometry2D.get_closest_point_to_segment(boss.global_position, p0, p1)
+			if boss.hit_test(nearest, BULLET_RADIUS) and (hit == -1 or p0.distance_squared_to(nearest) < p0.distance_squared_to(probe)):
+				hit = BOSS_TARGET
+				probe = nearest
 		if hit != -1:
 			if not _bullet_hit(i, hit, probe):
 				_remove_bullet(i)
@@ -388,29 +405,45 @@ func _find_hit_except(p: Vector2, last_uid: int) -> int:
 	return hit
 
 
+func _target_position(target: int) -> Vector2:
+	return boss.global_position if target == BOSS_TARGET else horde.pos[target]
+
+
+func _nearest_target(at: Vector2, radius: float, exclude := PackedInt32Array()) -> int:
+	var target := horde.find_nearest(at, radius) if exclude.is_empty() else horde.find_nearest_except(at, radius, exclude)
+	if _boss_active and not exclude.has(BOSS_TARGET):
+		var distance := at.distance_squared_to(boss.global_position)
+		if distance <= radius * radius and (target == -1 or distance < at.distance_squared_to(horde.pos[target]) * 2.25):
+			return BOSS_TARGET
+	return target
+
+
 ## Попадание пули. Возвращает true, если пуля летит дальше (пробила/отскочила).
 func _bullet_hit(b: int, e: int, at: Vector2) -> bool:
 	var slot := _bslot[b]
 	var s := slots[slot] if slot < slots.size() else slots[0]
 	var dir := _bvel[b].normalized()
-	var killed := _hit_enemy(slot, e, _bdmg[b], dir, at, s.stats["knock"])
-	_blast[b] = horde.uid[e]
+	var is_boss := e == BOSS_TARGET
+	var source := "chain" if _bflags[b] & F_CHAIN else ("shard" if _bflags[b] & F_SHARD else "bullet")
+	var killed := _hit_boss(slot, _bdmg[b], dir, at, source) if is_boss else _hit_enemy(slot, e, _bdmg[b], dir, at, s.stats["knock"])
+	var uid := BOSS_TARGET if is_boss else horde.uid[e]
+	_blast[b] = uid
 	# сплит: осколки веером (сами не делятся)
 	if _bflags[b] & F_SHARD == 0 and s.mod_rank(WeaponDefs.Module.SPLIT) > 0:
-		_spawn_shards(slot, at, dir, _bdmg[b], horde.uid[e])
-	if killed:
+		_spawn_shards(slot, at, dir, _bdmg[b], uid)
+	if killed and not is_boss:
 		_on_kill(slot, e, dir, _bdepth[b])
 	if _bpierce[b] > 0:
 		_bpierce[b] -= 1
 		_bdmg[b] *= 1.2 if s.mod_rank(WeaponDefs.Module.PIERCE) >= 3 else 0.8
 		return true
 	if _bbounce[b] > 0:
-		var exclude := PackedInt32Array([horde.uid[e]])
-		var next := horde.find_nearest_except(at, 120.0, exclude)
+		var exclude := PackedInt32Array([uid])
+		var next := _nearest_target(at, 120.0, exclude)
 		if next != -1:
 			_bbounce[b] -= 1
 			_bdmg[b] *= 0.7
-			_bvel[b] = (horde.pos[next] - at).normalized() * _bvel[b].length()
+			_bvel[b] = (_target_position(next) - at).normalized() * _bvel[b].length()
 			_blife[b] = maxf(_blife[b], 0.4)
 			return true
 	return false
@@ -443,6 +476,61 @@ func _remove_bullet(i: int) -> void:
 
 # --- попадание: патроны ------------------------------------------------------------------
 
+## Крит и боеприпасы босса; крио даёт обычный урон, не замораживает босса.
+func _hit_boss(slot: int, dmg: float, dir: Vector2, at: Vector2, source: String) -> bool:
+	var s := slots[slot]
+	var rank := s.ammo_rank
+	var rare := WeaponDefs.RARE_MULT if s.ammo_rare else 1.0
+	var chance: float = s.stats["crit"] + 0.05
+	if s.ammo == WeaponDefs.Ammo.STANDARD:
+		chance += [0.10, 0.15, 0.15][rank - 1] * rare
+	if randf() < chance:
+		dmg *= 2.5 if s.ammo == WeaponDefs.Ammo.STANDARD and rank >= 3 else 2.0
+	if s.ammo == WeaponDefs.Ammo.INCENDIARY:
+		_burn_left[slot] = 3.0
+		_burn_dps[slot] = [4.0, 6.0, 6.0][rank - 1] * rare
+	if effects:
+		_ammo_sparks(s.ammo, at, dir)
+	var killed := _damage_boss(slot, dmg, dir, at, source)
+	if s.ammo == WeaponDefs.Ammo.EXPANSIVE and source != "explosion" and (not killed or rank >= 3):
+		var radius := 16.0 if rank < 2 else 20.0
+		var splash: float = [0.3, 0.45, 0.45][rank - 1] * rare
+		for j in horde.query_radius(at, radius):
+			horde.damage(j, dmg * splash, (horde.pos[j] - at).normalized(), 30.0, s.ammo, false, horde.pos[j], true)
+	return killed
+
+
+func _damage_boss(slot: int, dmg: float, dir: Vector2, at: Vector2, source: String) -> bool:
+	var before := boss.hp
+	var killed := boss.take_damage(dmg, dir, at)
+	var dealt := before - boss.hp
+	if slot >= 0:
+		boss_damage[slots[slot].base] += dealt
+	boss_sources[source] = float(boss_sources.get(source, 0.0)) + dealt
+	if killed:
+		_boss_active = false
+	return killed
+
+
+## Босс не получает статусы орды; горение стволов тикает отдельно раз в 0.5 с.
+func _update_boss_fire(delta: float) -> void:
+	if not _boss_active:
+		_burn_left.fill(0.0)
+		return
+	_burn_tick += delta
+	var tick := _burn_tick >= 0.5
+	if tick:
+		_burn_tick -= 0.5
+	for i in mini(slots.size(), _burn_left.size()):
+		if _burn_left[i] <= 0.0:
+			continue
+		if tick and _boss_active:
+			_damage_boss(i, _burn_dps[i] * 0.5, Vector2.ZERO, boss.global_position, "fire")
+			if effects:
+				effects.emit(boss.global_position + Vector2(randf_range(-12, 12), randf_range(-12, 12)), Vector2(0, -25), 0.4, Color(1.0, 0.35, 0.05), 2.0, 1.0)
+		_burn_left[i] = maxf(0.0, _burn_left[i] - delta)
+
+
 ## Урон по зомби с эффектами патронов ствола. Возвращает true, если убит.
 func _hit_enemy(slot: int, e: int, dmg: float, dir: Vector2, at: Vector2, knockback: float, explosive := false) -> bool:
 	var s := slots[slot]
@@ -472,6 +560,8 @@ func _hit_enemy(slot: int, e: int, dmg: float, dir: Vector2, at: Vector2, knockb
 		var k: float = [0.3, 0.45, 0.45][rank - 1] * rare
 		var r := 16.0 if rank < 2 else 20.0
 		if not killed or rank >= 3:
+			if _boss_active and boss.hit_test(e_pos, r):
+				_damage_boss(slot, dmg * k, dir, e_pos, "expansive")
 			for j in horde.query_radius(e_pos, r):
 				if j != e:
 					horde.damage(j, dmg * k, (horde.pos[j] - e_pos).normalized(), 30.0, s.ammo, false, horde.pos[j], true)
@@ -488,10 +578,10 @@ func _on_kill(slot: int, e: int, dir: Vector2, depth: int) -> void:
 			var chained := s.mod_rank(WeaponDefs.Module.DETONATOR) >= 3 or s.prototype == 0
 			explode(at, s.stats["damage"], 30.0 * (1.3 if s.prototype == 0 else 1.0), slot, depth + (1 if chained else 3))
 	if s.mod_rank(WeaponDefs.Module.CHAIN) > 0 and depth < (3 if s.mod_rank(WeaponDefs.Module.CHAIN) >= 3 else 1):
-		var next := horde.find_nearest_except(at, 80.0, PackedInt32Array([horde.uid[e]]))
+		var next := _nearest_target(at, 80.0, PackedInt32Array([horde.uid[e]]))
 		if next != -1:
 			var k := minf(s.mod_value(WeaponDefs.Module.CHAIN, [0.5, 0.65, 0.8]), 1.0)
-			var v := (horde.pos[next] - at).normalized() * 380.0
+			var v := (_target_position(next) - at).normalized() * 380.0
 			_spawn_bullet(at, v, 0.35, s.stats["damage"] * k, slot, 0, 0, F_CHAIN | F_SHARD, depth + 1)
 			_blast[bullet_count - 1] = horde.uid[e]
 
@@ -516,6 +606,13 @@ func explode(at: Vector2, dmg: float, radius: float, slot := -1, depth := 0) -> 
 		# подпалина: лёгкая копоть, чтобы не забивать кровь
 		floor_decals.stamp(PixelArt.tex("blood_%d" % (randi() % 8)), at, randf() * TAU, Color(0.07, 0.06, 0.055, 0.3), radius / 45.0)
 	var s: Slot = slots[slot] if slot >= 0 else null
+	if _boss_active and boss.hit_test(at, radius):
+		var offset := boss.global_position - at
+		var falloff := 1.0 - clampf(offset.length() / (radius + Boss.RADIUS), 0.0, 1.0) * 0.5
+		if slot >= 0:
+			_hit_boss(slot, dmg * falloff, offset.normalized(), boss.global_position, "explosion")
+		else:
+			_damage_boss(-1, dmg * falloff, offset.normalized(), boss.global_position, "grenade")
 	var prev_override := horde.death_override
 	if s == null:
 		horde.death_override = Gore.Death.GIBS # граната рвёт на куски, даже замёрзших
@@ -567,6 +664,10 @@ func _rail_beam(i: int, from: Vector2, dir: Vector2, dmg: float, bounces: int, h
 	var to := from + dir * length
 	# кто на линии: сортируем по расстоянию вдоль луча
 	var hits: Array = []
+	if _boss_active and not hit_uids.has(BOSS_TARGET):
+		var nearest := Geometry2D.get_closest_point_to_segment(boss.global_position, from, to)
+		if boss.hit_test(nearest, float(s.stats["width"]) * 0.5):
+			hits.append([from.distance_to(nearest), BOSS_TARGET])
 	for e in horde.count:
 		if horde.dead[e] == 1 or hit_uids.has(horde.uid[e]):
 			continue
@@ -580,6 +681,13 @@ func _rail_beam(i: int, from: Vector2, dir: Vector2, dmg: float, bounces: int, h
 	var last := -1
 	for h in hits:
 		var e: int = h[1]
+		if e == BOSS_TARGET:
+			hit_uids.append(BOSS_TARGET)
+			if last == -1 and s.mod_rank(WeaponDefs.Module.SPLIT) > 0:
+				_spawn_shards(i, boss.global_position, dir, dmg, BOSS_TARGET)
+			_hit_boss(i, dmg, dir, boss.global_position, "rail")
+			last = BOSS_TARGET
+			continue
 		if horde.dead[e] == 1:
 			continue
 		hit_uids.append(horde.uid[e])
@@ -593,10 +701,10 @@ func _rail_beam(i: int, from: Vector2, dir: Vector2, dmg: float, bounces: int, h
 	_beams.append([from, to, s.stats["width"], 0.0, color])
 	# рикошет: луч перескакивает с последней цели на ближайшую новую
 	if bounces > 0 and last != -1:
-		var at := horde.pos[last]
-		var next := horde.find_nearest_except(at, 160.0, hit_uids)
+		var at := _target_position(last)
+		var next := _nearest_target(at, 160.0, hit_uids)
 		if next != -1:
-			_rail_beam(i, at, (horde.pos[next] - at).normalized(), dmg * 0.7, bounces - 1, hit_uids)
+			_rail_beam(i, at, (_target_position(next) - at).normalized(), dmg * 0.7, bounces - 1, hit_uids)
 
 
 # --- гранатомёт --------------------------------------------------------------------------------
@@ -628,6 +736,8 @@ func _update_grenades(delta: float) -> void:
 		_gleft[i] -= step
 		_gpos[i] += _gvel[i] * delta
 		var touched := horde.find_hit(_gpos[i], 2.0) != -1
+		if _boss_active and boss.hit_test(_gpos[i], 2.0):
+			touched = true
 		if _gleft[i] <= 0.0 or touched:
 			var at := _gpos[i]
 			var slot := _gslot[i]
