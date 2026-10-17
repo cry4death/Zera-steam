@@ -20,9 +20,14 @@ DEFAULT_OUT = Path(__file__).resolve().parents[1] / "sfx"
 # RMS of the first 100 ms, dBFS; deliberately retain transient headroom.
 # Exact ascending energy, without clipping/compressing the recorded attacks.
 SHOT_LEVELS = {"smg": -26, "pistol": -25, "revolver": -24,
-               "rifle": -23, "shotgun": -22, "sniper": -21}
+               "rifle": -23, "shotgun": -22, "sniper": -21,
+               # A3: модели из ящиков, по ощущению калибра (механика = выстрел - 12 дБ)
+               "m4": -24, "shkval": -22, "guard": -26, "cowboy": -27,
+               "osa": -27, "winchester": -22}
 PEAK_LEVELS = {"brass_small": -21, "brass_rifle": -20, "shell": -22,
-               "mag_drop": -19, "grenade": -3, "launcher": -5, "rail": -6}
+               "mag_drop": -19, "grenade": -3, "launcher": -5, "rail": -6,
+               # A3: синтез Копья и Улья (пик, дБFS)
+               "spear": -5, "hive": -6, "stick": -10}
 SOURCES = {"pistol": ("1911/A_42P.wav", .65),
            "revolver": ("Smith & Wesson 642/V_27P.wav", .85),
            "smg": ("PPSh/P_30P.wav", .20),
@@ -449,6 +454,256 @@ def mechanics(builder: Builder) -> None:
                                  rmsmax100_target_db=target, scatter_seed=layer_seed, highpass_hz=80)
 
 
+# ---- A3: голоса моделей из ящиков -------------------------------------------
+# gun -> (Prepared near-запись, число найденных атак, какие из них настоящие
+#         выстрелы (остальное — эхо стрельбища), длина, спад (начало, tau) или None, fade)
+MODEL_SHOTS = {
+    "m4": ("AR-15/D_32P.wav", 2, [0, 1], .30, (.035, .065), .04),
+    "shkval": ("Model 12/K_22P.wav", 2, [0, 1], .60, (.06, .13), .06),
+    "guard": ("Walther PPQ/X_39P.wav", 3, [0, 1, 2], .50, None, .08),
+    "cowboy": ("Ruger Single Six/S_14P.wav", 5, [0, 2], .30, (.035, .065), .04),
+    "osa": ("Carl Gustav M45/G_31P.wav", 3, [0, 1, 2], .20, (.035, .065), .04),
+    "winchester": ("Marlin 336/I_22P.wav", 2, [0, 1], .90, None, .08),
+}
+# gun -> (папка в Raw, {событие: [дубль = (дорожка, [окна (с, с)])]}). Дубль с несколькими
+# окнами — составное движение (ход рычага/помпы, несколько гильз). Если дубль один,
+# второй вариант получается небольшим изменением скорости.
+MODEL_MECH = {
+    "m4": ("AR-15", {
+        "mag_out": [("D_5", [(1.20, 1.70)]), ("D_3", [(3.78, 4.04)])],
+        "mag_in": [("D_4", [(.93, 1.40)]), ("D_2", [(8.03, 8.20)])],
+        "rack": [("D_14", [(.50, .80)]), ("D_15", [(.30, .60)])],
+        "dry": [("D_16", [(.36, .43)])]}),
+    "shkval": ("Model 12", {
+        # K_6 (full cycle loaded) в архиве почти пустая — берём K_2 (full cycle empty)
+        "rack": [("K_2", [(.77, .90), (1.02, 1.18)]), ("K_2", [(3.81, 3.93), (4.04, 4.19)])],
+        "shell_in": [("K_3", [(1.57, 1.97)]), ("K_3", [(7.35, 7.75)])],
+        "dry": [("K_7", [(1.07, 1.16)]), ("K_7", [(3.44, 3.54)])]}),
+    "guard": ("Walther PPQ", {
+        "mag_out": [("X_5", [(1.33, 1.43)]), ("X_5", [(3.59, 3.69)])],
+        "mag_in": [("X_4", [(.88, .98)]), ("X_4", [(3.01, 3.14)])],
+        "rack": [("X_11", [(.75, .85)]), ("X_9", [(2.99, 3.06)])],
+        "dry": [("X_19", [(.81, .88)]), ("X_19", [(2.90, 2.96)])]}),
+    "cowboy": ("Ruger Single Six", {
+        "cyl_open": [("S_0", [(.39, .45)]), ("S_10", [(1.30, 1.37)])],
+        "cyl_close": [("S_1", [(.48, .54)])],
+        "eject": [("S_3", [(3.31, 3.38), (14.19, 14.27), (17.80, 17.87)]),
+                  ("S_3", [(12.59, 12.65), (23.32, 23.39), (8.42, 8.49)])],
+        "load": [("S_2", [(1.55, 1.62), (4.54, 4.61), (7.35, 7.43)]),
+                 ("S_2", [(9.97, 10.04), (11.48, 11.55), (13.00, 13.07)])],
+        "hammer": [("S_6", [(4.08, 4.19)]), ("S_6", [(5.72, 5.82)])],
+        "dry": [("S_8", [(.89, .96)]), ("S_8", [(2.70, 2.76)])]}),
+    "osa": ("Carl Gustav M45:Swedish K", {
+        "mag_out": [("G_9", [(1.19, 1.27)]), ("G_9", [(.44, .53)])],
+        "mag_in": [("G_8", [(.50, .57)]), ("G_8", [(1.86, 1.93)])],
+        "rack": [("G_2", [(.91, .97), (1.13, 1.20)]), ("G_2", [(4.92, 4.98), (5.15, 5.22)])],
+        "dry": [("G_3", [(.70, .78)]), ("G_3", [(2.39, 2.47)])]}),
+    "winchester": ("Marlin 336", {
+        "rack": [("I_10", [(.84, 1.00), (1.11, 1.28)]), ("I_9", [(1.06, 1.20), (1.32, 1.48)])],
+        "shell_in": [("I_0", [(3.50, 3.72)]), ("I_0", [(8.08, 8.28)])],
+        "dry": [("I_8", [(.91, .98)])]}),
+}
+MODEL_RACK_LIMIT = {"shkval": .40, "winchester": .45}   # ход помпы / рычага, с
+MODEL_GAP = {"rack": .03, "eject": .07, "load": .07}      # пауза между окнами дубля, с
+
+
+def model_shots(builder: Builder) -> None:
+    for gun, (source, found, use, duration, decay, fade) in MODEL_SHOTS.items():
+        raw, rate = read_pcm(builder.src / source)
+        if rate != 96000 or raw.shape[1] != 2:
+            raise ValueError(f"Expected stereo 96 kHz source: {source}")
+        audio = resample_48k(raw, rate)
+        attacks = detect_attacks(audio)
+        if len(attacks) != found:
+            raise ValueError(f"{source}: expected {found} attacks, found {len(attacks)}")
+        builder.source_info[source] = {
+            "sha256": hashlib.sha256((builder.src / source).read_bytes()).hexdigest(),
+            "attacks_seconds": [round(a / RATE, 6) for a in attacks],
+            "used_attacks": use,
+            "source_samples_at_full_scale": int(np.sum(np.abs(raw) >= 1 - 1 / 8388608)),
+        }
+        for variant in range(4):
+            take = use[variant % len(use)]
+            clip, start, end = cut_shot(audio, attacks[take], duration)
+            ratio, tilt = 1.0, 0.0
+            if variant >= len(use):
+                ratio = (.982, 1.021)[variant % 2]
+                tilt = (-.055, .055)[variant % 2]
+                clip = pitch(clip, ratio)
+                low = lowpass(clip, 1800)
+                clip = low * (1 - tilt) + (clip - low) * (1 + tilt)
+            if decay:
+                t = np.arange(len(clip)) / RATE
+                clip *= np.exp(-np.maximum(t - decay[0], 0) / decay[1])[:, None]
+            clip = normalize(finish(clip, fade), SHOT_LEVELS[gun], True)
+            builder.emit(f"weapons/{gun}/shot_{variant}.wav", clip, source,
+                         take=take + 1, attack_s=round(attacks[take] / RATE, 6),
+                         crop_start_s=round(start / RATE, 6), crop_end_s=round(end / RATE, 6),
+                         pitch_ratio=ratio, eq_tilt=tilt, rms100_target_db=SHOT_LEVELS[gun])
+
+
+def model_mechanics(builder: Builder) -> None:
+    import zipfile
+
+    root = Path(__file__).resolve().parents[1]
+    cache = root / "tmp"
+    cache.mkdir(exist_ok=True)
+    (cache / ".gdignore").write_text("", encoding="utf-8")
+    archive = DEFAULT_SRC.parents[1] / "raw_master_tracks.zip"
+    with zipfile.ZipFile(archive) as master:
+        for gun, (folder, events) in MODEL_MECH.items():
+            for event, takes in events.items():
+                for variant in range(2):
+                    take = variant % len(takes)
+                    track, windows = takes[take]
+                    source = f"Master Tracks/{folder}/{track}.wav"
+                    # «:» в имени папки архива недопустим в пути Windows
+                    path = cache / source.replace(":", "_")
+                    data = master.read(source)
+                    expected_hash = hashlib.sha256(data).hexdigest()
+                    if not path.exists() or hashlib.sha256(path.read_bytes()).hexdigest() != expected_hash:
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_bytes(data)
+                    raw, rate = read_pcm(path)
+                    original_rate = rate
+                    mono = raw.mean(axis=1, keepdims=True)
+                    if rate == 192000:
+                        mono = lowpass(mono, 43000, rate)[::2].copy()
+                        rate = 96000
+                    audio = resample_48k(mono, rate)
+                    builder.source_info[source] = {"sha256": expected_hash, "rate": original_rate,
+                                                   "channels": raw.shape[1]}
+                    parts, cuts = [], []
+                    for lo, hi in windows:
+                        start, end = round(lo * RATE), round(hi * RATE)
+                        window = audio[start:end]
+                        threshold = max(float(np.abs(window).max()) * .025, 1e-5)
+                        active = np.flatnonzero(np.abs(window[:, 0]) > threshold)
+                        if not len(active):
+                            raise ValueError(f"No event: {source} {lo}-{hi}")
+                        left = max(0, int(active[0]) - round(.002 * RATE))
+                        right = min(len(window), int(active[-1]) + round(.016 * RATE) + 1)
+                        parts.append(finish(window[left:right], .012))
+                        cuts.append([round((start + left) / RATE, 6), round((start + right) / RATE, 6)])
+                    gap = np.zeros((round(MODEL_GAP.get(event, .008) * RATE), 1))
+                    clip = np.concatenate([part for i, block in enumerate(parts)
+                                           for part in ((gap, block) if i else (block,))])
+                    ratio = 1.03 if len(takes) == 1 and variant else 1.0
+                    limit = MODEL_RACK_LIMIT.get(gun) if event == "rack" else None
+                    if limit:
+                        ratio = max(ratio, len(clip) / (RATE * (limit - .002)))
+                    if ratio != 1.0:
+                        clip = pitch(clip, ratio)
+                    target = SHOT_LEVELS[gun] - 12
+                    clip = finish(highpass80(clip), .018)
+                    # Как в A2: громчайшие 100 мс = RMS выстрела - 12 дБ.
+                    power = np.pad(clip[:, 0] ** 2, (0, max(0, RATE // 10 - len(clip))))
+                    energy = np.concatenate(([0.0], np.cumsum(power)))
+                    loudest = np.sqrt(np.max(energy[RATE // 10:] - energy[:-RATE // 10]) / (RATE // 10))
+                    first = np.sqrt(np.mean(clip[:RATE // 10] ** 2))
+                    clip = normalize(clip, target + 20 * np.log10(first / loudest), True)
+                    builder.emit(f"weapons/{gun}/{event}_{variant}.wav", clip, source,
+                                 take=take + 1, crop_start_s=cuts[0][0], crop_end_s=cuts[-1][1],
+                                 segments_s=cuts, pitch_ratio=ratio,
+                                 rmsmax100_target_db=target, scatter_seed=None, highpass_hz=80)
+
+
+def rail_voice(seed: int) -> np.ndarray:
+    """Голос рельсы A1 (трескучий хруст + падающий свист), стерео, до нормализации."""
+    rng = np.random.default_rng(seed)
+    t = np.arange(round(.34 * RATE)) / RATE
+    crack = noise(rng, len(t), 18000) - noise(rng, len(t), 1400) * .2
+    pulse = np.exp(-t / .018) + .26 * np.exp(-np.maximum(t - .027, 0) / .012) * (t > .027)
+    whip = np.sin(2 * np.pi * (630 * t + 4100 * .018 * (1 - np.exp(-t / .018)))) * np.exp(-t / .043)
+    mono = (1 - np.exp(-t / .0003)) * (.7 * crack * pulse + .35 * whip)
+    stereo = np.column_stack((mono, mono * .94))
+    stereo[round(.003 * RATE):, 1] += .10 * mono[:-round(.003 * RATE)]
+    return stereo
+
+
+def bubble(rng: np.random.Generator, n: int, start: float, f0: float, f1: float,
+           length: float, gain: float) -> np.ndarray:
+    """Мокрый «пузырь»: короткий восходящий тон с шумовой кромкой."""
+    out = np.zeros(n)
+    m = round(length * RATE)
+    local = np.arange(m) / RATE
+    phase = 2 * np.pi * (f0 * local + (f1 - f0) * length / 2 * (local / length) ** 2)
+    env = np.sin(np.pi * np.minimum(local / length, 1)) ** 1.5 * np.exp(-local / (length * .6))
+    pop = np.sin(phase) * env + .35 * noise(rng, m, 2600) * env
+    offset = round(start * RATE)
+    size = max(0, min(m, n - offset))
+    out[offset:offset + size] = gain * pop[:size]
+    return out
+
+
+def model_synthesis(builder: Builder) -> None:
+    # «Копьё»: рельса A1, ниже и тяжелее, длиннее хвост, плюс низкий удар.
+    ratios = (.80, .78, .82, .79)
+    for variant in range(4):
+        seed = SEED + 2000 + variant
+        base = rail_voice(seed)
+        base /= np.abs(base).max()
+        clip = pitch(base, ratios[variant])
+        clip = lowpass(clip, 9500) * .85 + lowpass(clip, 1500) * .45
+        n = round(.80 * RATE)
+        out = np.zeros((n, 2))
+        out[:len(clip)] += clip
+        low = lowpass(clip, 2500)
+        for delay, gain in [(.085, .34), (.17, .21), (.29, .13)]:
+            offset = round(delay * RATE)
+            size = min(len(low), n - offset)
+            out[offset:offset + size] += gain * low[:size]
+        rng = np.random.default_rng(SEED + 4000 + variant)
+        t = np.arange(n) / RATE
+        rumble = noise(rng, n, 700) * np.exp(-t / .20) * 1.4 * (1 - np.exp(-t / .004))
+        thump = np.sin(2 * np.pi * (46 * t + 52 * .05 * (1 - np.exp(-t / .05)))) * np.exp(-t / .10) * .6
+        out += (rumble + thump)[:, None] * np.array([1.0, .96])
+        out = normalize(finish(out, .20), PEAK_LEVELS["spear"])
+        builder.emit(f"weapons/spear/shot_{variant}.wav", out,
+                     f"synthesis: rail A1 voice (seed {seed}) pitch x{ratios[variant]}, reflections, 46 Hz thump + rumble",
+                     seed=SEED + 4000 + variant, pitch_ratio=ratios[variant])
+    # «Улей»: хлопок «Грома» A1 (из дробовика) + мокрый «чпок»; отдельно шлепок прилипания.
+    for variant in range(4):
+        base = builder.shot_audio["shotgun"][variant]
+        ratio = .60 + variant * .012
+        clip = lowpass(pitch(base, ratio), 2300)[:round(.52 * RATE)]
+        t = np.arange(len(clip)) / RATE
+        clip *= np.exp(-t / .12)[:, None]
+        clip += (.16 * np.sin(2 * np.pi * (76 * t + 3 * (1 - np.exp(-t / .025)))) * np.exp(-t / .055))[:, None]
+        peak = np.abs(clip).max()
+        seed = SEED + 6000 + variant
+        rng = np.random.default_rng(seed)
+        wet = (bubble(rng, len(t), .014, 260, 760, .042, .85) + bubble(rng, len(t), .071, 190, 520, .05, .5)
+               + bubble(rng, len(t), .128, 330, 900, .028, .28)) * peak
+        clip += wet[:, None] * np.array([1.0, .93])
+        clip = normalize(finish(clip), PEAK_LEVELS["hive"])
+        builder.emit(f"weapons/hive/shot_{variant}.wav", clip,
+                     f"weapons/shotgun/shot_{variant}.wav pitch x{ratio:.3f} (launcher recipe) + synthesized wet pops",
+                     seed=seed, pitch_ratio=ratio)
+        seed = SEED + 5000 + variant
+        rng = np.random.default_rng(seed)
+        n = round(.24 * RATE)
+        t = np.arange(n) / RATE
+        onset = 1 - np.exp(-t / .0003)
+        slap = noise(rng, n, 3200) * np.exp(-t / .011) * .9
+        thud = np.sin(2 * np.pi * (170 * t - 600 * t ** 2)) * np.exp(-t / .028) * .7
+        wobble = .55 + .45 * np.sin(2 * np.pi * rng.uniform(32, 44) * t + rng.uniform(0, 6)) ** 2
+        squelch = noise(rng, n, 1900) * np.exp(-t / .075) * wobble * .30
+        pops = (bubble(rng, n, rng.uniform(.028, .036), 280, 880, .026, .55)
+                + bubble(rng, n, rng.uniform(.066, .078), 210, 640, .034, .42)
+                + bubble(rng, n, rng.uniform(.112, .125), 340, 950, .022, .26))
+        stick = normalize(finish(onset * (slap + thud + squelch) + pops, .06), PEAK_LEVELS["stick"])
+        builder.emit(f"weapons/hive/stick_{variant}.wav", stick,
+                     "synthesis: wet slap, 170 Hz thud, squelch, three rising bubble pops", seed=seed)
+
+
+def models(builder: Builder) -> None:
+    """A3: голоса моделей из ящиков — выстрелы, механика, синтез Копья и Улья."""
+    model_shots(builder)
+    model_mechanics(builder)
+    model_synthesis(builder)
+
+
 def metadata(builder: Builder) -> None:
     manifest = {"format": "PCM16 48000 Hz; shots stereo, other effects mono", "seed": SEED,
                 "source_files": builder.source_info, "files": builder.entries}
@@ -459,6 +714,7 @@ def metadata(builder: Builder) -> None:
              "All A1 procedural synthesis and edits are also dedicated to CC0 1.0.", "",
              "Shots/tails: Prepared near recordings; mechanics: Raw master tracks. Originals remain outside this repository.",
              "Times refer to the original file; FIR delay is compensated. Exact edits/seeds and source SHA256 are in manifest.json.", "",
+             "A3: model voices (m4, shkval, guard, cowboy, osa, winchester) use Prepared near shots and Raw mechanics from the same library; spear and hive are synthesized from A1 voices. Edits are CC0 1.0.", "",
              "W2: all mechanics use a second-order Butterworth high-pass at 80 Hz. Burst tails use attack-free near reflections, 35 ms smooth entry, 160 ms fade out; A1 files unchanged.", "",
              "| Output file | Source / synthesis | Take; original crop; pitch |", "|---|---|---|"]
     for e in builder.entries:
@@ -478,6 +734,7 @@ def main() -> None:
     synthesis(builder)
     mechanics(builder)
     burst_tails(builder)
+    models(builder)
     metadata(builder)
     size = sum((args.out / e["file"]).stat().st_size for e in builder.entries)
     print(f"Generated {len(builder.entries)} WAV files: PCM16, 48000 Hz; {size} bytes")

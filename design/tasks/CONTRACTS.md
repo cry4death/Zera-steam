@@ -214,6 +214,7 @@ func open(stats: Dictionary) -> void
 | `weapons/<gun>/dry` | сухой щелчок | Raw (A2) |
 | `weapons/revolver/cyl_open`, `cyl_close`, `eject`, `load` | барабан, выброс гильз, заряжание | Raw (A2) |
 | `weapons/shotgun/shell_in` | патрон в трубчатый магазин (по одному) | Raw (A2) |
+| `weapons/<gun модели>/…` | голоса моделей из ящиков (A3): `m4`, `guard`, `osa` — shot, mag_out, mag_in, rack, dry; `shkval`, `winchester` — shot, rack, shell_in, dry; `cowboy` — shot, cyl_open, cyl_close, eject, load, `hammer` (взвод курка), dry; `spear`, `hive` — shot (синтез) + `hive/stick` (прилипание) | Prepared + Raw / синтез (A3) |
 | `casings/brass_small`, `brass_rifle`, `shell` | падение гильзы на асфальт (2–3 отскока), моно, ≥ 6 вариантов | синтез (A1) |
 | `casings/mag_drop` | пустой магазин упал на пол | синтез (A1) или Raw (A2) |
 | `explosions/grenade` | взрыв гранаты/гранатомёта, ≥ 4 варианта | синтез (A1) |
