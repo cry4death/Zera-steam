@@ -159,6 +159,10 @@ func setup(arena_rect: Rect2, target: Player, floor_layer: FloorDecals) -> void:
 	_grid_w = ceili(arena.size.x / CELL)
 	_grid_h = ceili(arena.size.y / CELL)
 	_head.resize(_grid_w * _grid_h)
+	# Границы MultiMesh — вся арена. Иначе Godot отсекает орду целиком по устаревшему
+	# прямоугольнику, и зомби пропадают, стоит уйти от места, где он был посчитан.
+	var r := arena.grow(SPRITE_SIZE)
+	_mm.custom_aabb = AABB(Vector3(r.position.x, r.position.y, -1.0), Vector3(r.size.x, r.size.y, 2.0))
 
 
 func spawn(p: Vector2, k := Kind.SHAMBLER, is_elite := false) -> int:
