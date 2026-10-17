@@ -11,6 +11,9 @@ extends Node2D
 ## Предметы и граната: godot --path . -- --s3-test --shot=путь.png
 ## Орда, лужи крови, предметы на полу, бросок гранаты; снимки s3_*.png и строки S3TEST.
 ##
+## HUD: godot --path . -- --hud-test --shot=путь/h1.png (оконный)
+## Снимки боя, перезарядки, низкого HP, тревоги, босса, операции кампании, отладки и 720p: h1_*.png.
+##
 ## Тревога: godot --path . -- --alarm [--no-fire] [--shot=путь.png]
 ## Старт в 6:55, оружие как --loadout, бессмертие; раз в секунду печатает ALARM t=..,
 ## в конце — худший кадр. С --no-fire зомби не убиваются (пик 500 живых).
@@ -93,6 +96,7 @@ var _zoom := 1.0
 var _gore_stress := false
 var _no_fire := false
 var _ui_test := false
+var _hud_test := false
 var _s3_test := false
 var _weapons_test := false
 var _meta_test := false
@@ -119,6 +123,7 @@ var _bench_frame_ms := 0.0
 var _bench_worst_ms := 0.0
 var _bench_horde_ms := 0.0
 var _bench_physics_ms := 0.0
+var _bench_hud_ms := 0.0
 var _bench_enemies := 0
 var _audio_test := false
 var _aim_test := false
@@ -221,6 +226,8 @@ func _ready() -> void:
 			_s3_test = true # предметы на кровавом полу и бросок гранаты
 		elif arg == "--ui-test":
 			_ui_test = true # снимки экрана Level Up и выбора ствола
+		elif arg == "--hud-test":
+			_hud_test = true # снимки боевого HUD (H1)
 		elif arg == "--sim" or arg.begins_with("--sim="):
 			_sim = true # прогон забега на ускорении с отчётом раз в минуту
 			_sim_until = arg.trim_prefix("--sim=").to_float() if arg.begins_with("--sim=") else 600.0
@@ -390,6 +397,8 @@ func _ready() -> void:
 			weapons.process_mode = Node.PROCESS_MODE_DISABLED
 	if _ui_test:
 		_run_ui_test()
+	if _hud_test:
+		_run_hud_test.call_deferred()
 	if _s3_test:
 		spawner.enabled = false
 		_run_s3_test()
@@ -1198,6 +1207,139 @@ func _run_ui_test() -> void:
 	get_tree().quit()
 
 
+## --hud-test: готовый билд с разными моделями, орда вокруг, затем снимки HUD (H1).
+func _run_hud_test() -> void:
+	var hud: Control = $HUD/Hud
+	if DisplayServer.get_name() != "headless":
+		Meta.settings["fullscreen"] = false
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+		get_window().size = Vector2i(1920, 1080)
+	await get_tree().create_timer(0.5).timeout
+	spawner.enabled = false
+	player.god_mode = true
+	player.autopilot = true
+	gems.collected.disconnect(progression.add_xp) # уровень задаём сами, без меню Level Up
+	# начало забега: один ствол, чистый HUD с подсказкой управления
+	horde.spawn_group(player.position + Vector2(160.0, 0.0), 12)
+	await get_tree().create_timer(1.5).timeout
+	await _hud_shot("start")
+	_full_loadout()
+	for pair: Array in [[0, "m4"], [1, "shkval"], [2, "spear"], [3, "hive"]]:
+		weapons.slots[pair[0]].set_model(pair[1])
+		weapons.refresh(pair[0])
+	player.max_hp = 120.0
+	player.dash_max = 2
+	player.adrenaline = true
+	trader_visit = 1
+	time = 372.0
+	_hud_state()
+	for k in 150:
+		horde.spawn(player.position + Vector2.from_angle(randf() * TAU) * randf_range(60.0, 300.0), randi() % 4)
+	for k in 3:
+		horde.spawn(player.position + Vector2.from_angle(randf_range(-0.5, 0.5)) * randf_range(380.0, 460.0), Horde.Kind.SHAMBLER, true)
+	pickups.spawn(player.position + Vector2(-400.0, 80.0), Pickups.Kind.CRATE)
+	await get_tree().create_timer(3.0).timeout
+	_hud_state()
+	await _hud_shot("battle")
+	# перезарядка: два ствола на разных стадиях
+	for pair: Array in [[1, 0.35], [2, 0.7]]:
+		var s: Weapons.Slot = weapons.slots[pair[0]]
+		weapons._start_reload(s)
+		s.reload_t = float(s.stats["reload"]) * pair[1]
+	weapons.slots[0].mag = 6
+	weapons.slots[3].charged = true
+	await get_tree().create_timer(0.3).timeout
+	await _hud_shot("reload")
+	# низкое HP: удар по бойцу от зомби слева-снизу
+	player.hp = 70.0
+	horde.spawn(player.position + Vector2(-13.0, 9.0), Horde.Kind.SHAMBLER)
+	await get_tree().create_timer(0.1).timeout # зомби должен попасть в сетку орды
+	player.god_mode = false
+	player.hp = 46.0
+	player.take_damage(24.0)
+	await get_tree().create_timer(0.12).timeout
+	await _hud_shot("lowhp")
+	player.god_mode = true
+	player.hp = 87.0
+	# тревога: контейнер и элитки за краем
+	time = BloodAlarm.START - 0.5
+	pickups.spawn(player.position + Vector2(380.0, -150.0), Pickups.Kind.CONTAINER)
+	await get_tree().create_timer(6.0).timeout
+	_hud_state()
+	await _hud_shot("alarm")
+	# дальше тревога не нужна: без контейнера и меню награды
+	blood_alarm.phase = BloodAlarm.Phase.DONE
+	spawner.alarm = false
+	alarm_overlay.stop()
+	while pickups.count > 0:
+		pickups._remove(0)
+	# босс: сначала за краем, затем полоса здоровья
+	trader_visit = TRADER_TIMES.size()
+	time = 598.0
+	await get_tree().create_timer(2.6).timeout
+	await _hud_shot("boss_far")
+	await get_tree().create_timer(3.0).timeout
+	boss.hp = Boss.MAX_HP * 0.64
+	_hud_state()
+	await _hud_shot("boss")
+	# операция кампании и отладка
+	var offers := Campaign.offers()
+	var op := {"name": "Красный коридор", "threat": 4, "modifiers": ["runner_surge", "resource_cache"]}
+	for offer: Dictionary in offers:
+		if offer["modifiers"].size() > 0:
+			op = CampaignRules.mission(Meta.campaign, offer, 1)
+			break
+	hud.set_operation(op)
+	print("HUDTEST operation=%s threat=%d modifiers=%s" % [op["name"], op["threat"], op["modifiers"]])
+	await _hud_shot("op")
+	hud.show_debug = true
+	await _hud_shot("debug")
+	hud.show_debug = false
+	# 720p
+	if DisplayServer.get_name() != "headless":
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+		get_window().size = Vector2i(1280, 720)
+		await get_tree().create_timer(0.5).timeout
+	print("HUDTEST window=%s viewport=%s" % [DisplayServer.window_get_size(), get_viewport().get_visible_rect().size])
+	_hud_state()
+	await _hud_shot("720p")
+	# нестандартные пропорции: 4:3 и 21:9
+	if DisplayServer.get_name() != "headless":
+		for shape: Array in [["43", Vector2i(1440, 1080)], ["wide", Vector2i(1920, 822)]]:
+			get_window().size = shape[1]
+			await get_tree().create_timer(0.5).timeout
+			_hud_state()
+			await _hud_shot(shape[0])
+	print("HUDTEST screenshots saved")
+	get_tree().quit()
+
+
+## Состояние для снимков: цифры, которые бой сам не успевает набрать.
+func _hud_state() -> void:
+	progression.level = 7
+	progression.xp = Progression.xp_to_next(7) / 2
+	progression.credits = 340
+	progression.passives = {WeaponDefs.Passive.DAMAGE: 2, WeaponDefs.Passive.FIRE_RATE: 1, WeaponDefs.Passive.HP: 1}
+	kills = 1234
+	combo = 14
+	_combo_timer = 1.1
+	if not player.is_dead and player.god_mode:
+		player.hp = 87.0
+	player.dash_left = 1
+	player.dash_cd = 1.2
+	player.adrenaline_cd = 4.0
+	player.grenade_cd = 3.0
+
+
+func _hud_shot(suffix: String) -> void:
+	await RenderingServer.frame_post_draw
+	if _shot_path == "" or DisplayServer.get_name() == "headless":
+		return
+	var path := _shot_path.replace(".png", "_" + suffix + ".png")
+	assert(get_viewport().get_texture().get_image().save_png(path) == OK)
+	print("HUDTEST screenshot: ", path)
+
+
 ## Последние полминуты сохраняют слабую орду; предупреждение не мешает управлению.
 func _boss_timeline() -> void:
 	if time >= 570.0 and not _boss_warned:
@@ -1309,14 +1451,39 @@ func _on_boss_died(at: Vector2) -> void:
 		get_tree().quit()
 
 
+## Строки подсчёта ДНК за забег (рапорт и прогноз HUD).
+func _dna_lines() -> Array[Array]:
+	return [["Время × 10", floori(time / 6.0)], ["Убийства / 50", kills / 50], ["Элитки × 5", elites_killed * 5]]
+
+
+## Прогноз ДНК за забег без бонуса победы (для HUD).
+func dna_forecast() -> int:
+	var subtotal := 0
+	for line in _dna_lines():
+		subtotal += int(line[1])
+	return subtotal
+
+
+## Ближайшее запланированное событие для HUD: {"name", "at"} (время забега, с) или пусто.
+func next_event() -> Dictionary:
+	var best := {}
+	if trader_visit < TRADER_TIMES.size():
+		best = {"name": "ТОРГОВЕЦ", "at": TRADER_TIMES[trader_visit]}
+	if blood_alarm.phase == BloodAlarm.Phase.IDLE and time < BloodAlarm.START + BloodAlarm.WARN_TIME:
+		if best.is_empty() or BloodAlarm.START < float(best["at"]):
+			best = {"name": "ТРЕВОГА", "at": BloodAlarm.START}
+	if not _boss_spawned and not boss.is_alive():
+		if best.is_empty() or 600.0 < float(best["at"]):
+			best = {"name": "ОБЪЕКТ-7", "at": 600.0}
+	return best
+
+
 func _result_stats(victory: bool) -> Dictionary:
 	var names: Array[String] = []
 	for s in weapons.slots:
 		names.append("%s ур.%d · %s %s" % [WeaponDefs.MODELS[s.model]["name"], s.level, WeaponDefs.AMMO[s.ammo]["name"], WeaponDefs.ROMAN[s.ammo_rank]])
-	var lines: Array[Array] = [["Время × 10", floori(time / 6.0)], ["Убийства / 50", kills / 50], ["Элитки × 5", elites_killed * 5]]
-	var subtotal := 0
-	for line in lines:
-		subtotal += int(line[1])
+	var lines := _dna_lines()
+	var subtotal := dna_forecast()
 	var mult := 1.5 if victory else 1.0
 	return {"victory": victory, "time": time, "kills": kills, "elites": elites_killed, "best_combo": best_combo,
 		"blood_liters": floor_decals.stamps_total * 0.015, "weapons": names, "crates": crates, "military_crates": military_crates,
@@ -1493,6 +1660,7 @@ func _bench_step(delta: float) -> void:
 	_bench_worst_ms = maxf(_bench_worst_ms, delta * 1000.0)
 	_bench_horde_ms += horde.update_ms
 	_bench_physics_ms += Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
+	_bench_hud_ms += $HUD/Hud.draw_ms
 	_bench_enemies += horde.count
 	if _bench_t < BENCH_WARMUP + BENCH_DURATION:
 		return
@@ -1506,7 +1674,7 @@ func _bench_step(delta: float) -> void:
 		label, Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
 		Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), Performance.get_monitor(Performance.OBJECT_COUNT),
 		gore.count, effects.particle_count(), floor_decals.pool_count()])
-	print("%s physics_avg_ms=%.2f" % [label, _bench_physics_ms / n])
+	print("%s physics_avg_ms=%.2f hud_ms=%.3f" % [label, _bench_physics_ms / n, _bench_hud_ms / n])
 	if _shot_path != "":
 		await RenderingServer.frame_post_draw
 		get_viewport().get_texture().get_image().save_png(_shot_path)
