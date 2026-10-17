@@ -82,7 +82,7 @@
 | [A4](M7/A4_sfx_horde_gore.md) | Sonnet | high | звуки орды, gore, игрока, UI (CC0 + синтез) | — | ПРИНЯТО ([ревью](reviews/A4.md)), в main |
 | [S7](M7/S7_horde_audio_settings.md) | Sonnet | high | звук орды и gore в игре, низкое HP, меню паузы, громкость и жестокость | A4 ✅, S6 ✅ | ПРИНЯТО ([ревью](reviews/S7.md)), в main |
 | [S8](M7/S8_manual_aim.md) | Codex/Sonnet | high | ручной прицел: отключаемая автострельба, ПКМ — свой прицел, геймпад-стик, граната на G/СКМ (запрос автора) | S7 ✅ | ПРИНЯТО ([ревью](reviews/S8.md)), в main |
-| [P1](M7/P1_performance.md) | Sonnet | high | производительность на встроенной GPU: ≥ 60 FPS на `--loadout --bench=500` | — | в работе |
+| [P1](M7/P1_performance.md) | Sonnet | high | производительность на встроенной GPU: ≥ 60 FPS на `--loadout --bench=500` | — | ПРИНЯТО ([ревью](reviews/P1.md)), в main |
 | [G7](M7/G7_gun_sprites.md) | Sonnet | high | спрайты 16 стволов: поиск пака / перерисовка, боевой масштаб (запрос автора) | — | ПРИНЯТО ([ревью](reviews/G7.md)), в main |
 | [H1](M7/H1_combat_hud.md) | Sonnet | high | новый боевой HUD: иконки стволов, патроны, кулдауны, события, указатели (запрос автора) | — | ПРИНЯТО ([ревью](reviews/H1.md)), в main |
 | [E1](M7/E1_explosions.md) | Codex | high | реалистичные взрывы: огонь, дым, волна, обломки, подпалина (запрос автора); подключение E1b — после P1 | — | система ПРИНЯТА ([ревью](reviews/E1.md)), E1b ждёт P1 |
