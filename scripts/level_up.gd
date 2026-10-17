@@ -182,7 +182,7 @@ func _draw_slots(font: Font, w: float, h: float) -> void:
 		var col := Color(0.92, 0.9, 0.85) if ok else Color(0.45, 0.45, 0.43)
 		draw_rect(r, Color(0.08, 0.07, 0.07, 0.95))
 		draw_rect(r, Color(col, 0.9 if (_hover == i and ok) else 0.4), false, 1.0)
-		_text(font, r.position + Vector2(8, 13), "%d. %s ур.%d" % [i + 1, WeaponDefs.BASES[s.base]["short"], s.level], col, 11)
+		_text(font, r.position + Vector2(8, 13), "%d. %s ур.%d" % [i + 1, s.short_name(), s.level], col, 11)
 		_text(font, r.position + Vector2(8, 25), slot_summary(s), Color(col, 0.7), 8)
 		var right := status if ok else "нет места"
 		var tw := font.get_string_size(right, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x

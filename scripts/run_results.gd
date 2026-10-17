@@ -33,6 +33,9 @@ func _ready() -> void:
 
 func open(stats: Dictionary) -> void:
 	_stats = stats.duplicate(true)
+	# Итоги забега уходят в мету: ДНК, ящики; сохранение пишется сразу, до нажатия кнопки.
+	Meta.add_run(_stats)
+	_stats["dna_bank"] = Meta.dna
 	_t = 0.0
 	_finished = false
 	_requested = false
@@ -124,20 +127,22 @@ func _draw() -> void:
 	draw_rect(panel, Color(accent, 0.55), false, 1.0)
 	draw_rect(Rect2(p, Vector2(260, 3)), accent)
 	_text_c(font, p + Vector2(130, 23), "ОБЪЕКТ-7 УНИЧТОЖЕН" if victory else "ВЫ ПОГИБЛИ", accent, 14)
-	_body = Rect2(p + Vector2(12, 34), Vector2(236, 207))
+	_body = Rect2(p + Vector2(12, 34), Vector2(236, 205))
 	_draw_receipt(font)
-	draw_line(p + Vector2(12, 247), p + Vector2(248, 247), Color(GOLD, 0.4))
+	draw_line(p + Vector2(12, 244), p + Vector2(248, 244), Color(GOLD, 0.4))
 	var lines: Array = _stats.get("dna_lines", [])
 	var total_progress := clampf((_t - lines.size() * LINE_DELAY - COUNT_TIME) / COUNT_TIME, 0.0, 1.0)
-	_pair(font, p + Vector2(12, 264), 236.0, "ИТОГО ДНК", str(roundi(int(_stats.get("dna_total", 0)) * total_progress)), GOLD, 13)
-	_button = Rect2(p + Vector2(58, 275), Vector2(144, 24))
+	_pair(font, p + Vector2(12, 258), 236.0, "ИТОГО ДНК", str(roundi(int(_stats.get("dna_total", 0)) * total_progress)), GOLD, 13)
+	if total_progress >= 1.0:
+		_text_c(font, p + Vector2(130, 268), "ДНК всего: %d" % int(_stats.get("dna_bank", 0)), MUTED, 8)
+	_button = Rect2(p + Vector2(58, 274), Vector2(144, 24))
 	draw_rect(_button, Color(0.19, 0.15, 0.08) if _hover else Color(0.12, 0.10, 0.07))
 	draw_rect(_button, Color(GOLD, 1.0 if _hover else 0.55), false, 1.0)
 	_text_c(font, _button.position + Vector2(72, 16), "ЕЩЁ РАЗ", GOLD, 11)
 	var hint := "R / Enter · допечатать" if not _finished else "R / Enter"
 	if _scroll_max > 0.0:
 		hint += " · ↑↓ / колесо — чек"
-	_text_c(font, p + Vector2(130, 310), hint, MUTED, 8)
+	_text_c(font, p + Vector2(130, 309), hint, MUTED, 8)
 
 
 func _draw_receipt(font: Font) -> void:

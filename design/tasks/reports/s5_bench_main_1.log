@@ -1,0 +1,3 @@
+BENCH frames=1662 avg_fps=166.1 avg_frame_ms=6.02 worst_frame_ms=122.60 horde_ms=2.41 enemies=497 kills=1074
+BENCH process_ms=10.14 physics_ms=10.23 draw_calls=946 objects=2164 gore=38 particles=47 wet=223
+BENCH physics_avg_ms=19.26

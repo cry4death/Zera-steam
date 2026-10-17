@@ -98,7 +98,7 @@ func _describe_offer(index: int) -> Dictionary:
 	# Экран может впервые открыться уже после покупки максимального уровня.
 	if offer["sold"] and card["type"] == "level":
 		var slot: Weapons.Slot = _weapons.slots[int(card["slot"])]
-		return {"kind": "УЛУЧШЕНИЕ СТВОЛА", "title": "%s · ур. %d" % [WeaponDefs.BASES[slot.base]["short"], slot.level], "lines": ["Улучшение приобретено"], "color": WHITE}
+		return {"kind": "УЛУЧШЕНИЕ СТВОЛА", "title": "%s · ур. %d" % [slot.short_name(), slot.level], "lines": ["Улучшение приобретено"], "color": WHITE}
 	if offer["sold"] and card["type"] == "passive":
 		var passive: Dictionary = WeaponDefs.PASSIVES[int(card["id"])]
 		return {"kind": "ПАССИВКА", "title": passive["name"], "lines": [passive["text"]], "color": GREEN}
@@ -372,7 +372,7 @@ func _draw_selection(font: Font, w: float, h: float) -> void:
 			subtitle = "Выбери ствол-источник · " + _move_cost()
 		Step.MOVE_MODULE:
 			heading = "ВЫБЕРИ МОДУЛЬ · 2/3"
-			subtitle = str(WeaponDefs.BASES[_weapons.slots[_source].base]["short"]) + " · " + _move_cost()
+			subtitle = _weapons.slots[_source].short_name() + " · " + _move_cost()
 			count = _weapons.slots[_source].modules.size()
 		Step.MOVE_TARGET:
 			heading = "КУДА ПЕРЕСТАВИТЬ · 3/3"
@@ -420,7 +420,7 @@ func _draw_weapon_row(font: Font, rect: Rect2, index: int) -> void:
 			status = _move_status(index) if enabled else ("ствол-источник" if index == _source else "нет места / кредитов")
 	_panel(rect, index, WHITE if enabled else MUTED, enabled)
 	var color := WHITE if enabled else MUTED
-	var title := "%d. %s ур.%d" % [index + 1, WeaponDefs.BASES[slot.base]["short"], slot.level]
+	var title := "%d. %s ур.%d" % [index + 1, slot.short_name(), slot.level]
 	_text(font, rect.position + Vector2(8.0, 13.0), _fit(font, title, rect.size.x * 0.44, 10), color)
 	_text_right(font, rect.position + Vector2(rect.size.x - 8.0, 13.0), _fit(font, status, rect.size.x * 0.52, 9), GREEN if enabled else RED, 9)
 	var summary := _wrap(font, slot_summary(slot), rect.size.x - 16.0, 8)
