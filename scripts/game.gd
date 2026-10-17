@@ -2454,7 +2454,7 @@ func _run_aim_test() -> void:
 	_aim_check(Input.mouse_mode == Input.MOUSE_MODE_VISIBLE and not $HUD/Hud.combat_cursor_visible(), "pause_system_cursor")
 	await _audio_shot("settings")
 	await _aim_move(Vector2(90, 65))
-	pause_menu._selected = 7
+	pause_menu._selected = PauseMenu.KEYS.find("auto_fire")
 	pause_menu._change(1)
 	_aim_check(not Meta.settings["auto_fire"], "settings_menu_toggle")
 	pause_menu.close()
@@ -2465,7 +2465,7 @@ func _run_aim_test() -> void:
 	var base_settings := PauseMenu.new()
 	$Overlay.add_child(base_settings)
 	base_settings.open(true)
-	base_settings._selected = 7
+	base_settings._selected = PauseMenu.KEYS.find("auto_fire")
 	base_settings._change(1)
 	_aim_check(Meta.settings["auto_fire"] and not get_tree().paused, "base_settings_shared_toggle")
 	base_settings.close()
