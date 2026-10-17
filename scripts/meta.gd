@@ -19,7 +19,7 @@ signal settings_changed
 var settings: Dictionary = DEFAULT_SETTINGS.duplicate()
 const SAVE_PATH := "user://zera_save.json"
 ## Любой из этих флагов (по началу строки) — тест-режим игры: сохранение только в памяти.
-const TEST_FLAGS := ["--fx-test", "--campaign-test", "--campaign-op", "--base-test", "--aim-test", "--audio-test", "--sim", "--bench", "--boss", "--alarm", "--ui-test", "--weapons-test", "--loadout", "--s3-test", "--meta-test", "--kinds", "--gore-stress", "--fresh-save"]
+const TEST_FLAGS := ["--fx-test", "--hud-test", "--campaign-test", "--campaign-op", "--base-test", "--aim-test", "--audio-test", "--sim", "--bench", "--boss", "--alarm", "--ui-test", "--weapons-test", "--loadout", "--s3-test", "--meta-test", "--kinds", "--gore-stress", "--fresh-save"]
 
 # Уровень класса: накоплено ДНК для уровня n = 80 · (n − 1)^1.5 (BALANCE §11.2)
 const LEVEL_DNA_K := 80.0
