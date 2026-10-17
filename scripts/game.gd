@@ -4,6 +4,9 @@ extends Node2D
 ## Бенчмарк: godot --path . -- --bench[=кол-во_зомби] [--shot=путь.png]
 ## Держит 500 зомби, игрок бессмертен и бегает сам; в конце печатает замеры и выходит.
 ##
+## Предметы и граната: godot --path . -- --s3-test --shot=путь.png
+## Орда, лужи крови, предметы на полу, бросок гранаты; снимки s3_*.png и строки S3TEST.
+##
 ## Тревога: godot --path . -- --alarm [--no-fire] [--shot=путь.png]
 ## Старт в 6:55, оружие как --loadout, бессмертие; раз в секунду печатает ALARM t=..,
 ## в конце — худший кадр. С --no-fire зомби не убиваются (пик 500 живых).
@@ -18,7 +21,13 @@ const COMBO_WINDOW := 1.5 # сек между убийствами, чтобы �
 const COMBO_TITLES := {10: "РЕЗНЯ!", 25: "МЯСОРУБКА!", 50: "КРОВАВАЯ БАНЯ!", 100: "БОЙНЯ!", 200: "АПОКАЛИПСИС!", 400: "ЖНЕЦ!"}
 const MULTIKILL_WINDOW := 0.15
 const DIRT_RADIUS := 48.0
-const CREDIT_CHANCE := 0.06 # шаркающий: 6% × 1 кредит (BALANCE.md §2.1)
+# дроп предметов (BALANCE.md §2.1, §2.3, §11.4)
+const MEDKIT_CHANCE := 0.004 # аптечка с любого врага
+const MEDKIT_CHANCE_ELITE := 0.05
+const MEDKIT_HEAL := 25.0
+const CRATE_CHANCE_ELITE := 0.10 # оружейный ящик с элитки
+const PART_CHANCE_ELITE := 0.20 # редкая деталь с элитки
+const DROP_SCATTER := 10.0 # предметы с одной элитки не лежат стопкой
 const CALM_RADIUS := 200.0 # затишье 9:00: зомби дальше этого от игрока убираются
 const TRADER_TIMES := [300.0, 540.0] # визиты торговца: 5:00 и 9:00 (BALANCE.md §9.2)
 
@@ -26,6 +35,10 @@ var time := 0.0
 var kills := 0
 var game_over := false
 var trader_visit := 0 # следующий визит торговца
+var nades := 0 # брошено гранат (для отчёта --sim)
+var crates := 0 # оружейные ящики, найденные за забег (открываются на базе, M6)
+var _alarm_xp := 0
+var _alarm_credits := 0
 
 # комбо и надписи (рисует HUD)
 var combo := 0
@@ -36,6 +49,8 @@ var announce_color := Color(0.9, 0.15, 0.1)
 var _combo_timer := 0.0
 var _burst_count := 0
 var _burst_t := -1.0
+var _loot_open := false # на экране награда (контейнер, деталь), а не Level Up
+var _loot_queue: Array[Dictionary] = [] # параметры наград; карты создаём перед показом
 
 # 400 обычных (8:00, BALANCE §7.1) + 6 элиток, пополняются отдельно.
 const KINDS_COUNTS := [220, 100, 40, 40]
@@ -48,6 +63,7 @@ var _zoom := 1.0
 var _gore_stress := false
 var _no_fire := false
 var _ui_test := false
+var _s3_test := false
 var _sim := false
 var _sim_next_report := 60.0
 var _sim_until := 600.0
@@ -57,6 +73,7 @@ var _alarm_worst_ms := 0.0
 var _alarm_min_fps := 9999
 var _alarm_peak := 0
 var _alarm_shot_done := false
+var _alarm_drop_shot_done := false
 var _alarm_chain_done := false
 var _alarm_chain_frames: Array[float] = []
 var _alarm_end_t := -1.0
@@ -72,6 +89,7 @@ var _bench_enemies := 0
 @onready var weapons: Weapons = $World/Weapons
 @onready var gems: Gems = $World/Gems
 @onready var credit_drops: Gems = $World/Credits
+@onready var pickups: Pickups = $World/Pickups
 @onready var progression: Progression = $Progression
 @onready var level_up: Control = $Overlay/LevelUp
 @onready var trader: Trader = $Trader
@@ -113,6 +131,8 @@ func _ready() -> void:
 		elif arg == "--alarm":
 			_alarm = true # тревога: старт в 6:55, оружие как --loadout
 			_full_loadout.call_deferred()
+		elif arg == "--s3-test":
+			_s3_test = true # предметы на кровавом полу и бросок гранаты
 		elif arg == "--ui-test":
 			_ui_test = true # снимки экрана Level Up и выбора ствола
 		elif arg == "--sim" or arg.begins_with("--sim="):
@@ -138,6 +158,10 @@ func _ready() -> void:
 	weapons.camera = camera
 	gems.player = player
 	credit_drops.player = player
+	pickups.player = player
+	pickups.effects = effects
+	pickups.floor_decals = floor_decals
+	pickups.camera = camera
 	progression.weapons = weapons
 	progression.player = player
 	progression.gems = gems
@@ -163,6 +187,7 @@ func _ready() -> void:
 	_update_view()
 
 	horde.enemy_killed.connect(_on_enemy_killed)
+	horde.enemy_died.connect(_on_enemy_died)
 	horde.enemy_killed.connect(gore.on_enemy_killed)
 	horde.enemy_wounded.connect(gore.on_enemy_wounded)
 	horde.enemy_hit.connect(gore.on_enemy_hit)
@@ -172,6 +197,8 @@ func _ready() -> void:
 	gore.splatter.connect(_on_splatter)
 	horde.player_touched.connect(player.take_damage)
 	player.hurt.connect(_on_player_hurt)
+	player.grenade_landed.connect(_on_grenade_landed)
+	pickups.collected.connect(_on_pickup)
 	player.died.connect(_on_player_died)
 	gems.collected.connect(progression.add_xp)
 	credit_drops.collected.connect(_on_credits_collected)
@@ -196,6 +223,9 @@ func _ready() -> void:
 			weapons.process_mode = Node.PROCESS_MODE_DISABLED
 	if _ui_test:
 		_run_ui_test()
+	if _s3_test:
+		spawner.enabled = false
+		_run_s3_test()
 	if _bench:
 		player.god_mode = true
 		player.autopilot = true
@@ -212,10 +242,10 @@ func _physics_process(delta: float) -> void:
 		return
 	time += delta
 	if _sim:
-		player.auto_target = gems.nearest(player.global_position, 260.0)
-	if _sim and time >= _sim_next_report:
-		_sim_next_report += 60.0
-		_sim_report()
+		player.auto_target = pickups.nearest(player.global_position, 400.0)
+		if player.auto_target == Vector2.INF:
+			player.auto_target = gems.nearest(player.global_position, 260.0)
+		_sim_grenade()
 	horde.minutes = time / 60.0
 	spawner.time = time
 	blood_alarm.time = time
@@ -223,6 +253,9 @@ func _physics_process(delta: float) -> void:
 	credit_drops.radius = gems.radius # пассивка подбора действует и на кредиты
 	if trader_visit < TRADER_TIMES.size() and time >= TRADER_TIMES[trader_visit]:
 		_open_trader()
+	if _sim and time >= _sim_next_report:
+		_sim_next_report += 60.0
+		_sim_report()
 	if _bench and horde.count < _bench_target:
 		if _kinds:
 			_fill_kinds()
@@ -305,17 +338,148 @@ func _on_enemy_killed(pos: Vector2, _dir: Vector2, _death: int, _facing: float, 
 	_burst_t = time
 	if pos.distance_to(player.global_position) < DIRT_RADIUS:
 		player.add_dirt(1.0)
-	var mult := roundi(blood_alarm.reward_mult()) # тревога: опыт и кредиты ×2
-	gems.spawn(pos, mult)
-	if randf() < CREDIT_CHANCE:
-		credit_drops.spawn(pos, mult)
 
 
-## Контейнер тревоги: подбор и выбор модулей делает S3, пока только журнал.
+## Дроп по типу врага (таблица Horde.KINDS), тревога удваивает опыт и кредиты.
+func _on_enemy_died(pos: Vector2, kind: int, is_elite: bool) -> void:
+	var mult := roundi(blood_alarm.reward_mult())
+	var xp_before := gems.spawned_total
+	var credits_before := credit_drops.spawned_total
+	var def: Dictionary = Horde.KINDS[kind]
+	if is_elite:
+		gems.spawn(pos, Horde.ELITE_XP * mult)
+		credit_drops.spawn(pos, Horde.ELITE_CREDITS * mult) # у элитки кредиты гарантированы
+		if randf() < CRATE_CHANCE_ELITE:
+			pickups.spawn(_scatter(pos), Pickups.Kind.CRATE)
+		if randf() < PART_CHANCE_ELITE:
+			pickups.spawn(_scatter(pos), Pickups.Kind.PART)
+	else:
+		gems.spawn(pos, int(def["xp"]) * mult)
+		if randf() < float(def["credit_chance"]):
+			credit_drops.spawn(pos, int(def["credits"]) * mult)
+	if randf() < (MEDKIT_CHANCE_ELITE if is_elite else MEDKIT_CHANCE):
+		pickups.spawn(_scatter(pos), Pickups.Kind.MEDKIT)
+	if mult > 1:
+		_alarm_xp += gems.spawned_total - xp_before
+		_alarm_credits += credit_drops.spawned_total - credits_before
+
+
+func _scatter(p: Vector2) -> Vector2:
+	return p + Vector2.from_angle(randf() * TAU) * randf_range(0.0, DROP_SCATTER)
+
+
+## Граната игрока приземлилась: взрыв без привязки к стволу, рвёт на гибы.
+func _on_grenade_landed(at: Vector2) -> void:
+	nades += 1
+	weapons.explode(at, Player.GRENADE_DAMAGE, Player.GRENADE_RADIUS)
+
+
+## Контейнер тревоги упал: он лежит до подбора (см. Pickups).
 func _on_container_dropped(pos: Vector2) -> void:
 	_alarm_end_t = time
+	pickups.spawn(pos, Pickups.Kind.CONTAINER)
+	if _alarm and _shot_path != "":
+		player.autopilot = false # даём снять приземлившийся контейнер до автоподбора
 	if _sim or _alarm:
 		print("CONTAINER dropped pos=%s time=%02d:%02d" % [pos, int(time) / 60, int(time) % 60])
+		print("ALARM rewards mult=2 xp=%d credits=%d" % [_alarm_xp, _alarm_credits])
+
+
+# --- Предметы -----------------------------------------------------------------------------
+
+func _on_pickup(kind: int, pos: Vector2) -> void:
+	match kind:
+		Pickups.Kind.MEDKIT:
+			player.hp = minf(player.hp + MEDKIT_HEAL, player.max_hp)
+			for k in 8:
+				effects.emit(pos, Vector2.from_angle(randf() * TAU) * randf_range(10.0, 50.0), randf_range(0.3, 0.6), Color(0.4, 1.0, 0.5), 1.5, 4.0)
+		Pickups.Kind.CRATE:
+			crates += 1
+			_announce("ОРУЖЕЙНЫЙ ЯЩИК", Color(1.0, 0.75, 0.3))
+		Pickups.Kind.PART:
+			_open_loot("РЕДКАЯ ДЕТАЛЬ", "выбери одну из двух", 2, true, true)
+		Pickups.Kind.CONTAINER:
+			crates += 1
+			_open_loot("КРОВАВЫЙ КОНТЕЙНЕР", "выбери модуль · +1 оружейный ящик", 3, false, false)
+			if _sim or _alarm:
+				print("CONTAINER picked time=%02d:%02d crates=%d" % [int(time) / 60, int(time) % 60, crates])
+
+
+## Карты награды: модули (контейнер) или модули и патроны (деталь). Выбор не списывает
+## отложенный Level Up. all_rare — все карты редкие, иначе по шансу, но хотя бы одна редкая.
+func _loot_cards(count: int, with_ammo: bool, all_rare: bool) -> Array:
+	var options: Array = []
+	for m in WeaponDefs.MODULES:
+		for i in weapons.slots.size():
+			if progression.module_status(i, m) != "":
+				options.append({"type": "module", "id": m})
+				break
+	if with_ammo:
+		for a in WeaponDefs.AMMO.size():
+			for i in weapons.slots.size():
+				if progression.ammo_status(i, a) != "":
+					options.append({"type": "ammo", "id": a})
+					break
+	options.shuffle()
+	var cards: Array = options.slice(0, count)
+	var rare_chance := 0.05 + 0.015 * time / 60.0 # как у обычных карт Level Up
+	var any_rare := false
+	for c: Dictionary in cards:
+		c["rare"] = all_rare or randf() < rare_chance
+		any_rare = any_rare or c["rare"]
+	if not any_rare and not cards.is_empty():
+		cards.pick_random()["rare"] = true
+	return cards
+
+
+func _open_loot(title: String, sub: String, count: int, with_ammo: bool, all_rare: bool) -> void:
+	if _bench or _sim or _alarm:
+		var cards := _loot_cards(count, with_ammo, all_rare)
+		if cards.is_empty():
+			return
+		var card: Dictionary = cards.pick_random()
+		var slot := _auto_slot(card)
+		if slot != -2:
+			if _sim:
+				print("LOOT %s: %s slot=%d rare=%s" % [title, card["type"], slot, card["rare"]])
+			progression.apply(card, slot, false)
+		return
+	_loot_queue.append({"title": title, "sub": sub, "count": count, "ammo": with_ammo, "rare": all_rare})
+	if not level_up.visible and not trader_ui.visible:
+		_show_next_loot()
+
+
+func _show_next_loot() -> void:
+	while not _loot_queue.is_empty():
+		var loot: Dictionary = _loot_queue.pop_front()
+		# Предыдущая награда могла довести модуль до III — не предлагаем устаревшие карты.
+		var cards := _loot_cards(loot["count"], loot["ammo"], loot["rare"])
+		if cards.is_empty():
+			_announce("НЕЧЕГО УЛУЧШАТЬ", Color(0.7, 0.7, 0.66))
+			continue
+		_loot_open = true
+		get_tree().paused = true
+		level_up.open(cards, loot["title"], loot["sub"])
+		return
+	_after_overlay()
+
+
+## Куда автоматически поставить карту: -1 — слот не нужен, -2 — некуда.
+func _auto_slot(card: Dictionary) -> int:
+	if not Progression.needs_slot(card):
+		return -1
+	for i in weapons.slots.size():
+		if progression.slot_status(card, i) != "":
+			return i
+	return -2
+
+
+## Симуляция: бросаем гранату, если в точке падения набралась кучка зомби.
+func _sim_grenade() -> void:
+	if horde.count == 0 or player.grenade_cd > 0.0 or player.is_dead:
+		return
+	if horde.query_radius(player.grenade_target(), Player.GRENADE_RADIUS * 0.8).size() >= 6:
+		player.throw_grenade()
 
 
 func _on_credits_collected(value: int) -> void:
@@ -350,8 +514,21 @@ func _on_level_ready() -> void:
 
 
 func _on_card_chosen(card: Dictionary, slot: int) -> void:
-	progression.apply(card, slot)
-	if progression.pending > 0:
+	if _loot_open:
+		# награда (контейнер, деталь): Level Up не списывается
+		progression.apply(card, slot, false)
+		_loot_open = false
+	else:
+		progression.apply(card, slot)
+	_after_overlay()
+
+
+## Экран закрыт: сначала следующая награда, потом отложенные Level Up, иначе игра идёт.
+func _after_overlay() -> void:
+	if not _loot_queue.is_empty():
+		_show_next_loot()
+	elif progression.pending > 0:
+		get_tree().paused = true
 		level_up.open(progression.make_cards(time / 60.0))
 	else:
 		level_up.close()
@@ -359,6 +536,8 @@ func _on_card_chosen(card: Dictionary, slot: int) -> void:
 
 
 func _on_reroll() -> void:
+	if _loot_open or progression.rerolls <= 0:
+		return
 	progression.rerolls -= 1
 	level_up.open(progression.make_cards(time / 60.0))
 
@@ -366,6 +545,8 @@ func _on_reroll() -> void:
 # --- Торговец ---------------------------------------------------------------------------
 
 func _open_trader() -> void:
+	if level_up.visible:
+		return # награда могла открыться в этом же физическом кадре
 	# F4 может перескочить сразу через оба визита — открываем последний наступивший
 	while trader_visit + 1 < TRADER_TIMES.size() and time >= TRADER_TIMES[trader_visit + 1]:
 		trader_visit += 1
@@ -389,7 +570,9 @@ func _on_trader_closed() -> void:
 	await get_tree().physics_frame
 	await get_tree().physics_frame
 	get_tree().paused = false
-	if progression.pending > 0:
+	if not _loot_queue.is_empty():
+		_show_next_loot()
+	elif progression.pending > 0:
 		_on_level_ready()
 
 
@@ -491,9 +674,9 @@ func _sim_report() -> void:
 	for i in horde.count:
 		alive[horde.kind[i]] += 1
 		elites += horde.elite[i]
-	print("SIM %02d:00 level=%d kills=%d xp=%d/%d credits=%d/%d zombies=%d kinds=%d/%d/%d/%d elites=%d elites_spawned=%d fps=%d | %s" % [int(time / 60.0), progression.level, kills,
-		gems.collected_total, gems.spawned_total, credit_drops.collected_total, credit_drops.spawned_total, horde.count,
-		alive[0], alive[1], alive[2], alive[3], elites, spawner.elites_spawned, Engine.get_frames_per_second(), " | ".join(parts)])
+	print("SIM %02d:00 level=%d kills=%d xp=%d/%d credits=%d/%d credits_left=%d zombies=%d kinds=%d/%d/%d/%d elites=%d elites_spawned=%d crates=%d nades=%d fps=%d | %s" % [int(time / 60.0), progression.level, kills,
+		gems.collected_total, gems.spawned_total, credit_drops.collected_total, credit_drops.spawned_total, progression.credits, horde.count,
+		alive[0], alive[1], alive[2], alive[3], elites, spawner.elites_spawned, crates, nades, Engine.get_frames_per_second(), " | ".join(parts)])
 	if time >= _sim_until:
 		get_tree().quit()
 
@@ -543,10 +726,18 @@ func _alarm_step(delta: float) -> void:
 	if not _alarm_shot_done and t_rel >= BloodAlarm.WARN_TIME + 15.0:
 		_alarm_shot_done = true
 		if _shot_path != "":
+			_announce("МУЛЬТИКИЛЛ ×15") # проверка: анонс не перекрывает заголовок тревоги
 			await RenderingServer.frame_post_draw
 			get_viewport().get_texture().get_image().save_png(_shot_path)
 			print("ALARM screenshot: ", _shot_path)
 			_alarm_skip_frames = 3
+	if _alarm_end_t >= 0.0 and not _alarm_drop_shot_done and _shot_path != "" and time >= _alarm_end_t + 0.9:
+		_alarm_drop_shot_done = true # контейнер уже приземлился
+		await RenderingServer.frame_post_draw
+		get_viewport().get_texture().get_image().save_png(_shot_path.replace(".png", "_container.png"))
+		print("ALARM screenshot: ", _shot_path.replace(".png", "_container.png"))
+		player.autopilot = not _no_fire
+		_alarm_skip_frames = 3
 	if _alarm_end_t >= 0.0 and time >= _alarm_end_t + 2.0:
 		_alarm = false
 		print("ALARM summary peak_zombies=%d min_fps=%d worst_frame_ms=%.1f physics_ms=%.2f process_ms=%.2f draw_calls=%d horde_ms=%.2f" % [
@@ -569,7 +760,26 @@ func _run_ui_test() -> void:
 	await RenderingServer.frame_post_draw
 	get_viewport().get_texture().get_image().save_png(_shot_path.replace(".png", "_slots.png"))
 	level_up.close()
+	# экран контейнера при двух отложенных Level Up: выбор их не списывает
+	progression.pending = 2
+	_open_loot("КРОВАВЫЙ КОНТЕЙНЕР", "выбери модуль · +1 оружейный ящик", 3, false, false)
+	await get_tree().create_timer(1.0, true).timeout
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(_shot_path.replace(".png", "_container.png"))
+	var rerolls_before := progression.rerolls
+	_on_reroll()
+	assert(progression.rerolls == rerolls_before and _loot_open)
+	print("UI test container reroll_blocked=true cards=%d" % level_up.cards.size())
+	level_up._pick(0)
+	await get_tree().create_timer(0.3, true).timeout
+	if level_up._card.is_empty() == false:
+		level_up._pick(0) # модуль на первый ствол
+		await get_tree().create_timer(0.3, true).timeout
+	print("UI test container pending_kept=%s level_up_open_again=%s loot_open=%s" % [progression.pending == 2, level_up.visible, _loot_open])
+	assert(progression.pending == 2 and level_up.visible and not _loot_open)
+	level_up.close()
 	progression.pending = 0
+	get_tree().paused = false
 	progression.credits = 230
 	time = TRADER_TIMES[0]
 	_open_trader()
@@ -648,6 +858,7 @@ static func _setup_input() -> void:
 	_add_action("move_down", [_key(KEY_S), _key(KEY_DOWN), _axis(JOY_AXIS_LEFT_Y, 1.0)])
 	_add_action("dash", [_key(KEY_SPACE), _key(KEY_SHIFT), _button(JOY_BUTTON_A)])
 	_add_action("reload", [_key(KEY_R), _button(JOY_BUTTON_X)])
+	_add_action("grenade", [_key(KEY_G), _mouse(MOUSE_BUTTON_RIGHT), _button(JOY_BUTTON_RIGHT_SHOULDER)])
 
 
 static func _add_action(action: StringName, events: Array) -> void:
@@ -664,6 +875,12 @@ static func _key(code: Key) -> InputEventKey:
 	return e
 
 
+static func _mouse(button: MouseButton) -> InputEventMouseButton:
+	var e := InputEventMouseButton.new()
+	e.button_index = button
+	return e
+
+
 static func _axis(axis: JoyAxis, value: float) -> InputEventJoypadMotion:
 	var e := InputEventJoypadMotion.new()
 	e.axis = axis
@@ -675,3 +892,122 @@ static func _button(button: JoyButton) -> InputEventJoypadButton:
 	var e := InputEventJoypadButton.new()
 	e.button_index = button
 	return e
+
+
+## --s3-test: кровавый пол, предметы, граната. Печатает S3TEST, снимки — s3_items/s3_fly/s3_boom.
+func _run_s3_test() -> void:
+	var dir := _shot_path.get_base_dir() if _shot_path != "" else "."
+	var gibs := [0]
+	var killed := [0]
+	horde.enemy_killed.connect(func(_p, _d, death: int, _f, _v) -> void:
+		killed[0] += 1
+		if death == Gore.Death.GIBS:
+			gibs[0] += 1)
+	_full_loadout()
+	for sl in weapons.slots:
+		sl.cooldown = 1.0e9 # стволы молчат: в счёт попадают только гранаты
+	for i in 2:
+		weapons.slots[i].modules.clear() # место под модули из контейнера
+		weapons.refresh(i)
+	player.god_mode = true
+	gems.collected.disconnect(progression.add_xp) # без Level Up по дороге: он ставит игру на паузу
+	var c := player.global_position
+	player.facing = Vector2.DOWN
+	player.aim_dir = Vector2.LEFT
+	assert(player.grenade_dir() == Vector2.LEFT) # стоим — по стволу
+	player._moving = true
+	assert(player.grenade_dir() == Vector2.DOWN) # идём — по движению
+	player._dash_t = 0.1
+	player._dash_dir = Vector2.UP
+	assert(player.grenade_dir() == Vector2.UP) # рывок — по фактическому движению
+	player._dash_t = 0.0
+	player._moving = false
+	player.facing = Vector2.RIGHT
+	player.aim_dir = Vector2.RIGHT
+	print("S3TEST direction standing=true moving=true dashing=true")
+	await get_tree().create_timer(0.5).timeout
+	# кровавый пол: полсотни зомби вокруг падают разом
+	for j in 60:
+		horde.spawn(c + Vector2.from_angle(randf() * TAU) * randf_range(20.0, 110.0), Horde.Kind.SHAMBLER)
+	await get_tree().create_timer(0.3).timeout
+	for j in horde.count:
+		horde.damage(j, 9999.0, Vector2.from_angle(randf() * TAU), 0.0)
+	await get_tree().create_timer(1.5).timeout
+	killed[0] = 0
+	gibs[0] = 0
+	# предметы на полу
+	var kinds := [Pickups.Kind.MEDKIT, Pickups.Kind.CRATE, Pickups.Kind.PART, Pickups.Kind.CONTAINER]
+	for k in kinds.size():
+		pickups.spawn(c + Vector2(-70.0 + 46.0 * k, -40.0), kinds[k])
+	player.hp = 60.0
+	await get_tree().create_timer(1.2).timeout
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(dir.path_join("s3_items.png"))
+	# толпа за пределами медленно подходит; кидаем гранату по ходу взгляда (вправо)
+	var target := c + Vector2.RIGHT * Player.GRENADE_DISTANCE
+	var frozen := horde.spawn(target, Horde.Kind.SHAMBLER)
+	var frozen_uid := horde.uid[frozen]
+	horde.freeze_t[frozen] = 3.0
+	for j in 25:
+		horde.spawn(target + Vector2(randf_range(-30.0, 30.0), randf_range(-30.0, 30.0)), Horde.Kind.SHAMBLER)
+	for j in 3:
+		horde.spawn(target + Vector2(randf_range(-20.0, 20.0), randf_range(-20.0, 20.0)), Horde.Kind.FAT)
+	await get_tree().create_timer(0.3).timeout
+	var alive_before := horde.count
+	print("S3TEST throw ok=%s cd=%.1f target=%s" % [player.throw_grenade(), player.grenade_cd, player.grenade_target()])
+	print("S3TEST throw again (должно быть false): %s" % player.throw_grenade())
+	await get_tree().create_timer(0.2).timeout
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(dir.path_join("s3_fly.png"))
+	await get_tree().create_timer(0.4).timeout
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(dir.path_join("s3_boom.png"))
+	await get_tree().create_timer(0.5).timeout
+	print("S3TEST grenade alive_before=%d alive_after=%d killed=%d gibs=%d nades=%d" % [alive_before, horde.count, killed[0], gibs[0], nades])
+	assert(killed[0] > 0 and killed[0] == gibs[0] and nades == 1)
+	assert(not horde.uid.slice(0, horde.count).has(frozen_uid))
+	print("S3TEST frozen_grenade_gibs=true")
+	# подбор: аптечка (HP 60 → 85), ящик, деталь, контейнер
+	player.position = c + Vector2(-70.0, -40.0)
+	await get_tree().create_timer(0.3).timeout
+	print("S3TEST medkit hp=%.0f items_left=%d" % [player.hp, pickups.count])
+	player.position = c + Vector2(-24.0, -40.0)
+	await get_tree().create_timer(0.3).timeout
+	print("S3TEST crate crates=%d announce=%s items_left=%d" % [crates, announce_text, pickups.count])
+	player.position = c + Vector2(22.0, -40.0)
+	await get_tree().create_timer(0.3).timeout
+	print("S3TEST part loot_open=%s paused=%s cards=%d" % [_loot_open, get_tree().paused, level_up.cards.size()])
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(dir.path_join("s3_part.png"))
+	level_up._pick(0)
+	if not level_up._card.is_empty():
+		level_up._pick(_auto_slot(level_up._card))
+	await get_tree().create_timer(0.3, true).timeout
+	print("S3TEST part chosen paused=%s" % get_tree().paused)
+	assert(not get_tree().paused)
+	player.position = c + Vector2(68.0, -40.0)
+	await get_tree().create_timer(0.3).timeout
+	print("S3TEST container crates=%d loot_open=%s cards=%d" % [crates, _loot_open, level_up.cards.size()])
+	level_up._pick(0)
+	if not level_up._card.is_empty():
+		level_up._pick(_auto_slot(level_up._card))
+	await get_tree().create_timer(0.3, true).timeout
+	print("S3TEST done paused=%s items_left=%d" % [get_tree().paused, pickups.count])
+	assert(not get_tree().paused and crates == 2)
+	# Время жизни проверяем отдельно от боя: обычные исчезают, контейнер остаётся.
+	var expiry := Pickups.new()
+	add_child(expiry)
+	expiry.process_mode = Node.PROCESS_MODE_DISABLED
+	for kind in Pickups.Kind.size():
+		expiry.spawn(c, kind)
+	expiry._physics_process(0.6)
+	expiry._physics_process(40.1)
+	assert(expiry.count == 1 and expiry.count_of(Pickups.Kind.CONTAINER) == 1)
+	print("S3TEST lifetime ordinary_expired=true container_kept=true")
+	expiry.queue_free()
+	player.god_mode = false
+	player.take_damage(9999.0)
+	await get_tree().create_timer(0.2, true).timeout
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(dir.path_join("s3_game_over.png"))
+	get_tree().quit()

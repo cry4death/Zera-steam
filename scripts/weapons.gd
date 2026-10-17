@@ -8,6 +8,7 @@ signal prototype_unlocked(slot: int, proto_name: String)
 
 const BULLET_RADIUS := 1.5
 const SHARD_SPEED := 300.0
+const GRENADE_KNOCK := 120.0 # отброс от гранаты игрока
 
 ## Один ствол игрока.
 class Slot:
@@ -406,7 +407,9 @@ func _on_kill(slot: int, e: int, dir: Vector2, depth: int) -> void:
 
 
 ## Взрыв: урон по площади, отброс, гибы. depth ограничивает цепные детонации.
-func explode(at: Vector2, dmg: float, radius: float, slot: int, depth := 0) -> void:
+## slot >= 0 — взрыв ствола (патроны, детонатор), slot = -1 — «ничей» (граната игрока):
+## урон без эффектов патронов, любая смерть — гибы.
+func explode(at: Vector2, dmg: float, radius: float, slot := -1, depth := 0) -> void:
 	_blasts.append([at, radius, 0.0])
 	if effects:
 		for k in 14:
@@ -418,14 +421,21 @@ func explode(at: Vector2, dmg: float, radius: float, slot: int, depth := 0) -> v
 	if floor_decals:
 		# подпалина: лёгкая копоть, чтобы не забивать кровь
 		floor_decals.stamp(PixelArt.tex("blood_%d" % (randi() % 8)), at, randf() * TAU, Color(0.07, 0.06, 0.055, 0.3), radius / 45.0)
-	var s := slots[slot]
+	var s: Slot = slots[slot] if slot >= 0 else null
+	var prev_override := horde.death_override
+	if s == null:
+		horde.death_override = Gore.Death.GIBS # граната рвёт на куски, даже замёрзших
 	for j in horde.query_radius(at, radius):
 		var d := horde.pos[j] - at
 		var falloff := 1.0 - clampf(d.length() / (radius + Horde.RADIUS), 0.0, 1.0) * 0.5
 		var dir := d.normalized() if d.length_squared() > 0.01 else Vector2.from_angle(randf() * TAU)
-		if _hit_enemy(slot, j, dmg * falloff, dir, horde.pos[j], s.stats["knock"] * 1.5, true):
+		if s == null:
+			if horde.damage(j, dmg * falloff, dir, GRENADE_KNOCK, WeaponDefs.Ammo.STANDARD, false, horde.pos[j], true) and effects:
+				effects.blood_hit(horde.pos[j], dir, false)
+		elif _hit_enemy(slot, j, dmg * falloff, dir, horde.pos[j], s.stats["knock"] * 1.5, true):
 			if depth < 2 and s.mod_rank(WeaponDefs.Module.DETONATOR) > 0:
 				_on_kill(slot, j, dir, depth)
+	horde.death_override = prev_override
 	var to_player := player.global_position.distance_to(at)
 	if camera and to_player < 120.0:
 		camera.shake(3.0 * (1.0 - to_player / 120.0))

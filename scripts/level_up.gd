@@ -19,6 +19,8 @@ var _ui := 3.0
 var _rects: Array[Rect2] = []
 var _hover := -1
 var _t := 0.0
+var _title := "" # режим награды (контейнер, деталь): свой заголовок вместо «УРОВЕНЬ N»
+var _subtitle := ""
 
 
 func _ready() -> void:
@@ -27,8 +29,11 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 
 
-func open(new_cards: Array) -> void:
+## title != "" — режим награды: свой заголовок, реролла нет (выбор не из Level Up).
+func open(new_cards: Array, title := "", subtitle := "") -> void:
 	cards = new_cards
+	_title = title
+	_subtitle = subtitle
 	_card = {}
 	_t = 0.0
 	visible = true
@@ -74,7 +79,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_4, KEY_KP_4:
 			_pick(3)
 		KEY_Q:
-			if _card.is_empty() and progression.rerolls > 0:
+			if _card.is_empty() and progression.rerolls > 0 and _title == "":
 				reroll_requested.emit()
 		KEY_ESCAPE:
 			_card = {}
@@ -121,8 +126,12 @@ func _draw() -> void:
 
 
 func _draw_cards(font: Font, w: float, h: float) -> void:
-	_text_c(font, Vector2(w * 0.5, 60), "УРОВЕНЬ %d" % (progression.level - progression.pending + 1), Color(0.95, 0.85, 0.5), 18)
-	_text_c(font, Vector2(w * 0.5, 76), "выбери улучшение", Color(0.7, 0.7, 0.66))
+	if _title == "":
+		_text_c(font, Vector2(w * 0.5, 60), "УРОВЕНЬ %d" % (progression.level - progression.pending + 1), Color(0.95, 0.85, 0.5), 18)
+		_text_c(font, Vector2(w * 0.5, 76), "выбери улучшение", Color(0.7, 0.7, 0.66))
+	else:
+		_text_c(font, Vector2(w * 0.5, 60), _title, Color(0.9, 0.2, 0.15), 18)
+		_text_c(font, Vector2(w * 0.5, 76), _subtitle, Color(0.7, 0.7, 0.66))
 	var total := cards.size() * CARD_W + (cards.size() - 1) * GAP
 	var x0 := (w - total) * 0.5
 	var y0 := h * 0.5 - CARD_H * 0.5 + 10.0
@@ -151,8 +160,8 @@ func _draw_cards(font: Font, w: float, h: float) -> void:
 					_text(font, r.position + Vector2(8, y), part, Color(0.65, 0.68, 0.72, pop), 8)
 					y += 9.5
 		_text(font, r.position + Vector2(CARD_W - 14, 16), str(i + 1), Color(1, 1, 1, 0.5 * pop), 10)
-	var hint := "1–3 / клик — выбрать"
-	if progression.rerolls > 0:
+	var hint := "1–%d / клик — выбрать" % cards.size()
+	if progression.rerolls > 0 and _title == "":
 		hint += " · Q — реролл (%d)" % progression.rerolls
 	_text_c(font, Vector2(w * 0.5, y0 + CARD_H + 26.0), hint, Color(0.6, 0.6, 0.56), 9)
 
