@@ -1,0 +1,42 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+PASS: initial counts
+PASS: spit speed 140
+PASS: arrival creates pool at target, null dependencies
+PASS: zero-length spit
+PASS: swept collision: hit removes spit without pool
+PASS: player beyond target is not hit
+PASS: overlap: two accepted ticks per second, total 5 damage
+PASS: overlap selects maximum DPS
+PASS: default pool: 3 seconds, six ticks, 15 damage, expires
+PASS: exit and re-entry do not reset acid cooldown
+PASS: dead player takes no acid damage
+PASS: 64-pool limit removes oldest after swap-remove
+PASS: pool silhouette remains fixed
+PASS: invalid pool dimensions are ignored
+PASS: explosions are queued
+PASS: maximum eight explosions per frame
+PASS: remaining explosions execute next frame
+PASS: flash expires after 0.25 seconds
+PASS: synchronous chain is deferred to next frame
+PASS: blast center: damage, random unit direction, knockback, explosive flag
+PASS: dead zombies are skipped
+PASS: blast edge falloff includes Horde.RADIUS
+PASS: normal blast radius 48
+PASS: elite blast radius 72 and scaled player damage 58.5 at minute 10
+PASS: acid stamps floor once
+PASS: blast emits radial blood, 20-30 pus, 8-10 baked drops
+PASS: blast stamps 2-3 blood pools and wet area
+PASS: camera shake 4 within 150
+PASS: camera shake attenuates to 2 at 225
+PASS: no camera shake beyond 300
+PASS: queue grows beyond reserve without dropping explosions
+PASS: wrapped FIFO preserves order during growth
+PASS: spit buffer grows without dropping projectiles
+PASS: clear resets all transient state
+BENCH: 120 physics steps, 40 spits, 64 pools, 8 blasts/step, 500 zombies (test double); average_us=1159.75833333333; worst_us=1703
+PASS: peak workload keeps counts stable
+PASS: integration with actual Horde, Player damage, Effects, FloorDecals, GameCamera
+PASS: fallback draw callback completed
+PASS: optional texture draw callback completed (synthetic texture, G3 art absent)
+RESULT: failures=0
