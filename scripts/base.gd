@@ -31,21 +31,13 @@ const PANEL_DARK := Color(0.04, 0.035, 0.035, 0.9)
 
 const TAB_NAMES := ["КАЗАРМА", "МАСТЕРСКАЯ", "АРСЕНАЛ", "СКЛАД", "ОПЕРАЦИИ"]
 const GLOBE_SCENE := preload("res://scenes/globe_view.tscn")
-const MODIFIER_TEXT := {
-	"runner_surge": "Прорыв бегунов: быстрые группы",
-	"elite_hunt": "Охота элиток: усиленные формы",
-	"acid_rain": "Кислотные выбросы: плевальщики",
-	"blood_frenzy": "Кровавая вспышка: тревога на 4:00",
-	"hardened_boss": "Броня объекта: +25% HP босса",
-	"resource_cache": "Военный склад: бонус снабжения",
-}
 const CATEGORY_NAMES := ["АВТОМАТЫ", "ДРОБОВИКИ", "РЕЙЛГАНЫ", "ГРАНАТОМЁТЫ", "ПИСТОЛЕТЫ", "РЕВОЛЬВЕРЫ", "ПП", "ВИНТОВКИ"]
 const BRANCH_COLORS := [Color(1.0, 0.52, 0.30), Color(1.0, 0.82, 0.35), Color(0.55, 0.92, 0.60)]
 const STAT_LABELS := {"damage": "УРОН", "rate": "СКОРОСТРЕЛЬНОСТЬ", "mag": "МАГАЗИН", "reload": "ПЕРЕЗАРЯДКА"}
 const RARITY_COLORS := [Color(0.72, 0.72, 0.68), WHITE, RARE]
 const CRATE_INFO := [
-	{"name": "ОБЫЧНЫЙ ЯЩИК", "odds": ["50% новая модель (15% редкая)", "50% пачка ДНК 30–80"], "tex": "base_crate"},
-	{"name": "ВОЕННЫЙ ЯЩИК", "odds": ["80% новая модель (50% редкая)", "20% пачка ДНК 30–80"], "tex": "base_crate_mil"},
+	{"name": "ОБЫЧНЫЙ ЯЩИК", "odds": ["50% — модель оружия,", "из них 15% — редкая", "50% — 30–80 образцов"], "tex": "base_crate"},
+	{"name": "ВОЕННЫЙ ЯЩИК", "odds": ["80% — модель оружия,", "из них 50% — редкая", "20% — 30–80 образцов"], "tex": "base_crate_mil"},
 ]
 
 # анимация вскрытия, секунды (у «вскрыть все» со второго ящика — быстрее)
@@ -65,6 +57,8 @@ static var _test_crates := 0
 var _ui := 3.0
 var _origin := Vector2.ZERO
 var _t := 0.0
+var _dna_prev := -1 # счётчик ДНК в прошлом кадре: рост запускает короткое выделение
+var _dna_flash := 0.0
 var _tab: int = Tab.OPERATIONS
 var _globe: GlobeView
 var _op_region := "east_europe"
@@ -76,6 +70,7 @@ var _op_scroll := 0
 static var _globe_test_started := false
 var _hits: Array[Dictionary] = []
 var _hover_key := ""
+var _pad_mode := false # последним использовалось устройство: геймпад (подсказки внизу)
 var _mouse := Vector2(-1000, -1000)
 var _msg := ""
 var _msg_t := 0.0
@@ -190,6 +185,7 @@ func _gui_input(event: InputEvent) -> void:
 				return
 	var motion := event as InputEventMouseMotion
 	if motion != null:
+		_pad_mode = false
 		_mouse = motion.position / _ui - _origin
 		_hover_key = _key_at(_mouse)
 		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if _hover_key != "" else Control.CURSOR_ARROW
@@ -205,6 +201,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	var key := event as InputEventKey
 	if key != null and key.pressed:
+		_pad_mode = false
 		var code := key.keycode
 		# буквенные команды работают и при русской раскладке
 		if key.physical_keycode in [KEY_A, KEY_D, KEY_W, KEY_S, KEY_E, KEY_F, KEY_R]:
@@ -238,6 +235,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	var pad := event as InputEventJoypadButton
 	if pad != null and pad.pressed:
+		_pad_mode = true
 		match pad.button_index:
 			JOY_BUTTON_A: _confirm()
 			JOY_BUTTON_B: _cancel()
@@ -624,7 +622,7 @@ func _record_history() -> void:
 		color = RARE if res["rare"] else WHITE
 		text = ("дубликат %s → +%d ДНК" % [m["short"], res["dna"]]) if res["duplicate"] else ("НОВАЯ: " + str(m["name"]))
 	else:
-		text = "пачка ДНК +%d" % res["dna"]
+		text = "Образцы: +%d ДНК" % res["dna"]
 	_history.push_front({"text": text, "color": color, "mil": _open_mil})
 	if _history.size() > 12:
 		_history.pop_back()
@@ -650,6 +648,11 @@ func _process(delta: float) -> void:
 		_globe.position = (Vector2(144, 64) + _origin) * _ui
 		_globe.size = Vector2(264, 238) * _ui
 	_t += delta
+	var dna_now := Meta.dna - _pending_dna
+	if _dna_prev >= 0 and dna_now > _dna_prev:
+		_dna_flash = 0.5
+	_dna_prev = dna_now
+	_dna_flash = maxf(_dna_flash - delta, 0.0)
 	_msg_t = maxf(_msg_t - delta, 0.0)
 	_shake = maxf(_shake - delta * 3.5, 0.0)
 	if _leaving:
@@ -844,7 +847,7 @@ func _dna_icon(c: Vector2, h: float, col: Color) -> void:
 	var pb := PackedVector2Array()
 	for i in 13:
 		var y := c.y - h * 0.5 + h * i / 12.0
-		var off := sin(i * 0.55 + _t * 2.0) * h * 0.22
+		var off := sin(i * 0.55 + 0.8) * h * 0.22 # статичный знак образцов, без анимации
 		pa.append(Vector2(c.x + off, y))
 		pb.append(Vector2(c.x - off, y))
 	for i in range(1, 12, 2):
@@ -954,7 +957,7 @@ func _draw_top(font: Font) -> void:
 	var shown := Meta.dna - _pending_dna
 	_dna_icon(Vector2(300, 20), 16.0, GOLD)
 	_text(font, Vector2(312, 13), "ОБРАЗЦЫ (ДНК)", MUTED, 7)
-	_text(font, Vector2(312, 31), _num(shown), GOLD, 16)
+	_text(font, Vector2(312, 31), _num(shown), GOLD.lerp(WHITE, _dna_flash * 2.0), 16)
 	# ящики
 	_draw_crate_chip(font, 0, Vector2(440, 6), Meta.crates, "ЯЩИКИ")
 	_draw_crate_chip(font, 1, Vector2(540, 6), Meta.military_crates, "ВОЕННЫЕ")
@@ -1001,14 +1004,19 @@ func _draw_hint(font: Font) -> void:
 	if _msg_t > 0.0:
 		_text_c(font, Vector2(320, 309), _msg, Color(RED, minf(_msg_t * 2.0, 1.0)), 8)
 		return
+	# подсказка для последнего использованного устройства; номера вкладок и так подписаны на кнопках вкладок
 	var tail := ""
 	match _tab:
-		Tab.BARRACKS: tail = "стрелки — выбор узла · E / клик — открыть (1 очко)"
-		Tab.WORKSHOP: tail = "↑↓ — модель · ←→ — параметр · E / клик по цене — улучшить"
-		Tab.ARSENAL: tail = "стрелки — выбор · E / клик по ★ — избранная (её предлагает Level Up)"
-		Tab.CRATES: tail = "←→ — тип · E — вскрыть · R — вскрыть все · Enter — пропуск"
+		Tab.BARRACKS: tail = "крестовина — выбор узла · A — открыть (1 очко)" if _pad_mode else "стрелки — выбор узла · E — открыть (1 очко)"
+		Tab.WORKSHOP: tail = "крестовина — модель и параметр · A — улучшить" if _pad_mode else "↑↓ — модель · ←→ — параметр · E — улучшить"
+		Tab.ARSENAL: tail = "A — выбрать модель для предложений при повышении уровня" if _pad_mode else "E — выбрать модель для предложений при повышении уровня"
+		Tab.CRATES: tail = "крестовина — тип · A — вскрыть · X — вскрыть все" if _pad_mode else "←→ — тип · E — вскрыть · R — вскрыть все · Enter — пропуск"
 		Tab.OPERATIONS: tail = "ЛКМ / стик — вращать · колесо / курки — масштаб · D-pad — регион · A / Enter — выбрать / начать"
-	_text_c(font, Vector2(320, 309), "1–5 / Tab — разделы · " + tail, DIM, 7)
+	if _tab == Tab.OPERATIONS:
+		tail = "1–5 / Tab — разделы · " + tail
+	elif _pad_mode:
+		tail = "LB / RB — вкладки · " + tail
+	_text_c(font, Vector2(320, 309), tail, MUTED, 7)
 
 
 func _draw_bottom(font: Font) -> void:
@@ -1291,7 +1299,7 @@ func _draw_arsenal(font: Font) -> void:
 	if owned:
 		var is_fav: bool = Meta.model_for(int(m["base"])) == id
 		if is_fav:
-			_text_c(font, Vector2(538, 295), "★ ИЗБРАННАЯ В КАТЕГОРИИ", GOLD, 8)
+			_text_c(font, Vector2(538, 295), "Избранная в категории", GOLD, 8)
 		else:
 			_button(font, Rect2(452, 281, 172, 17), "СДЕЛАТЬ ИЗБРАННОЙ [E]", GOLD, "fav:%d" % _ars_sel, true, 8)
 
@@ -1318,8 +1326,8 @@ func _draw_crates(font: Font) -> void:
 		if count == 0:
 			_crate(info["tex"], r.position + Vector2(74, 62), 2, Vector2.ZERO, 0.0, 1.0, tint)
 		_text_c(font, r.position + Vector2(74, 104), "×%d" % count, GOLD if count > 0 else DIM, 17)
-		_text_c(font, r.position + Vector2(74, 116), info["odds"][0], MUTED, 6)
-		_text_c(font, r.position + Vector2(74, 125), info["odds"][1], MUTED, 6)
+		for j in 3:
+			_text_c(font, r.position + Vector2(74, 115 + j * 8), info["odds"][j], MUTED, 6)
 		_hit(r, "csel:%d" % i)
 	var sel_count := Meta.military_crates if _crate_sel == 1 else Meta.crates
 	_button(font, Rect2(8, 206, 148, 24), "ВСКРЫТЬ [E]", GOLD, "copen:%d" % _crate_sel, sel_count > 0, 11)
@@ -1458,10 +1466,10 @@ func _draw_card(font: Font, _center: Vector2, accent: Color) -> void:
 				_text_c(font, Vector2(cx, yy), line, Color(WHITE, 0.85 * fa), 8)
 				yy += 9.5
 	else:
-		_text_c(font, Vector2(cx, top + 18), "Получено: образцы ДНК", Color(WHITE, fa), 11)
+		_text_c(font, Vector2(cx, top + 18), "Получено: образцы", Color(WHITE, fa), 11)
 		_dna_icon(Vector2(cx, top + 62), 44.0, Color(GOLD, fa))
 		_text_c(font, Vector2(cx, top + 118), "+%d ДНК" % res["dna"], Color(GOLD, fa), 20)
-		_text_c(font, Vector2(cx, top + 132), "добавлено на счёт", Color(MUTED, fa), 8)
+		_text_c(font, Vector2(cx, top + 132), "Передано в лабораторию", Color(MUTED, fa), 8)
 	var hint := "Enter / клик — дальше"
 	if _open_all and not _open_queue.is_empty():
 		hint = "дальше через %.1f с · Enter / клик — сразу" % maxf(AUTO_NEXT - _open_t, 0.0)
@@ -1496,7 +1504,7 @@ func _draw_summary(font: Font) -> void:
 		_text(font, Vector2(r.position.x + 14, y), "НОВАЯ: " + str(m["name"]), RARE if m["rarity"] == WeaponDefs.Rarity.RARE else WHITE, 9)
 		y += 12
 	y += 6
-	_text(font, Vector2(r.position.x + 14, y), "Пачки ДНК", MUTED, 9)
+	_text(font, Vector2(r.position.x + 14, y), "Образцы", MUTED, 9)
 	_text_r(font, Vector2(r.end.x - 14, y), "+%d" % packs, WHITE, 9)
 	y += 12
 	_text(font, Vector2(r.position.x + 14, y), "Дубликаты → ДНК", MUTED, 9)
@@ -1679,7 +1687,7 @@ func _draw_operations(font: Font) -> void:
 		_text(font, Vector2(424, y), "Условия: штатный периметр", MUTED, 8)
 		y += 10
 	for modifier: String in op["modifiers"]:
-		_text(font, Vector2(424, y), str(MODIFIER_TEXT[modifier]), MUTED, 8)
+		_text(font, Vector2(424, y), str(CampaignCatalog.MODIFIER_INFO[modifier]["text"]), MUTED, 8)
 		y += 10
 	y += 4
 	_text(font, Vector2(424, y), "НАГРАДА ЗА ВЫПОЛНЕНИЕ", GOLD, 7)

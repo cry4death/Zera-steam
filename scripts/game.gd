@@ -41,11 +41,11 @@ const TRADER_TIMES := [300.0, 540.0] # визиты торговца: 5:00 и 9:
 
 # Реплики не используют боевой RNG и не влияют на сценарий операции.
 const DISPATCH := {
-	"start": ["Высадка. Работайте.", "Канал открыт. Зачистка."],
-	"trader": ["Снабжение выдано.", "Поставка закрыта. Работайте."],
+	"start": ["Высадка. Работайте.", "Связь есть. Начинайте зачистку."],
+	"trader": ["Снабжение выдано.", "Снабжение завершено. Продолжайте."],
 	"alarm": ["Всплеск биомассы.", "Активность растёт. Огонь."],
 	"approach": ["Объект-7 на подходе.", "Объект-7. Приготовиться."],
-	"boss": ["Объект-7 уничтожен.", "Объект-7. Сигнал погас."],
+	"boss": ["Объект-7 уничтожен.", "Сигнал Объекта-7 пропал."],
 	"evac": ["Единица ранена. Эвакуация.", "Прекратить огонь. Эвакуация."],
 	"supply": ["Сброс снабжения.", "Снабжение. Груз на земле."],
 }
@@ -130,9 +130,6 @@ var mission_region := ""
 var mission_mod_names := ""
 var mission_modifiers: Array = []
 var _run_peak := 0
-const MISSION_MOD_NAMES := {"runner_surge": "Прорыв бегунов", "elite_hunt": "Охота элиток",
-	"acid_rain": "Кислотные выбросы", "blood_frenzy": "Кровавая вспышка",
-	"hardened_boss": "Бронированная особь", "resource_cache": "Склад"}
 var _wtest_shot := false
 var _wtest_started := 0.0
 var _sim := false
@@ -871,8 +868,8 @@ func _apply_mission() -> void:
 	mission_modifiers = mission_config["modifiers"].duplicate()
 	var names: Array[String] = []
 	for id: String in mission_modifiers:
-		names.append(MISSION_MOD_NAMES[id])
-	mission_mod_names = " · ".join(names) if not names.is_empty() else "Стандартный протокол"
+		names.append(CampaignCatalog.MODIFIER_INFO[id]["name"])
+	mission_mod_names = " · ".join(names) if not names.is_empty() else "Штатный периметр"
 	mission_title = "%s · %s" % [mission_config["name"], ["I", "II", "III", "IV", "V"][int(mission_config["threat"]) - 1]]
 	mission_region = "%s / УГРОЗА %s" % [mission_config["region_name"], ["I", "II", "III", "IV", "V"][int(mission_config["threat"]) - 1]]
 	mission_banner_t = 2.5
@@ -1749,8 +1746,13 @@ func _run_audio_test() -> void:
 	await _audio_key(KEY_LEFT)
 	assert(is_equal_approx(Meta.settings["master"], 0.95))
 	await _audio_key(KEY_RIGHT)
+	pause_menu._selected = PauseMenu.KEYS.find("reduce_motion")
+	pause_menu.queue_redraw()
+	await _audio_shot("settings_help")
+	pause_menu._selected = 0
 	await _audio_key(KEY_ESCAPE)
 	pause_menu._activate(2)
+	await _audio_shot("confirm")
 	pause_menu._back()
 	assert(not pause_menu.confirming and get_tree().paused)
 	await _audio_key(KEY_NONE, JOY_BUTTON_START)
@@ -2132,7 +2134,7 @@ func _on_boss_died(at: Vector2) -> void:
 
 ## Строки подсчёта ДНК за забег (рапорт и прогноз HUD).
 func _dna_lines() -> Array[Array]:
-	return [["Время × 10", floori(time / 6.0)], ["Убийства / 50", kills / 50], ["Элитки × 5", elites_killed * 5]]
+	return [["Время в зоне (10 ДНК/мин)", floori(time / 6.0)], ["Убийства (1 ДНК за 50)", kills / 50], ["Элитки (по 5 ДНК)", elites_killed * 5]]
 
 
 ## Прогноз ДНК за забег без бонуса победы (для HUD).

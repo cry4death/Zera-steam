@@ -1035,39 +1035,88 @@ def footprint():
 
 
 def asphalt():
-    s = 384  # 128 игровых единиц
-    rng = random.Random(1337)
-    base = hexc("3d3f43")
-    img = Image.new("RGBA", (s, s))
-    px = img.load()
-    for y in range(s):
-        for x in range(s):
-            low = (math.sin(x / s * math.tau * 2 + 1.3) + math.sin(y / s * math.tau * 3 + 0.4)
-                   + math.sin((x + y) / s * math.tau + 2.1)) / 3
-            k = 1.0 + low * 0.05 + hnoise(x, y, 5) * 0.035
-            px[x, y] = tuple(min(255, round(c * k)) for c in base) + (255,)
-    for _ in range(int(s * s * 0.045)):  # щебень
-        x, y = rng.randrange(s), rng.randrange(s)
-        c = mix(base, (120, 122, 126), rng.uniform(0.2, 0.5)) if rng.random() < 0.5 else darker(base, 0.72)
-        px[x, y] = c + (255,)
-    for _ in range(8):  # трещины
-        x, y = rng.uniform(0, s), rng.uniform(0, s)
-        a = rng.uniform(0, math.tau)
-        for _ in range(rng.randint(15, 60)):
-            ix, iy = int(x) % s, int(y) % s
-            px[ix, iy] = darker(base, 0.72) + (255,)
-            a += rng.uniform(-0.5, 0.5)
+    """Асфальт 512×512 игровых единиц (1536 px), бесшовный.
+
+    Раньше тайл был 128 единиц с ровным зерном и одним набором трещин — повтор читался за пару секунд.
+    Теперь это «четыре тайла в одном»: пятна износа крупнее прежнего тайла, трещины редкие и длинные,
+    щебень тёмный и редкий (светлого зерна почти нет). Все элементы заворачиваются по краям.
+    """
+    import numpy as np
+    s = 1536
+    rng = np.random.default_rng(1337)
+    base = np.array(hexc("3d3f43"), np.float32)
+    yy, xx = np.mgrid[0:s, 0:s].astype(np.float32)
+
+    # плавные волны с целым числом периодов на тайл
+    low = np.zeros((s, s), np.float32)
+    for _ in range(9):
+        kx, ky = int(rng.integers(1, 5)), int(rng.integers(0, 5))
+        ph = float(rng.uniform(0, math.tau))
+        low += np.sin((xx * kx + yy * ky) / s * math.tau + ph) * 0.012
+    k = 1.0 + low
+
+    # крупные пятна износа: тёмные чаще, чем светлые; размером с 40–200 единиц
+    for _ in range(64):
+        cx, cy = float(rng.uniform(0, s)), float(rng.uniform(0, s))
+        rx, ry = float(rng.uniform(70, 330)), float(rng.uniform(50, 220))
+        a = float(rng.uniform(0, math.pi))
+        dx = (xx - cx + s / 2) % s - s / 2
+        dy = (yy - cy + s / 2) % s - s / 2
+        u = (dx * math.cos(a) + dy * math.sin(a)) / rx
+        v = (-dx * math.sin(a) + dy * math.cos(a)) / ry
+        amp = float(rng.uniform(0.02, 0.05)) * (-1.0 if rng.random() < 0.62 else 1.0)
+        k += np.exp(-(u * u + v * v) * 1.6) * amp
+
+    # мелкое зерно — тише прежнего
+    k += rng.uniform(-1.0, 1.0, (s, s)).astype(np.float32) * 0.022
+    img = base[None, None, :] * k[:, :, None]
+
+    def put(x, y, col, a=1.0):
+        x %= s
+        y %= s
+        img[y, x] = img[y, x] * (1.0 - a) + np.array(col, np.float32) * a
+
+    # щебень: тёмный и редкий, светлых крупинок — единицы
+    for _ in range(int(s * s * 0.0155)):
+        x, y = int(rng.integers(0, s)), int(rng.integers(0, s))
+        if rng.random() < 0.15:
+            put(x, y, (120, 122, 126), float(rng.uniform(0.12, 0.3)))
+        else:
+            put(x, y, base * float(rng.uniform(0.62, 0.8)))
+            if rng.random() < 0.25:
+                put(x + 1, y, base * 0.78)
+
+    # трещины: длинные, редкие, с короткими ответвлениями
+    def crack(x, y, a, steps, depth):
+        for n in range(steps):
+            put(int(x), int(y), base * 0.72)
+            if rng.random() < 0.18:
+                put(int(x) + 1, int(y), base * 0.72)
+            a += float(rng.normal(0.0, 0.11))
             x += math.cos(a)
             y += math.sin(a)
-    for _ in range(4):  # масляные пятна
-        ox, oy, r = rng.uniform(0, s), rng.uniform(0, s), rng.uniform(8, 18)
-        for y in range(int(oy - r), int(oy + r)):
-            for x in range(int(ox - r), int(ox + r)):
-                d = math.hypot(x - ox, (y - oy) * 1.3) / r
-                if d < 1.0:
-                    ix, iy = x % s, y % s
-                    px[ix, iy] = darker(px[ix, iy], 0.82 + 0.18 * d) + (255,)
-    return img
+            if depth < 2 and rng.random() < 0.007:
+                crack(x, y, a + float(rng.choice([-1, 1])) * float(rng.uniform(0.5, 1.2)), int(rng.integers(25, 110)), depth + 1)
+
+    for _ in range(9):
+        crack(float(rng.uniform(0, s)), float(rng.uniform(0, s)), float(rng.uniform(0, math.tau)), int(rng.integers(160, 560)), 0)
+
+    # масляные пятна неровной формы
+    for _ in range(7):
+        ox, oy, r = float(rng.uniform(0, s)), float(rng.uniform(0, s)), float(rng.uniform(24, 60))
+        lobes = [(float(rng.uniform(0, math.tau)), float(rng.uniform(0.06, 0.16)), int(rng.integers(2, 4))) for _ in range(3)]
+        dx = (xx - ox + s / 2) % s - s / 2
+        dy = (yy - oy + s / 2) % s - s / 2
+        ang = np.arctan2(dy, dx)
+        edge = 1.0
+        for ph, am, fr in lobes:
+            edge = edge + am * np.sin(ang * fr + ph)
+        d = np.hypot(dx, dy * 1.25) / (r * edge)
+        shade = np.where(d < 1.0, 0.8 + 0.2 * np.clip(d, 0, 1), 1.0).astype(np.float32)
+        img *= shade[:, :, None]
+
+    out = Image.fromarray(np.clip(img, 0, 255).astype(np.uint8), "RGB").convert("RGBA")
+    return out
 
 
 # --- сборка ----------------------------------------------------------------------------------

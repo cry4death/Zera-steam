@@ -508,7 +508,7 @@ func _draw_actions(font: Font, w: float, h: float) -> void:
 		_panel(rect, ids[i], color, enabled[i])
 		_text_c(font, rect.position + Vector2(button_w * 0.5, 14.0), _fit(font, labels[i], button_w - 10.0, 9), color, 9)
 		_text_c(font, rect.position + Vector2(button_w * 0.5, 27.0), _fit(font, details[i], button_w - 10.0, 8), GOLD if enabled[i] else MUTED, 8)
-	var hint := "1–5 / клик — купить · ← → — подробности · H — лечение · Q — реролл · M — перестановка · Esc — в бой"
+	var hint := "1–5 / клик — купить · ← → — подробности · Esc — в бой"
 	if _step != Step.SHOP:
 		hint = "1–4 / клик — выбрать · Esc — назад · Space / Enter — в бой"
 	_text_c(font, Vector2(w * 0.5, h - 8.0), _fit(font, hint, w - 16.0, 8), MUTED, 8)

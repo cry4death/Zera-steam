@@ -6,7 +6,7 @@ enum Phase { IDLE, WARN, ACTIVE, FINISH }
 
 const TITLE := "КРОВАВАЯ ТРЕВОГА"
 const RESULT := "ТРЕВОГА ОТБИТА"
-const BONUS := "опыт и кредиты x2"
+const BONUS := "опыт и кредиты ×2"
 const ENTER_TIME := 0.25
 const EXIT_TIME := 0.4
 const FINISH_TIME := 1.5

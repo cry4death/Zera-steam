@@ -12,7 +12,14 @@ var _ui := 3.0
 var _rows: Array[Rect2] = []
 var _drag := -1
 const KEYS := ["master", "weapons", "world", "ui", "music", "gore", "shake", "fullscreen", "auto_fire", "reduce_motion"]
-const LABELS := ["Общая", "Оружие", "Мир", "Интерфейс", "Музыка", "Жестокость", "Тряска экрана", "Полный экран", "Автострельба", "Уменьшить движение"]
+const LABELS := ["Общая", "Оружие", "Мир", "Интерфейс", "Музыка", "Жестокость", "Тряска экрана", "Полный экран", "Автострельба", "Меньше анимации"]
+## Разделы настроек: первые SOUND_ROWS строк — звук, остальные — изображение и управление.
+const SOUND_ROWS := 5
+## Подсказка к выбранной строке (до двух строк); у ползунков её нет.
+const HELP := {
+	"gore": ["Мало: меньше крови и останков; без брызг на экране."],
+	"reduce_motion": ["Меньше анимации интерфейса: без пульсации и плавного", "поворота глобуса. Тряска экрана настраивается отдельно."],
+}
 const SLIDERS := ["master", "weapons", "world", "ui", "music", "shake"]
 const GOLD := Color(1.0, 0.82, 0.35)
 const WHITE := Color(0.92, 0.90, 0.85)
@@ -162,7 +169,7 @@ func _activate(i: int) -> void:
 		_selected = 0
 	else:
 		confirming = true
-		_selected = 1 # случайный Enter не завершает забег
+		_selected = 1 # случайный Enter не прерывает бой
 	queue_redraw()
 
 
@@ -170,7 +177,13 @@ func _draw() -> void:
 	_ui = maxf(1.0, floorf(size.y / 360.0))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE * _ui)
 	var view := size / _ui
+	# на главном экране паузы в бою добавляется сборка: стволы, патроны, модули и пассивки полными названиями
+	var build: Array[Array] = []
+	if not settings_open and not confirming:
+		build = _build_rows()
 	var dimensions := Vector2(350, 354) if settings_open else Vector2(280, 208)
+	if not build.is_empty():
+		dimensions = Vector2(350, 206.0 + build.size() * 10.0 + 22.0)
 	var panel := Rect2((view - dimensions) * 0.5, dimensions)
 	var p := panel.position
 	draw_rect(Rect2(Vector2.ZERO, view), Color(0.025, 0.02, 0.02, 0.78))
@@ -178,41 +191,97 @@ func _draw() -> void:
 	draw_rect(panel, Color(0.075, 0.065, 0.06, 0.98))
 	draw_rect(panel, Color(GOLD, 0.55), false)
 	draw_rect(Rect2(p, Vector2(dimensions.x, 3)), GOLD)
-	_text(p + Vector2(18, 29), "НАСТРОЙКИ" if settings_open else ("ЗАВЕРШИТЬ ЗАБЕГ?" if confirming else "ПАУЗА"), GOLD, 17)
+	_text(p + Vector2(18, 29), "НАСТРОЙКИ" if settings_open else (("ПРЕРВАТЬ ОПЕРАЦИЮ?" if _in_operation() else "ЗАВЕРШИТЬ ВЫЛАЗКУ?") if confirming else "ПАУЗА"), GOLD, 17)
 	_text(p + Vector2(18, 45), "Изменения сохраняются сразу" if settings_open else "Карантинная зона · сектор 07", DIM, 9)
 	_rows.clear()
 	if settings_open:
-		_text(p + Vector2(18, 64), "ГРОМКОСТЬ", DIM, 8)
+		var y := 64.0
 		for i in KEYS.size():
-			var r := Rect2(p + Vector2(18, 70 + i * 21), Vector2(314, 20))
+			if i == 0 or i == SOUND_ROWS:
+				if i == SOUND_ROWS:
+					y += 12.0
+				_text(p + Vector2(18, y), "ЗВУК" if i == 0 else "ИЗОБРАЖЕНИЕ И УПРАВЛЕНИЕ", DIM, 8)
+				y += 4.0
+			var r := Rect2(p + Vector2(18, y), Vector2(314, 18))
+			y += 19.0
 			_rows.append(r)
 			if i == _selected:
 				draw_rect(r, Color(0.18, 0.15, 0.10))
-			_text(r.position + Vector2(4, 16), LABELS[i], WHITE, 10)
+			_text(r.position + Vector2(4, 14), LABELS[i], WHITE, 10)
 			var value: Variant = Meta.settings[KEYS[i]]
 			if KEYS[i] in SLIDERS:
-				var bar := Rect2(r.position + Vector2(148, 11), Vector2(126, 4))
+				var bar := Rect2(r.position + Vector2(148, 9), Vector2(126, 4))
 				draw_rect(bar, Color(0.25, 0.22, 0.18))
 				draw_rect(Rect2(bar.position, Vector2(126 * float(value), 4)), GOLD)
 				draw_rect(Rect2(bar.position + Vector2(126 * float(value) - 1, -3), Vector2(3, 10)), WHITE)
-				_text(r.position + Vector2(281, 16), str(roundi(float(value) * 100)), GOLD, 9)
+				_text(r.position + Vector2(281, 14), str(roundi(float(value) * 100)), GOLD, 9)
 			else:
-				_text(r.position + Vector2(148, 16), ["Мало", "Средне", "Максимум"][int(value)] if KEYS[i] == "gore" else ("Вкл." if value else "Выкл."), GOLD, 10)
-		_text(p + Vector2(22, 291), "ПКМ — свой прицел · правый стик — прицел" if Meta.settings["auto_fire"] else "ЛКМ / правый курок — огонь · мышь / стик — прицел", GOLD, 7)
-		_text(p + Vector2(22, 303), "Движение: без пульсов и плавного автоповорота", DIM, 8)
-		_text(p + Vector2(22, 315), "Мало: меньше крови и гибов, без брызг на экране", DIM, 8)
+				_text(r.position + Vector2(148, 14), ["Мало", "Средне", "Максимум"][int(value)] if KEYS[i] == "gore" else ("Вкл." if value else "Выкл."), GOLD, 10)
+		_text(p + Vector2(22, 288), "ПКМ — свой прицел · правый стик — прицел" if Meta.settings["auto_fire"] else "ЛКМ / правый курок — огонь · мышь / стик — прицел", GOLD, 7)
+		var help: Array = HELP.get(KEYS[_selected], []) if _selected < KEYS.size() else []
+		for j in help.size():
+			_text(p + Vector2(22, 300 + j * 11), str(help[j]), DIM, 8)
 		_button(Rect2(p + Vector2(18, 322), Vector2(314, 22)), "НАЗАД", KEYS.size())
 	else:
 		if confirming:
-			_text(p + Vector2(18, 69), "Забег будет засчитан как смерть.", WHITE, 10)
-			_text(p + Vector2(18, 84), "Заработанная ДНК попадёт в итоги.", DIM, 9)
+			var campaign := _in_operation()
+			_text(p + Vector2(18, 69), "Операция будет отмечена как провал." if campaign else "Вылазка будет прервана.", WHITE, 10)
+			_text(p + Vector2(18, 84), "Заработанные образцы сохранятся.", DIM, 9)
 			for i in 2:
-				_button(Rect2(p + Vector2(18, 103 + i * 35), Vector2(244, 28)), ["ЗАВЕРШИТЬ", "ОСТАТЬСЯ"][i], i)
+				_button(Rect2(p + Vector2(18, 103 + i * 35), Vector2(244, 28)), (["ПРЕРВАТЬ", "ПРОДОЛЖИТЬ"] if campaign else ["ЗАВЕРШИТЬ", "ПРОДОЛЖИТЬ"])[i], i)
 		else:
 			for i in 3:
-				_button(Rect2(p + Vector2(18, 67 + i * 35), Vector2(244, 28)), ["ПРОДОЛЖИТЬ", "НАСТРОЙКИ", "НА БАЗУ"][i], i)
-		_text(p + Vector2(18, 194), "↑↓ · ←→ · Enter / A · Esc / Start", DIM, 8)
+				_button(Rect2(p + Vector2(18, 67 + i * 35), Vector2(dimensions.x - 36.0 if not build.is_empty() else 244.0, 28)), ["ПРОДОЛЖИТЬ", "НАСТРОЙКИ", "НА БАЗУ"][i], i)
+		if not build.is_empty():
+			draw_rect(Rect2(p + Vector2(18, 181), Vector2(dimensions.x - 36.0, 1)), Color(DIM, 0.4))
+			_text(p + Vector2(18, 195), "СБОРКА", DIM, 8)
+			for j in build.size():
+				var row: Array = build[j]
+				_text(p + Vector2(18 + float(row[3]), 207 + j * 10), str(row[0]), row[1], int(row[2]))
+		_text(p + Vector2(18, dimensions.y - 14.0), "↑↓ · ←→ · Enter / A · Esc / Start", DIM, 8)
 	draw_set_transform(Vector2.ZERO)
+
+
+## Строки сборки для паузы: [текст, цвет, размер, отступ]. Пусто — на базе или без игры.
+func _build_rows() -> Array[Array]:
+	var rows: Array[Array] = []
+	if game == null:
+		return rows
+	var rare := Color(0.45, 0.72, 1.0)
+	for slot: Weapons.Slot in game.weapons.slots:
+		rows.append(["%s · ур. %d" % [WeaponDefs.MODELS[slot.model]["name"], slot.level], WHITE, 8, 0.0])
+		var parts: Array[String] = ["%s %s" % [WeaponDefs.AMMO[slot.ammo]["name"], WeaponDefs.ROMAN[slot.ammo_rank]]]
+		for m: Dictionary in slot.modules:
+			parts.append("%s %s%s" % [WeaponDefs.MODULES[m["id"]]["name"], WeaponDefs.ROMAN[m["rank"]], " (редк.)" if m["rare"] else ""])
+		for line in _wrap(" · ".join(parts), 300.0, 7):
+			rows.append([line, DIM, 7, 8.0])
+	var passives: Array[String] = []
+	for id: int in game.progression.passives:
+		passives.append("%s %d" % [WeaponDefs.PASSIVES[id]["name"], game.progression.passives[id]])
+	if not passives.is_empty():
+		for line in _wrap("Пассивки: " + " · ".join(passives), 314.0, 7):
+			rows.append([line, Color(0.55, 0.95, 0.6), 7, 0.0])
+	return rows
+
+
+func _wrap(value: String, width: float, fs: int) -> Array[String]:
+	var lines: Array[String] = []
+	var line := ""
+	for word: String in value.split(" "):
+		var next := word if line.is_empty() else line + " " + word
+		if not line.is_empty() and ThemeDB.fallback_font.get_string_size(next, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > width:
+			lines.append(line)
+			line = word
+		else:
+			line = next
+	if not line.is_empty():
+		lines.append(line)
+	return lines
+
+
+## Бой по заданию кампании (не свободная вылазка).
+func _in_operation() -> bool:
+	return game != null and not game.mission_config.is_empty()
 
 
 func _button(r: Rect2, label: String, index: int) -> void:

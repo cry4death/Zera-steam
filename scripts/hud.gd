@@ -27,7 +27,7 @@ const FONT_SIZE := 10
 const REDRAW_PERIOD := 1.0 / 30.0 # панели обновляются 30 раз в секунду, прицел — каждый кадр
 const OP_Y := 44.0 # строка операции — под убийствами и серией
 const SLOT_W := 116.0
-const SLOT_H := 46.0
+const SLOT_H := 36.0
 const SLOT_GAP := 4.0
 const MARGIN := 6.0
 const GUN_BOX := Vector2(32.0, 18.0)
@@ -37,21 +37,16 @@ const NUM_CACHE := 2000
 const LINE_CACHE_MAX := 900
 
 const AMMO_COLORS := [Color(0.85, 0.85, 0.8), Color(1.0, 0.85, 0.5), Color(1.0, 0.55, 0.2), Color(0.6, 0.9, 1.0)]
-const AMMO_CODES := ["СТД", "ЭКС", "ЗАЖ", "КРИ"]
-const MODULE_CODES := {
-	WeaponDefs.Module.RICOCHET: "РИК", WeaponDefs.Module.PIERCE: "ПРО", WeaponDefs.Module.SPLIT: "СПЛ",
-	WeaponDefs.Module.DETONATOR: "ДЕТ", WeaponDefs.Module.TWIN: "СДВ", WeaponDefs.Module.CHAIN: "ЦЕП",
-}
 const PASSIVE_CODES := {
 	WeaponDefs.Passive.DAMAGE: "УРОН", WeaponDefs.Passive.FIRE_RATE: "ТЕМП", WeaponDefs.Passive.RELOAD: "ПЕРЗ",
 	WeaponDefs.Passive.SPEED: "СКОР", WeaponDefs.Passive.HP: "БРОНЯ", WeaponDefs.Passive.PICKUP: "СБОР",
 }
 const PASSIVE_COLOR := Color(0.55, 0.95, 0.6)
-# метка модификатора операции: [текст, цвет]; красный — усложняет, зелёный — помогает
+# цвет метки модификатора операции; красный — усложняет, зелёный — помогает. Текст — CampaignCatalog.MODIFIER_INFO.
 const MODIFIER_TAGS := {
-	"runner_surge": ["БЕГУНЫ", Color(1.0, 0.5, 0.35)], "elite_hunt": ["ЭЛИТЫ", Color(1.0, 0.5, 0.35)],
-	"acid_rain": ["КИСЛОТА", Color(0.7, 0.9, 0.35)], "blood_frenzy": ["ЯРОСТЬ", Color(1.0, 0.35, 0.3)],
-	"hardened_boss": ["БОСС+", Color(1.0, 0.5, 0.35)], "resource_cache": ["ТАЙНИК", Color(0.55, 0.95, 0.6)],
+	"runner_surge": Color(1.0, 0.5, 0.35), "elite_hunt": Color(1.0, 0.5, 0.35),
+	"acid_rain": Color(0.7, 0.9, 0.35), "blood_frenzy": Color(1.0, 0.35, 0.3),
+	"hardened_boss": Color(1.0, 0.5, 0.35), "resource_cache": Color(0.55, 0.95, 0.6),
 }
 const ICON_NAMES := ["star", "dash", "vest", "dna", "arrow", "skull", "container", "crate", "part", "med", "coin", "bolt"]
 const POINTER_ELITES := 4 # сколько ближайших элиток показываем у края
@@ -86,7 +81,6 @@ var _h := 360.0
 var _font: Font
 var _icons := {} # имя → Texture2D (hud_<имя>.png)
 var _grenade_icon: Texture2D
-var _star_rows: Array[Texture2D] = [] # ряд из пяти звёзд, закрашено 0..5
 var _gun_tex := {} # модель → иконка, заранее масштабированная под текущий _ui
 var _cache_ui := 0.0
 var _slots: Array[Dictionary] = [] # кэш подписей и ширин по стволам
@@ -101,7 +95,6 @@ var _job_pos := PackedVector2Array()
 var _job_color := PackedColorArray()
 var _job_outline := PackedByteArray()
 var _segs := PackedVector2Array()
-var _corners := PackedVector2Array()
 var _clock := 0.0 # время миганий; в паузе стоит
 var _since_draw := 1.0
 var _spent_usec := 0
@@ -152,36 +145,12 @@ func _ready() -> void:
 		_meters.append("%d м" % i)
 	_ptr_pos.resize(12)
 	_segs.resize(2)
-	_corners.resize(16)
-	_build_star_rows()
 	_over = Overlay.new()
 	_over.painter = _draw_overlay
 	_over.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_over.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(_over)
 	set_operation(Campaign.pending())
-
-
-## Ряды из пяти звёзд: первые n янтарные, остальные тёмные.
-func _build_star_rows() -> void:
-	var src := PixelArt.tex("hud_star").get_image()
-	if src.is_compressed():
-		src.decompress()
-	src.convert(Image.FORMAT_RGBA8)
-	var sw := src.get_width()
-	var sh := src.get_height()
-	for n in WeaponDefs.MAX_LEVEL + 1:
-		var row := Image.create_empty(sw + 4 * 6, sh, false, Image.FORMAT_RGBA8)
-		for k in WeaponDefs.MAX_LEVEL:
-			var tint := ACCENT if k < n else Color(0.3, 0.3, 0.3, 0.7)
-			var star := Image.create_empty(sw, sh, false, Image.FORMAT_RGBA8)
-			for y in sh:
-				for x in sw:
-					var c := src.get_pixel(x, y)
-					# белая заливка красится, чёрная обводка остаётся чёрной
-					star.set_pixel(x, y, Color(c.r * tint.r, c.g * tint.g, c.b * tint.b, c.a * (tint.a if c.r > 0.5 else 1.0)))
-			row.blend_rect(star, Rect2i(0, 0, sw, sh), Vector2i(k * 6, 0))
-		_star_rows.append(ImageTexture.create_from_image(row))
 
 
 ## Операция кампании: имя, угроза и значки модификаторов; пустой словарь — обычный забег.
@@ -195,8 +164,8 @@ func set_operation(config: Dictionary) -> void:
 	_op_threat = int(config.get("threat", 1))
 	for m: String in config.get("modifiers", []):
 		if MODIFIER_TAGS.has(m):
-			var tag: Array = MODIFIER_TAGS[m]
-			_op_chips.append([tag[0], tag[1], _font.get_string_size(tag[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 6).x + 5.0])
+			var tag: String = CampaignCatalog.MODIFIER_INFO[m]["short"]
+			_op_chips.append([tag, MODIFIER_TAGS[m], _font.get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, 6).x + 5.0])
 
 
 func _process(delta: float) -> void:
@@ -468,32 +437,11 @@ func _flush_text() -> void:
 
 # --- панели и примитивы -------------------------------------------------------------------
 
-## Тёмная панель с рамкой в 1 экранный пиксель и угловыми засечками.
+## Тёмная панель с тонкой рамкой в 1 экранный пиксель.
 func _panel(r: Rect2, edge: Color, bg := PANEL_BG) -> void:
 	var px := 1.0 / _ui
 	_ci.draw_rect(r, bg)
 	_ci.draw_rect(Rect2(r.position + Vector2(px, px) * 0.5, r.size - Vector2(px, px)), Color(edge, edge.a * 0.45), false, px)
-	# засечки в углах одной командой: восемь отрезков шириной 2 пикселя
-	var l := 4.0
-	var a := r.position
-	var b := r.end
-	_corners[0] = Vector2(a.x, a.y + px)
-	_corners[1] = Vector2(a.x + l, a.y + px)
-	_corners[2] = Vector2(a.x + px, a.y)
-	_corners[3] = Vector2(a.x + px, a.y + l)
-	_corners[4] = Vector2(b.x - l, a.y + px)
-	_corners[5] = Vector2(b.x, a.y + px)
-	_corners[6] = Vector2(b.x - px, a.y)
-	_corners[7] = Vector2(b.x - px, a.y + l)
-	_corners[8] = Vector2(a.x, b.y - px)
-	_corners[9] = Vector2(a.x + l, b.y - px)
-	_corners[10] = Vector2(a.x + px, b.y - l)
-	_corners[11] = Vector2(a.x + px, b.y)
-	_corners[12] = Vector2(b.x - l, b.y - px)
-	_corners[13] = Vector2(b.x, b.y - px)
-	_corners[14] = Vector2(b.x - px, b.y - l)
-	_corners[15] = Vector2(b.x - px, b.y)
-	_ci.draw_multiline(_corners, edge, px * 2.0)
 
 
 ## Вертикальные разделители внутри r на n равных частей, одной командой.
@@ -672,11 +620,10 @@ func _draw_kills() -> void:
 	if game.multikill_t > 0.0:
 		_text_r(r.position.x - 8.0, r.position.y + 12.0, game.multikill_text, Color(HOT, clampf(game.multikill_t * 2.0, 0.0, 1.0)), 9, true)
 	if game.combo >= 5:
-		var pulse := 1.0 + 0.08 * sin(_clock * 12.0)
 		var cr := Rect2(r.position.x, r.end.y + 2.0, r.size.x, 14.0)
 		_panel(cr, HOT, Color(0.1, 0.03, 0.02, 0.7))
 		_text(Vector2(cr.position.x + 5, cr.position.y + 11), "СЕРИЯ", Color(HOT, 0.8), 6)
-		_text_r(cr.end.x - 5, cr.position.y + 11, "×" + _n(game.combo), HOT.lerp(Color.WHITE, 0.2 * pulse), 10)
+		_text_r(cr.end.x - 5, cr.position.y + 11, "×" + _n(game.combo), HOT.lerp(Color.WHITE, 0.2), 10)
 		# окно серии: сколько ещё можно не прерываться
 		var k := clampf(game._combo_timer / game.COMBO_WINDOW, 0.0, 1.0)
 		_ci.draw_rect(Rect2(cr.position.x + 1, cr.end.y + 1, (cr.size.x - 2) * k, 1), Color(HOT, 0.85))
@@ -692,7 +639,7 @@ func _draw_mission_banner() -> void:
 	var width := minf(240.0, _w - 24.0)
 	var r := Rect2(roundf((_w - width) * 0.5), 96.0, width, 50.0) # ниже анонсов, не перекрывает их
 	_panel(r, ACCENT)
-	_text(r.position + Vector2(8, 9), "Z.E.R.A. / ДИСПЕТЧЕР / ОПЕРАЦИЯ", ACCENT_DIM, 6)
+	_text(r.position + Vector2(8, 9), "Диспетчер: операция", ACCENT_DIM, 6)
 	_text(r.position + Vector2(8, 22), str(game.mission_config.get("name", "")).to_upper(), TEXT, 10, true)
 	_text(r.position + Vector2(8, 33), game.mission_region, ACCENT, 7)
 	_text(r.position + Vector2(8, 44), game.mission_mod_names, DIM, 7)
@@ -785,13 +732,7 @@ func _slot_info(i: int, s: Weapons.Slot) -> Dictionary:
 	if s.ammo_rare:
 		ammo_col = ammo_col.lerp(Color(0.45, 0.72, 1.0), 0.4)
 	c["ammo_col"] = ammo_col
-	var chips: Array[Array] = []
-	var atext: String = AMMO_CODES[s.ammo] + " " + WeaponDefs.ROMAN[s.ammo_rank]
-	chips.append([atext, ammo_col, _chip_w(atext)])
-	for m in s.modules:
-		var text: String = MODULE_CODES[m["id"]] + " " + WeaponDefs.ROMAN[m["rank"]]
-		chips.append([text, Color(0.45, 0.72, 1.0) if m["rare"] else Color(0.72, 0.77, 0.87), _chip_w(text)])
-	c["chips"] = chips
+	c["level_text"] = "ур. " + str(s.level)
 	_slots[i] = c
 	return c
 
@@ -819,22 +760,15 @@ func _draw_slot(weapons: Weapons, i: int, p: Vector2, sw: float) -> void:
 	var c := _slot_info(i, s)
 	var mag_max: int = c["mag_max"]
 	var frac := float(s.mag) / mag_max
-	var firing := s.since_shot < 0.14 and not s.reloading
 	var low := not s.reloading and frac <= 0.25
 	var blink := 0.5 + 0.5 * sin(_clock * 10.0)
 	var edge := ACCENT_DIM
 	if s.reloading:
-		edge = ACCENT.lerp(Color(1, 1, 1), blink * 0.3)
+		edge = ACCENT
 	elif low:
 		edge = HP_COLOR
-	elif firing:
-		edge = ACCENT
 	var r := Rect2(p, Vector2(sw, SLOT_H))
 	_panel(r, edge)
-	if firing:
-		_ci.draw_rect(r, Color(ACCENT, 0.16 * (1.0 - s.since_shot / 0.14)))
-	elif s.reloading:
-		_ci.draw_rect(r, Color(ACCENT, 0.05 + 0.05 * blink))
 	# иконка: при перезарядке тускнеет, светлая часть растёт слева направо
 	var box := Rect2(p + Vector2(4, 4), GUN_BOX)
 	_ci.draw_rect(box, SLOT_BG)
@@ -849,8 +783,8 @@ func _draw_slot(weapons: Weapons, i: int, p: Vector2, sw: float) -> void:
 			_ci.draw_texture_rect_region(tex, Rect2(pos, Vector2(cut, tsize.y) / _ui), Rect2(0, 0, cut, tsize.y), Color(1.0, 0.86, 0.5))
 	else:
 		_ci.draw_texture_rect(tex, Rect2(pos, tsize / _ui), false, Color.WHITE)
-	# уровень ствола — звёздочки
-	_ci.draw_texture(_star_rows[clampi(s.level, 0, WeaponDefs.MAX_LEVEL)], Vector2(p.x + 6.0, p.y + 25.0))
+	# уровень ствола — текстом
+	_text(Vector2(p.x + 6.0, p.y + 31.0), c["level_text"], DIM, 6)
 	# правый блок: имя, патроны, магазин
 	var x0 := p.x + 42.0
 	var rx := p.x + sw - 4.0
@@ -870,31 +804,22 @@ func _draw_slot(weapons: Weapons, i: int, p: Vector2, sw: float) -> void:
 	var ammo_col: Color = c["ammo_col"]
 	if s.reloading:
 		_bar(bar, prog, ACCENT_DIM.lerp(ACCENT, 0.5))
-		_text_c(x0 + rw * 0.5, bar.position.y + 6.5, "ПЕРЕЗАРЯДКА", Color(1, 1, 1, 0.6 + 0.4 * blink), 6)
+		_text_c(x0 + rw * 0.5, bar.position.y + 6.5, "Перезарядка", Color(1, 1, 1, 0.85), 6)
 	elif mag_max <= PIP_MAX:
 		_seg_bar(bar, frac, ammo_col, mag_max, 1.0)
 	else:
 		# большой магазин: сплошная полоса с засечками через 10 (20) патронов
 		var step := 10 if mag_max <= 60 else 20
 		_seg_bar(bar, frac, ammo_col, ceili(float(mag_max) / step), 1.0 / _ui)
-	# строка под иконкой справа: прототип, заряд или черта модели
+	# строка под полосой: прототип, заряд или черта модели; детали сборки — в меню паузы
 	var proto_text: String = c["proto"]
 	var trait_text: String = c["trait"]
 	if proto_text != "":
 		_text(Vector2(x0, p.y + 31), proto_text, Color(1.0, 0.6, 0.3), 6)
 	elif s.charged:
-		_text(Vector2(x0, p.y + 31), "◆ ЗАРЯД ×1.5", ACCENT, 6)
+		_text(Vector2(x0, p.y + 31), "След. выстрел ×1,5", ACCENT, 6)
 	elif trait_text != "":
 		_text(Vector2(x0, p.y + 31), trait_text, DIM, 6)
-	# плашки: патроны и модули
-	var cx := p.x + 4.0
-	for chip: Array in c["chips"]:
-		var w: float = chip[2]
-		var col: Color = chip[1]
-		_ci.draw_rect(Rect2(cx, p.y + 35.0, w, 8), Color(col.r * 0.2, col.g * 0.2, col.b * 0.2, 0.85))
-		_ci.draw_rect(Rect2(cx, p.y + 35.0, 1, 8), col)
-		_text(Vector2(cx + 3, p.y + 41.5), chip[0], col, 6)
-		cx += w + 1.5
 
 
 # --- босс ---------------------------------------------------------------------------------
