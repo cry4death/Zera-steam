@@ -1693,7 +1693,8 @@ func _draw_operations(font: Font) -> void:
 	var title: String = str(offers[_op_sel]["name"]) if _op_sel >= 0 else str(info["name"])
 	_text(font, Vector2(440, 78), title, WHITE, 9)
 	_text(font, Vector2(440, 90), "%s · %s %d" % [info["name"], info["stage_name"], info["infection"]], accent, 7)
-	_button(font, Rect2(611, 66, 14, 16), "J", MUTED, "op_journal", true, 7)
+	_button(font, Rect2(557, 66, 67, 16), "   Журнал [J]", MUTED, "op_journal", true, 7)
+	_op_image("ops_journal", Rect2(560, 69, 10, 10))
 	_op_tips["op_journal"] = "Журнал региона: причины роста и последний рапорт. J / Back — открыть."
 	if _op_journal:
 		_draw_operation_journal(font, info)
