@@ -165,6 +165,9 @@ var _aim_records: Array[Dictionary] = []
 var _audio_lowhp := false
 var horde_audio: HordeAudio
 var pause_menu: PauseMenu
+var obstacles: Obstacles
+var _layout_seed := 81073
+var _obstacles_test := false
 
 @onready var sfx: Sfx = $Sfx
 @onready var player: Player = $World/Player
@@ -271,6 +274,169 @@ func _run_fx_test() -> void:
 	get_tree().quit()
 
 
+## O1: проверка на настоящих packed-строках орды; headless не делает замеров FPS.
+func _run_obstacles_test() -> void:
+	set_physics_process(false)
+	set_process(false)
+	horde.set_physics_process(false)
+	hazards.set_physics_process(false)
+	obstacles.set_physics_process(false)
+	player.god_mode = true
+	var ok := true
+	var layout := ArenaLayout.generate(_layout_seed, ArenaLayout.QUARANTINE)
+	ok = _obstacle_check(layout == ArenaLayout.generate(_layout_seed, ArenaLayout.QUARANTINE), "same_seed") and ok
+	ok = _obstacle_check(layout != ArenaLayout.generate(_layout_seed + 1, ArenaLayout.QUARANTINE), "different_seed") and ok
+	var cars := 0
+	var barrels := 0
+	for row in layout:
+		var k := int(row["kind"])
+		if k <= Obstacles.Kind.TRUCK:
+			cars += 1
+		if k == Obstacles.Kind.RED or k == Obstacles.Kind.ACID:
+			barrels += 1
+		if k < Obstacles.Kind.TIRES:
+			ok = _obstacle_check(Vector2(row["pos"]).distance_to(ARENA.get_center()) > 200.0, "start_clear") and ok
+	ok = _obstacle_check(cars >= 25 and cars <= 40 and barrels == 20, "density") and ok
+	ok = _obstacle_check(obstacles.connected(), "connected_quarantine") and ok
+	for i in obstacles.count:
+		if obstacles.kind[i] >= Obstacles.Kind.TIRES:
+			continue
+		ok = _obstacle_check(not obstacles.contains(obstacles.free_point(obstacles.pos[i], 12.0), 11.99), "free_spawn_drop") and ok
+	print("OBSTEST layout cars=%d barrels=%d objects=%d seed=%d" % [cars, barrels, obstacles.count, _layout_seed])
+	# Разные профили/сиды проверяются отдельно от активного поля боя.
+	for test_seed in 8:
+		obstacles.setup(ARENA, ArenaLayout.generate(test_seed, ArenaLayout.QUARANTINE))
+		ok = _obstacle_check(obstacles.connected(), "connected_seed_%d" % test_seed) and ok
+	var wall: Array[Dictionary] = []
+	for j in 9:
+		wall.append({"kind": Obstacles.Kind.JERSEY, "pos": Vector2(1088 + j * 44, 720), "angle": 0.0})
+	obstacles.setup(ARENA, wall)
+	player.position = Vector2(1280, 890)
+	horde.count = 0
+	horde.far_distance = 5000.0
+	for i in 500:
+		var at := Vector2(1035 + (i % 50) * 10, 450 + (i / 50) * 10)
+		var e := horde.spawn(at, Horde.Kind.SHAMBLER, i % 17 == 0)
+		horde.hp[e] = 100000.0
+		horde.max_hp[e] = 100000.0
+	var penetrations := 0
+	for frame in 3600:
+		obstacles.navigation_step(1.0 / 60.0, player.position)
+		horde._physics_process(1.0 / 60.0)
+		if frame % 4 == 0:
+			for i in horde.count:
+				if obstacles.contains(horde.pos[i], horde.radius[i] - 0.04):
+					penetrations += 1
+		if frame % 600 == 599:
+			print("OBSTEST simulation seconds=%d alive=%d penetrations=%d" % [(frame + 1) / 60, horde.count, penetrations])
+			await get_tree().process_frame
+	var arrived := 0
+	for i in horde.count:
+		if horde.pos[i].y > 750.0:
+			arrived += 1
+		else:
+			print("OBSTEST stuck i=%d pos=%s elite=%d steer=%s" % [i, horde.pos[i], horde.elite[i], horde.steer[i]])
+	ok = _obstacle_check(penetrations == 0, "500_no_penetrations_60s") and ok
+	ok = _obstacle_check(arrived == 500, "500_long_wall_arrived") and ok
+	print("OBSTEST wall arrived=%d/500 nav_worst_us=%d" % [arrived, obstacles.nav_worst_usec])
+	# Игрок и быстрый рывок: тонкий забор не туннелируется.
+	var from := Vector2(1280, 675)
+	var to := obstacles.move_actor(from, Vector2(1280, 760), Player.RADIUS)
+	ok = _obstacle_check(to.y < 720 and not obstacles.contains(to, Player.RADIUS - 0.01), "dash_stopped") and ok
+	var demo: Array[Dictionary] = [
+		{"kind": Obstacles.Kind.SEDAN, "pos": Vector2(1280, 720)},
+		{"kind": Obstacles.Kind.RED, "pos": Vector2(1280, 770)},
+		{"kind": Obstacles.Kind.ACID, "pos": Vector2(1400, 770)},
+		{"kind": Obstacles.Kind.BAGS, "pos": Vector2(1500, 720)},
+		{"kind": Obstacles.Kind.WOOD, "pos": Vector2(1560, 720)},
+		{"kind": Obstacles.Kind.JERSEY, "pos": Vector2(1650, 720)}]
+	horde.count = 0
+	obstacles.setup(ARENA, demo)
+	ok = _obstacle_check(obstacles.ray_hit(Vector2(1200, 720), Vector2(1350, 720)) == 0, "high_stops_bullet") and ok
+	ok = _obstacle_check(obstacles.line_clear(Vector2(1450, 720), Vector2(1590, 720)), "low_passes_bullet") and ok
+	ok = _obstacle_check(not obstacles.line_clear(Vector2(1200, 720), Vector2(1350, 720)), "spit_blocked") and ok
+	obstacles.damage(1, 100.0)
+	obstacles._physics_process(1.0 / 60.0)
+	ok = _obstacle_check(obstacles.state[1] == Obstacles.State.GONE and obstacles.state[0] == Obstacles.State.BURNING, "barrel_car_chain_burning") and ok
+	for frame in 420:
+		obstacles._physics_process(1.0 / 60.0)
+	ok = _obstacle_check(obstacles.state[0] == Obstacles.State.WRECK and obstacles.contains(Vector2(1280, 720)), "car_wreck_collision") and ok
+	obstacles.damage(2, 100.0)
+	obstacles._physics_process(1.0 / 60.0)
+	ok = _obstacle_check(hazards.pool_count() > 0 and obstacles.state[2] == Obstacles.State.GONE, "acid_barrel_pool") and ok
+	ok = _obstacle_check(not obstacles.charge(Vector2(1500, 720), Boss.RADIUS) and obstacles.state[3] == Obstacles.State.GONE, "charge_crush_bags") and ok
+	ok = _obstacle_check(not obstacles.charge(Vector2(1560, 720), Boss.RADIUS) and obstacles.state[4] == Obstacles.State.GONE, "charge_crush_wood") and ok
+	ok = _obstacle_check(obstacles.charge(Vector2(1650, 720), Boss.RADIUS), "charge_stops_jersey") and ok
+	obstacles.splatter(Vector2(1280, 740))
+	ok = _obstacle_check(obstacles.blood[0] > 0, "blood_on_object") and ok
+	print("OBSTEST ok=%s penetrations=%d arrived=%d detonations=%d blood_events=%d" % [ok, penetrations, arrived, obstacles.detonations, obstacles.blood_events])
+	if OS.get_cmdline_user_args().has("--obstacles-shots") and DisplayServer.get_name() != "headless":
+		await _obstacle_shots()
+	get_tree().quit(0 if ok else 1)
+
+
+func _obstacle_check(ok: bool, label: String) -> bool:
+	if not ok:
+		push_error("OBSTEST FAILED " + label)
+	return ok
+
+
+func _obstacle_shots() -> void:
+	$HUD.visible = false
+	camera.target = null
+	camera.shake_multiplier = 0.0
+	camera.position_smoothing_enabled = false
+	player.position = ARENA.get_center()
+	camera.position = player.position
+	camera.zoom = Vector2.ONE
+	obstacles.setup(ARENA, ArenaLayout.generate(_layout_seed, ArenaLayout.QUARANTINE))
+	horde.count = 0
+	for i in 500:
+		horde.spawn(Vector2(740 + i % 40 * 25, 360 + i / 40 * 34), i % 4)
+	horde._rebuild_grid()
+	horde._render()
+	await get_tree().create_timer(0.4).timeout
+	await _obstacle_shot("arena")
+	var demo: Array[Dictionary] = [
+		{"kind": Obstacles.Kind.POLICE, "pos": Vector2(1240, 690), "angle": 0.15},
+		{"kind": Obstacles.Kind.JEEP, "pos": Vector2(1360, 750), "angle": -0.12},
+		{"kind": Obstacles.Kind.JERSEY, "pos": Vector2(1260, 790)},
+		{"kind": Obstacles.Kind.JERSEY, "pos": Vector2(1310, 790)},
+		{"kind": Obstacles.Kind.RED, "pos": Vector2(1320, 650)},
+		{"kind": Obstacles.Kind.ACID, "pos": Vector2(1340, 650)}]
+	obstacles.setup(ARENA, demo)
+	camera.zoom = Vector2(3, 3)
+	horde.count = 0
+	for i in 90:
+		var e := horde.spawn(Vector2(1140 + i % 15 * 18, 630 + i / 15 * 29), i % 4)
+		horde.angle[e] = float(i) * 0.7
+	horde._rebuild_grid()
+	horde._render()
+	player.position = Vector2(1170, 820)
+	for i in 26:
+		floor_decals.blood(PixelArt.tex("blood_%d" % (i % 8)), Vector2(1190 + i % 7 * 28, 650 + i / 7 * 35), float(i), 1.5, 0.7)
+	for i in 3:
+		obstacles.splatter(Vector2(1250, 735))
+	await get_tree().create_timer(0.3).timeout
+	await _obstacle_shot("blood")
+	obstacles.damage(0, 200.0)
+	await get_tree().create_timer(0.3).timeout
+	await _obstacle_shot("burning")
+	obstacles._detonate(0)
+	obstacles._burning.clear()
+	explosions.set_process(false)
+	explosions.advance(0.12)
+	explosions.set_process(false)
+	await _obstacle_shot("blast")
+
+
+func _obstacle_shot(suffix: String) -> void:
+	await RenderingServer.frame_post_draw
+	var path := "res://design/tasks/reports/o1_%s.png" % suffix
+	var err := get_viewport().get_texture().get_image().save_png(path)
+	print("OBSTEST screenshot=%s error=%d" % [path, err])
+
+
 func _fx_perf() -> void:
 	# Орда 500: те же визуальные вызовы, без урона/старых кругов и без снимков.
 	seed(81073)
@@ -369,7 +535,11 @@ func _ready() -> void:
 		get_tree().quit(1)
 		return
 	for arg in OS.get_cmdline_user_args():
-		if arg == "--aim-test":
+		if arg == "--obstacles-test":
+			_obstacles_test = true
+		elif arg.begins_with("--layout-seed="):
+			_layout_seed = arg.trim_prefix("--layout-seed=").to_int()
+		elif arg == "--aim-test":
 			_aim_test = true
 		elif arg == "--audio-test":
 			_audio_test = true
@@ -415,6 +585,9 @@ func _ready() -> void:
 			_gore_stress = true # 120 убийств/с со случайным типом смерти
 		elif arg.begins_with("--zoom="):
 			_zoom = arg.trim_prefix("--zoom=").to_float()
+	# Случайность боя не зависит от локального RNG генератора карты.
+	if _bench or _obstacles_test or Array(OS.get_cmdline_user_args()).any(func(a: String) -> bool: return a.begins_with("--layout-seed=")):
+		seed(_layout_seed)
 
 	ground.setup(ARENA)
 	floor_decals.setup(ARENA)
@@ -423,6 +596,8 @@ func _ready() -> void:
 	explosions.effects = effects
 	explosions.camera = camera
 	explosions.player = player
+	weapons.explosions = explosions
+	hazards.explosions = explosions
 	effects.sfx = sfx
 	player.sfx = sfx
 	weapons.sfx = sfx
@@ -458,6 +633,28 @@ func _ready() -> void:
 	hazards.floor_decals = floor_decals
 	hazards.effects = effects
 	hazards.camera = camera
+	if not OS.get_cmdline_user_args().has("--no-obstacles"):
+		obstacles = Obstacles.new()
+		obstacles.name = "Obstacles"
+		$World.add_child(obstacles)
+		$World.move_child(obstacles, $World/Horde.get_index())
+		obstacles.player = player
+		obstacles.horde = horde
+		obstacles.hazards = hazards
+		obstacles.explosions = explosions
+		obstacles.sfx = sfx
+		if not mission_config.is_empty() and not Array(OS.get_cmdline_user_args()).any(func(a: String) -> bool: return a.begins_with("--layout-seed=")):
+			_layout_seed = int(mission_config["seed"])
+		obstacles.setup(ARENA, ArenaLayout.generate(_layout_seed, ArenaLayout.QUARANTINE))
+		player.obstacles = obstacles
+		horde.obstacles = obstacles
+		weapons.obstacles = obstacles
+		hazards.obstacles = obstacles
+		pickups.obstacles = obstacles
+		boss.obstacles = obstacles
+		horde.enemy_killed.connect(obstacles.splatter)
+		while obstacles.nav_completed == 0:
+			obstacles.navigation_step(0.0, player.position)
 	boss.horde = horde
 	boss.player = player
 	boss.effects = effects
@@ -532,6 +729,8 @@ func _ready() -> void:
 	Meta.settings_changed.connect(_apply_settings)
 	_apply_settings()
 	player.force_auto_aim = Meta.is_test_run() and not _aim_test
+	if OS.get_cmdline_user_args().has("--guns-test"):
+		_run_guns_test.call_deferred()
 	if _aim_test:
 		spawner.enabled = false
 		player.god_mode = true
@@ -558,12 +757,21 @@ func _ready() -> void:
 		_run_weapons_test.call_deferred()
 	if OS.get_cmdline_user_args().has("--fx-test"):
 		_run_fx_test.call_deferred()
+	if _obstacles_test:
+		spawner.enabled = false
+		weapons.firing_enabled = false
+		weapons.set_physics_process(false)
+		player.god_mode = true
+		player.set_physics_process(false)
+		gems.collected.disconnect(progression.add_xp)
+		_run_obstacles_test.call_deferred()
 	if _sim:
 		print("SIM meta: class_level=%d tree=%d workshop_models=%d owned=%d bonuses=%s models=%s" % [Meta.class_level(), Meta.tree.size(), Meta.workshop.size(), Meta.owned.size(), Meta.run_bonuses(), weapons.slots[0].model])
 		player.god_mode = true
 		player.autopilot = true
 		Engine.time_scale = 4.0
 		Engine.max_physics_steps_per_frame = 16
+	Music.play(&"combat")
 	if _boss_test:
 		time = 595.0
 		trader_visit = TRADER_TIMES.size()
@@ -988,6 +1196,8 @@ func _on_enemy_killed(pos: Vector2, _dir: Vector2, _death: int, _facing: float, 
 
 ## Дроп по типу врага (таблица Horde.KINDS), тревога удваивает опыт и кредиты.
 func _on_enemy_died(pos: Vector2, kind: int, is_elite: bool) -> void:
+	if obstacles:
+		pos = obstacles.free_point(pos, 4.0)
 	if is_elite:
 		elites_killed += 1
 	var mult := roundi(blood_alarm.reward_mult())
@@ -1809,12 +2019,14 @@ func _hud_shot(suffix: String) -> void:
 func _boss_timeline() -> void:
 	if time >= 570.0 and not _boss_warned:
 		_boss_warned = true
+		Music.play(&"boss")
 		_radio("approach", Color(1.0, 0.34, 0.16), true)
 		camera.shake(6.0)
 	if time < 600.0 or _boss_spawned:
 		return
 	_boss_spawned = true
 	_boss_started = time
+	Music.play(&"boss")
 	var dir := -player.facing.normalized()
 	if dir == Vector2.ZERO:
 		dir = Vector2.LEFT
@@ -1869,9 +2081,9 @@ func _on_boss_died(at: Vector2) -> void:
 	military_crates += 1
 	_boss_reward_pos = at
 	_boss_reward_age = 0.0
-	camera.shake(14.0)
 	_boss_death_usec = Time.get_ticks_usec()
 	gore.boss_burst(at)
+	explosions.spawn(at, 180.0, Explosions.Kind.BOSS)
 	_boss_dbg_burst_ms = (Time.get_ticks_usec() - _boss_death_usec) / 1000.0
 	sfx.play("explosions/grenade", at, 3.0, 0.02)
 	screen_blood.splash(1.0, (at - player.global_position).normalized())
@@ -1968,6 +2180,7 @@ func _open_results(victory: bool) -> void:
 	level_up.close()
 	trader_ui.visible = false
 	alarm_overlay.stop()
+	Music.play(&"results")
 	results.open(_result_stats(victory))
 	get_tree().paused = true
 
@@ -2291,6 +2504,165 @@ func _aim_verify_shots(label: String, count: int) -> void:
 	_aim_check(ok and models.size() == count * 2, label + "_all_guns_to_cursor")
 
 
+## W3: реальная геометрия слотов и выстрелы, фиксированный шаг без случайного кадра вспышки.
+func _guns_step(frames: int) -> void:
+	for frame in frames:
+		weapons._age_fx(1.0 / 60.0)
+		player.sprite.rotation = player.aim_dir.angle()
+		for i in weapons.slots.size():
+			weapons._update_slot(i, 1.0 / 60.0)
+		effects._physics_process(1.0 / 60.0)
+		weapons._update_gun_layers()
+
+
+func _guns_image(label: String) -> Image:
+	_guns_label.text = label
+	weapons.queue_redraw()
+	weapons._flash_layer.queue_redraw()
+	weapons._update_gun_layers()
+	effects.queue_redraw()
+	await RenderingServer.frame_post_draw
+	var frame := get_viewport().get_texture().get_image()
+	var center := Vector2i(player.get_global_transform_with_canvas().origin)
+	var crop := frame.get_region(Rect2i(center - Vector2i(96, 72), Vector2i(192, 144)))
+	crop.resize(576, 432, Image.INTERPOLATE_NEAREST)
+	return crop
+
+
+var _guns_label: Label
+
+
+func _run_guns_test() -> void:
+	seed(33117)
+	get_window().mode = Window.MODE_WINDOWED
+	get_window().size = Vector2i(1280, 720)
+	set_physics_process(false)
+	spawner.enabled = false
+	weapons.set_physics_process(false)
+	player.set_physics_process(false)
+	horde.set_physics_process(false)
+	effects.set_physics_process(false)
+	player.god_mode = true
+	player.position = ARENA.get_center()
+	player.aim_dir = Vector2.RIGHT
+	player.force_auto_aim = true
+	player.fire_requested = true
+	$HUD.visible = false
+	camera.target = null
+	camera.position_smoothing_enabled = false
+	camera.shake_multiplier = 0.0
+	camera.position = player.position
+	camera.zoom = Vector2.ONE * 3.0
+	weapons.camera = null
+	var overlay := CanvasLayer.new()
+	add_child(overlay)
+	_guns_label = Label.new()
+	overlay.add_child(_guns_label)
+	_guns_label.add_theme_font_size_override("font_size", 12)
+	_guns_label.position = get_viewport_rect().size * 0.5 + Vector2(-90, 52)
+	var path := _shot_path if not _shot_path.is_empty() else "res://design/tasks/reports/w3_guns.png"
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(path.get_base_dir()))
+	await get_tree().create_timer(0.2).timeout
+	var targets := PackedVector2Array([Vector2(90, 0), Vector2(32, 88), Vector2(32, -88), Vector2(-41, -88)])
+	for at: Vector2 in targets:
+		var e := horde.spawn(player.position + at)
+		horde.speed[e] = 0.0
+		horde.hp[e] = 1000000.0
+	weapons.slots.clear()
+	weapons.add_weapon(WeaponDefs.Base.RIFLE, "ak_s")
+	_guns_step(30)
+	weapons.clear_projectiles()
+	weapons._flashes.clear()
+	effects._update_lights(1.0)
+	(await _guns_image("01 / AK-S")).save_png(path.get_basename() + "_single.png")
+	for id: String in ["butcher", "needle", "colt"]:
+		weapons.add_weapon(WeaponDefs.MODELS[id]["base"], id)
+	weapons.refill_all()
+	_guns_step(50)
+	var unique := {}
+	for s: Weapons.Slot in weapons.slots:
+		unique[s.target] = true
+	assert(unique.size() == 4)
+	# Останавливаем все стволы в одном моменте выстрела; проверяем реальные источники.
+	weapons.clear_projectiles()
+	weapons._flashes.clear()
+	for i in 4:
+		var s := weapons.slots[i]
+		s.reloading = false
+		s.mag = 10
+		var before := weapons.bullet_count
+		weapons._fire_shot(i, s, s.target)
+		var muzzle := weapons.gun_point(i, s.muzzle)
+		assert(Vector2(weapons._flashes.back()[0]).distance_to(muzzle) < 0.001)
+		if s.base == WeaponDefs.Base.RAIL:
+			assert(Vector2(weapons._beams.back()[0]).distance_to(muzzle) < 0.001)
+		else:
+			assert(weapons._bpos[before].distance_to(muzzle) < 0.001)
+		assert(s.recoil >= 1.0 and s.recoil <= 2.0)
+		print("GUNSTEST slot=%d model=%s target=%d angle=%.2f muzzle=%s" % [i, s.model, s.target, rad_to_deg(s.angle), muzzle])
+	(await _guns_image("04 / AUTO + FLASH")).save_png(path.get_basename() + "_auto.png")
+	weapons._flashes.clear()
+	weapons.clear_projectiles()
+	player.manual_aim = true
+	player.aim_dir = Vector2(1, -0.35).normalized()
+	player.aim_point = player.position + player.aim_dir * 140.0
+	weapons.refill_all()
+	_guns_step(30)
+	for s: Weapons.Slot in weapons.slots:
+		assert(absf(angle_difference(s.angle, player.aim_dir.angle())) < 0.001)
+	weapons.clear_projectiles()
+	weapons._flashes.clear()
+	effects._update_lights(1.0)
+	(await _guns_image("04 / MANUAL")).save_png(path.get_basename() + "_manual.png")
+	weapons._flashes.clear()
+	weapons.clear_projectiles()
+	for s: Weapons.Slot in weapons.slots:
+		s.reloading = true
+		s.reload_t = float(s.stats["reload"]) * 0.5
+		s.recoil = 0.0
+	(await _guns_image("04 / RELOAD")).save_png(path.get_basename() + "_reload.png")
+	# Урон синхронно скрывает оба слоя; спинной слой стоит перед Sprite.
+	player.sprite.visible = false
+	weapons._update_gun_layers()
+	assert(not weapons._gun_layers[0].visible and not weapons._gun_layers[1].visible)
+	player.sprite.visible = true
+	assert(weapons._gun_layers[0].get_index() < player.sprite.get_index())
+	assert(weapons._gun_layers[1].get_index() > player.sprite.get_index())
+	# Цель за сектором не должна расходовать патроны; затем корпус доворачивается.
+	player.manual_aim = false
+	var servo := weapons.slots[1]
+	servo.reloading = false
+	servo.recoil = 0.0
+	servo.angle = 0.0
+	player.aim_dir = Vector2.RIGHT
+	weapons._aim_gun(1, player.position + Vector2(-100, 0), 1.0)
+	assert(not weapons._gun_aligned(1, player.position + Vector2(-100, 0)))
+	player.aim_dir = Vector2.LEFT
+	player.sprite.rotation = PI
+	weapons._aim_gun(1, player.position + Vector2(-100, 0), 1.0)
+	assert(weapons._gun_aligned(1, player.position + Vector2(-100, 0)))
+	player.manual_aim = true
+	player.aim_dir = Vector2.RIGHT
+	player.sprite.rotation = 0.0
+	effects._cn = 0
+	effects._n = 0
+	effects._update_lights(1.0)
+	var sheet := Image.create(2304, 1728, false, Image.FORMAT_RGB8)
+	var n := 0
+	for id: String in WeaponDefs.MODELS:
+		weapons.slots.clear()
+		weapons.add_weapon(WeaponDefs.MODELS[id]["base"], id)
+		var s := weapons.slots[0]
+		s.cooldown = 1000.0
+		_guns_step(1)
+		var model_image := await _guns_image("%02d / %s" % [n + 1, id.to_upper()])
+		sheet.blit_rect(model_image, Rect2i(0, 0, 576, 432), Vector2i((n % 4) * 576, (n >> 2) * 432))
+		n += 1
+	sheet.save_png(path.get_basename() + "_models.png")
+	print("GUNSTEST ok=true models=%d independent_targets=4 muzzle_sources=4 recoil=true sector=true blink=true layers=true" % n)
+	get_tree().quit()
+
+
 func _run_aim_test() -> void:
 	get_window().mode = Window.MODE_WINDOWED
 	get_window().size = Vector2i(1280, 720)
@@ -2374,8 +2746,8 @@ func _run_aim_test() -> void:
 	while not weapons._gpos.is_empty():
 		await get_tree().physics_frame
 	await get_tree().process_frame
-	var explosion_ok := weapons.last_explosion != Vector2.INF and weapons.last_explosion.distance_to(expected) < 5.0
-	var explosion_error := weapons.last_explosion.distance_to(expected) if weapons.last_explosion != Vector2.INF else INF
+	var explosion_error := explosions.last_at.distance_to(expected)
+	var explosion_ok := explosion_error < 5.0
 	print("AIMTEST launcher explosion_error_px=%.3f" % explosion_error)
 	_aim_check(explosion_ok, "launcher_explosion_at_cursor")
 	await _aim_move(Vector2(260, -35))
@@ -2472,7 +2844,7 @@ func _run_aim_test() -> void:
 	_aim_check(Input.mouse_mode == Input.MOUSE_MODE_VISIBLE and not $HUD/Hud.combat_cursor_visible(), "pause_system_cursor")
 	await _audio_shot("settings")
 	await _aim_move(Vector2(90, 65))
-	pause_menu._selected = 7
+	pause_menu._selected = PauseMenu.KEYS.find("auto_fire")
 	pause_menu._change(1)
 	_aim_check(not Meta.settings["auto_fire"], "settings_menu_toggle")
 	pause_menu.close()
@@ -2483,7 +2855,7 @@ func _run_aim_test() -> void:
 	var base_settings := PauseMenu.new()
 	$Overlay.add_child(base_settings)
 	base_settings.open(true)
-	base_settings._selected = 7
+	base_settings._selected = PauseMenu.KEYS.find("auto_fire")
 	base_settings._change(1)
 	_aim_check(Meta.settings["auto_fire"] and not get_tree().paused, "base_settings_shared_toggle")
 	base_settings.close()

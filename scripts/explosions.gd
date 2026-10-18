@@ -3,7 +3,7 @@ extends Node2D
 ## Только изображение взрыва. Урон и смерти остаются у вызывающей системы.
 ## Один узел, фиксированные Packed-пулы, один проход каждого слоя, без нод на частицы.
 
-enum Kind { GRENADE, LAUNCHER, FAT, DETONATOR, BOSS }
+enum Kind { GRENADE, LAUNCHER, FAT, DETONATOR, BOSS, CAR }
 enum Layer { FIRE, SMOKE, DUST, DEBRIS, FLASH }
 const START := [0, 24, 120, 248, 568]
 const LIMIT := [24, 96, 128, 320, 24]
@@ -15,6 +15,7 @@ var effects: Effects
 var camera: GameCamera
 var player: Player
 var spawned := 0
+var last_at := Vector2.INF
 var replaced := 0
 var peak := 0
 var update_worst_usec := 0
@@ -84,7 +85,8 @@ func spawn(at: Vector2, radius: float, kind: int) -> void:
 	if radius <= 0.0 or not at.is_finite():
 		return
 	radius = clampf(radius, 8.0, 320.0)
-	kind = clampi(kind, Kind.GRENADE, Kind.BOSS)
+	kind = clampi(kind, Kind.GRENADE, Kind.CAR)
+	last_at = at
 	spawned += 1
 	var r := radius * (0.80 if kind == Kind.DETONATOR else 1.0)
 	var primary := _burst(at, r, kind, 0.0)
@@ -127,10 +129,10 @@ func _burst(at: Vector2, r: float, kind: int, delay: float) -> int:
 		var dir := Vector2.from_angle(float(j) * TAU / 8.0 + _rng.randf_range(-0.30, 0.30))
 		i = _add(Layer.DUST, at + dir * r * 0.12, dir * r * _rng.randf_range(1.6, 2.7), _rng.randf_range(0.35, 0.65), r * _rng.randf_range(0.5, 0.85), delay + 0.025)
 		_color[i] = Color(2.0, 1.80, 1.40, 0.38)
-	for j in clampi(roundi(r / 7.0) + 8, 8, 20):
+	for j in (28 if kind == Kind.CAR else clampi(roundi(r / 7.0) + 8, 8, 20)):
 		var dir := Vector2.from_angle(_rng.randf_range(0.0, TAU))
 		i = _add(Layer.DEBRIS, at + dir * r * 0.09, dir * _rng.randf_range(45.0, 130.0) * sqrt(r / 60.0), _rng.randf_range(0.6, 1.25), _rng.randf_range(2.2, 4.2), delay)
-		_art[i] = 6 if j % 3 == 0 else _rng.randi_range(0, 5)
+		_art[i] = _rng.randi_range(3, 5) if kind == Kind.CAR else (6 if j % 3 == 0 else _rng.randi_range(0, 5))
 		_height[i] = _rng.randf_range(65.0, 130.0)
 		_rot[i] = dir.angle()
 		_spin[i] = _rng.randf_range(-12.0, 12.0)
@@ -208,7 +210,7 @@ func advance(delta: float) -> void:
 			_scorch_pending[i] = 0
 			if floor_decals:
 				# Подпалина появляется под раскрытым огнём, а не раньше маленькой вспышки.
-				floor_decals.stamp(_scorch[_variant[i]], to_global(_pos[i]), _rot[i], Color.WHITE, _size[i] / 2.4 * 1.75 / (144.0 * PixelArt.ART_SCALE))
+				floor_decals.scorch(_scorch[_variant[i]], to_global(_pos[i]), _rot[i], _size[i] / 2.4 * 1.75 / (144.0 * PixelArt.ART_SCALE))
 		# Дальние старые клубы быстрее растворяются при насыщенном пуле.
 		if i >= START[Layer.SMOKE] and i < START[Layer.DUST] and _age[i] > 0.7 and player and _pos[i].distance_squared_to(to_local(player.global_position)) > 810000.0:
 			_age[i] += delta

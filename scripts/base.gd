@@ -153,6 +153,7 @@ func _ready() -> void:
 		get_tree().remove_meta("c3_base_return")
 	if _tab == Tab.OPERATIONS:
 		_open_operations()
+	Music.play(&"globe" if _tab == Tab.OPERATIONS else &"base")
 	if globe_test and not _globe_test_started:
 		_globe_test_started = true
 		GlobeView.run_test.call_deferred(self, _shot_path)
@@ -1523,6 +1524,7 @@ func _open_operations() -> void:
 
 
 func _sync_globe() -> void:
+	Music.play(&"globe" if _tab == Tab.OPERATIONS else &"base")
 	if _tab == Tab.OPERATIONS:
 		_open_operations()
 	elif _globe != null:
@@ -1804,6 +1806,7 @@ func _run_test() -> void:
 	await _wait(0.1)
 	await _test_click(Vector2(545, 49))
 	_check("settings mouse open", _settings_menu.visible and _settings_menu.settings_open and not get_tree().paused)
+	await _shot("settings")
 	await _test_key(KEY_ESCAPE)
 	_check("settings back", not _settings_menu.visible and not get_tree().paused)
 	await _test_key(KEY_O)

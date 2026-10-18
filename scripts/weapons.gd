@@ -45,10 +45,25 @@ class Slot:
 	var fan_t := 0.0
 	var fan_interval := 0.1
 	var fan_hit := PackedInt32Array() # fan: цели (uid), по которым уже стреляли в этом веере
+	var fan_target := -1
+	var fan_uid := 0
 	var shot_mult := 1.0 # множитель урона текущего выстрела (заряд, последний патрон)
 	var shot_gibs := false # текущий выстрел рвёт на гибы (последний патрон)
 	var shot_charged := false
 	var last_damage := 0.0 # урон снаряда последнего выстрела до крита (для тестов)
+	var angle := 0.0
+	var aimed := false
+	var recoil := 0.0
+	var target := -1
+	var target_uid := 0
+	var target_t := 0.0
+	var retarget := false
+	var texture: Texture2D
+	var visual_model := ""
+	var grip := Vector2.ZERO
+	var support := Vector2.ZERO
+	var muzzle := Vector2.ZERO
+	var eject := Vector2.ZERO
 
 	func set_model(id: String) -> void:
 		model = id
@@ -80,6 +95,8 @@ class Slot:
 
 var player: Player
 var camera: GameCamera
+var explosions: Explosions
+var obstacles: Obstacles
 var horde: Horde
 var boss: Boss
 var firing_enabled := true
@@ -118,6 +135,7 @@ var _bbounce := PackedInt32Array()
 var _bflags := PackedInt32Array()
 var _blast := PackedInt32Array()
 var _bdepth := PackedInt32Array() # глубина цепи
+var _bobstacle := PackedInt32Array()
 
 # гранаты
 var _gpos := PackedVector2Array()
@@ -143,7 +161,6 @@ var _xflag := PackedByteArray()
 
 # эффекты для отрисовки: лучи [от, до, ширина, время, цвет]
 var _beams: Array = []
-var last_explosion := Vector2.INF # точка последнего взрыва (проверки --aim-test)
 # Вспышек мало (до четырёх стволов); один общий аддитивный слой.
 const FLASH_KINDS := ["rifle", "shotgun", "rifle", "launcher", "small", "small", "small", "sniper"]
 var _flashes: Array = [] # [позиция, угол, время, основа, тинт, масштаб, поворот, вариант, жизнь]
@@ -152,9 +169,15 @@ var _flash_layer: Node2D
 var _flash_drawn := false
 var tails := PackedInt32Array([0, 0, 0, 0, 0, 0, 0, 0])
 var _aim_hold := 0.0
+const MOUNTS := [Vector2(1.0, 4.0), Vector2(-1.0, 8.0), Vector2(-2.0, -8.0), Vector2(-8.0, -1.0)]
+const SERVO_SECTOR := 2.0943951 # ±120° относительно корпуса
+const GUN_TURN := 48.0
+var _gun_meta: Dictionary = {}
+var _gun_layers: Array[Node2D] = []
 
 
 func _ready() -> void:
+	_gun_meta = JSON.parse_string(FileAccess.get_file_as_string("res://art/guns_meta.json"))["models"]
 	_flash_layer = Node2D.new()
 	var mat := CanvasItemMaterial.new()
 	mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
@@ -170,6 +193,102 @@ func _ready() -> void:
 
 # --- управление стволами -----------------------------------------------------------
 
+## Координаты арта и эффекты используют одну и ту же трансформацию.
+func gun_scale(i: int) -> float:
+	return PixelArt.ART_SCALE * (1.0 if i == 0 else 0.8)
+
+
+func gun_angle(i: int) -> float:
+	var s := slots[i]
+	var tilt := sin(clampf(s.reload_t / float(s.stats["reload"]), 0.0, 1.0) * PI) * 0.28 if s.reloading else 0.0
+	return s.angle + tilt
+
+
+func gun_grip(i: int) -> Vector2:
+	return player.global_position + player.sprite.position + MOUNTS[i].rotated(player.sprite.rotation) - Vector2.from_angle(slots[i].angle) * slots[i].recoil
+
+
+func gun_point(i: int, point: Vector2) -> Vector2:
+	return gun_grip(i) + ((point - slots[i].grip) * gun_scale(i)).rotated(gun_angle(i))
+
+
+func _aim_gun(i: int, at: Vector2, delta: float) -> void:
+	var s := slots[i]
+	var body := player.aim_dir.angle() if player.aim_dir != Vector2.ZERO else player.facing.angle()
+	# Основной ствол задаёт корпус, боковые остаются в секторе своих сервоприводов.
+	if i == 0 and not player.manual_aim and s.target != -1:
+		player.aim_dir = (at - player.global_position).normalized()
+		_aim_hold = 0.4
+		body = player.aim_dir.angle()
+	var desired := (at - gun_grip(i)).angle()
+	# Учитываем поперечное смещение дула: ось спрайта точно проходит через цель.
+	var offset := (s.muzzle - s.grip) * gun_scale(i)
+	var distance := gun_grip(i).distance_to(at)
+	if distance > absf(offset.y) + 0.01:
+		desired -= asin(clampf(offset.y / distance, -1.0, 1.0))
+	var relative := angle_difference(body, desired)
+	if i > 0 and not player.manual_aim:
+		desired = body + clampf(relative, -SERVO_SECTOR, SERVO_SECTOR)
+	if player.manual_aim:
+		desired = player.aim_dir.angle()
+	if not s.aimed:
+		s.angle = desired
+		s.aimed = true
+	else:
+		s.angle = lerp_angle(s.angle, desired, 1.0 - exp(-GUN_TURN * delta))
+
+
+func _gun_aligned(i: int, at: Vector2) -> bool:
+	if player.manual_aim:
+		return absf(angle_difference(slots[i].angle, player.aim_dir.angle())) < 0.005
+	var dir := at - gun_point(i, slots[i].muzzle)
+	return absf(angle_difference(slots[i].angle, dir.angle())) < 0.08
+
+
+## Два постоянных слоя: спинное крепление под бойцом, остальные над ним.
+func _update_gun_layers() -> void:
+	if player == null:
+		return
+	if _gun_layers.is_empty():
+		for rear: bool in [true, false]:
+			var layer := Node2D.new()
+			player.add_child(layer)
+			if rear:
+				player.move_child(layer, 0)
+			layer.draw.connect(_draw_guns.bind(layer, rear))
+			_gun_layers.append(layer)
+	for layer: Node2D in _gun_layers:
+		layer.visible = player.sprite.visible and not player.is_dead
+		layer.modulate = player.sprite.modulate
+		layer.queue_redraw()
+
+
+func _draw_guns(layer: Node2D, rear: bool) -> void:
+	for i in mini(slots.size(), MOUNTS.size()):
+		if (i == 3) != rear:
+			continue
+		var s := slots[i]
+		var grip := gun_grip(i) - player.global_position
+		if i > 0:
+			var root := player.sprite.position + Vector2(-3.0, 0).rotated(player.sprite.rotation)
+			var elbow := root.lerp(grip, 0.6) - Vector2.from_angle(player.sprite.rotation) * 2.0
+			layer.draw_line(root, elbow, Color("171e23"), 1.4)
+			layer.draw_line(elbow, grip, Color("526068"), 0.7)
+			layer.draw_rect(Rect2(elbow - Vector2.ONE, Vector2.ONE * 2.0), Color("242e33"))
+			layer.draw_rect(Rect2(elbow - Vector2.ONE * 0.35, Vector2.ONE * 0.7), Color("91a6a5"))
+		var scale := Vector2.ONE * gun_scale(i)
+		layer.draw_set_transform(grip + Vector2(0, PixelArt.ART_SCALE), gun_angle(i), scale)
+		layer.draw_texture(s.texture, -s.grip, Color(0, 0, 0, 0.65))
+		layer.draw_set_transform(grip, gun_angle(i), scale)
+		layer.draw_texture(s.texture, -s.grip)
+		layer.draw_set_transform(Vector2.ZERO)
+		if i == 0:
+			# Перчатки действительно лежат на точках хвата обеих рук каждой модели.
+			for hand: Vector2 in [s.grip, s.support]:
+				var p := gun_point(i, hand) - player.global_position
+				layer.draw_rect(Rect2(p - Vector2(0.8, 0.6), Vector2(1.6, 1.2)), Color("303830"))
+				layer.draw_line(p - Vector2(0.5, 0.4), p + Vector2(0.4, -0.4), Color("66715a"), PixelArt.ART_SCALE)
+
 ## model "" — избранная модель категории (Meta.model_for).
 func add_weapon(base: int, model := "") -> void:
 	var s := Slot.new()
@@ -177,6 +296,19 @@ func add_weapon(base: int, model := "") -> void:
 	slots.append(s)
 	refresh(slots.size() - 1)
 	s.mag = s.stats["mag"]
+
+
+func _refresh_gun(s: Slot) -> void:
+	if s.visual_model == s.model:
+		return
+	s.visual_model = s.model
+	var world: Dictionary = _gun_meta[s.model]["world"]
+	s.texture = PixelArt.tex("gun_%s_world" % s.model)
+	s.grip = Vector2(world["grip"][0], world["grip"][1])
+	s.support = Vector2(world["support"][0], world["support"][1])
+	s.muzzle = Vector2(world["muzzle"][0], world["muzzle"][1])
+	# В метаданных нет окна выброса: на ствольной коробке между хватом и цевьём.
+	s.eject = s.grip.lerp(s.support, 0.3) + Vector2(0, -3)
 
 
 func has_base(base: int) -> bool:
@@ -190,6 +322,7 @@ func has_base(base: int) -> bool:
 ## мастерская модели → дерево класса → пассивки → модули, затем проверка прототипа.
 func refresh(i: int) -> void:
 	var s := slots[i]
+	_refresh_gun(s)
 	var st := WeaponDefs.model_stats(s.model, s.level)
 	var step: Dictionary = Meta.WORKSHOP_STEP
 	st["damage"] *= (1.0 + step["damage"] * Meta.workshop_level(s.model, "damage")) * float(bonuses.get("damage_mul", 1.0))
@@ -298,6 +431,7 @@ func _physics_process(delta: float) -> void:
 		_flash_layer.queue_redraw()
 	_flash_drawn = not _flashes.is_empty()
 	if player == null or player.is_dead or not firing_enabled:
+		_update_gun_layers()
 		return
 	_aim_hold -= delta
 	if _aim_hold <= 0.0 and not player.manual_aim:
@@ -306,10 +440,31 @@ func _physics_process(delta: float) -> void:
 		reload_all()
 	for i in slots.size():
 		_update_slot(i, delta)
+	_update_gun_layers()
 
 
 func _update_slot(i: int, delta: float) -> void:
 	var s := slots[i]
+	s.recoil = move_toward(s.recoil, 0.0, delta * 18.0)
+	s.target_t -= delta
+	# Цель сохраняется между выстрелами; uid защищает от перестановки плотной орды.
+	var valid := s.target == BOSS_TARGET and _boss_active
+	if s.target >= 0 and s.target < horde.count:
+		valid = horde.dead[s.target] == 0 and horde.uid[s.target] == s.target_uid
+	if player.manual_aim:
+		s.target = MANUAL_TARGET
+	else:
+		if not valid:
+			s.target = -1
+		# Живую цель держим до выстрела: вне сектора ждём корпус без новых сканирований.
+		if s.fan_left <= 0 and (not valid or (s.retarget and s.cooldown <= delta)) and s.target_t <= 0.0:
+			s.target = _nearest_target(player.global_position + MOUNTS[i].rotated(player.sprite.rotation), s.stats["range"])
+			s.target_uid = horde.uid[s.target] if s.target >= 0 else 0
+			s.target_t = 0.08
+			s.retarget = false
+	var at := player.aim_point if s.target == MANUAL_TARGET else (_target_position(s.target) if s.target != -1 else player.global_position + Vector2.from_angle(player.sprite.rotation) * 100.0)
+	if s.fan_left <= 0:
+		_aim_gun(i, at, delta)
 	s.cooldown -= delta
 	s.since_shot += delta
 	if s.since_shot > 1.5 / float(s.stats["rate"]):
@@ -326,7 +481,7 @@ func _update_slot(i: int, delta: float) -> void:
 		if s.rack_t < 0.0:
 			_sound(s, "rack")
 			if effects:
-				effects.casing(player.global_position, s.rack_dir, "shell" if s.base == WeaponDefs.Base.SHOTGUN else "brass_rifle")
+				effects.casing(gun_point(i, s.eject), Vector2.from_angle(s.angle), "shell" if s.base == WeaponDefs.Base.SHOTGUN else "brass_rifle")
 	if s.reloading:
 		var before := s.reload_t / float(s.stats["reload"])
 		s.reload_t += delta
@@ -344,8 +499,10 @@ func _update_slot(i: int, delta: float) -> void:
 		return
 	if s.cooldown > 0.0:
 		return
-	var target := MANUAL_TARGET if player.manual_aim else _nearest_target(player.global_position, s.stats["range"])
+	var target := s.target
 	if target == -1:
+		return
+	if not _gun_aligned(i, at):
 		return
 	if s.trait_id == "fan":
 		_start_fan(s)
@@ -375,13 +532,17 @@ func _streak_mult(s: Slot) -> float:
 ## Один выстрел в цель target: снаряды, отдача, вспышка, звук, гильза, магазин. Паузу ставит вызывающий.
 func _fire_shot(i: int, s: Slot, target: int) -> void:
 	var origin := player.global_position
+	s.retarget = true
 	_burst_shot(s, target if target < -1 else horde.uid[target])
 	var target_pos := player.aim_point if target == MANUAL_TARGET else _target_position(target)
-	var dir := player.aim_dir if target == MANUAL_TARGET else (target_pos - origin).normalized()
+	if target == MANUAL_TARGET:
+		s.angle = player.aim_dir.angle() # после доводки сохраняем точную ось ручного прицела S8
+	var dir := Vector2.from_angle(s.angle)
 	if target == MANUAL_TARGET:
 		target_pos = origin + (target_pos - origin).limit_length(float(s.stats["range"]))
-	player.aim_dir = dir
-	_aim_hold = 0.4
+	if i == 0 and target != MANUAL_TARGET:
+		player.aim_dir = (target_pos - origin).normalized()
+		_aim_hold = 0.4
 	# множитель урона: усиленный выстрел «Копья» и последний патрон магазина (дерево класса)
 	s.shot_mult = 1.0
 	s.shot_charged = false
@@ -399,7 +560,8 @@ func _fire_shot(i: int, s: Slot, target: int) -> void:
 		camera.kick(dir, RECOIL[s.base])
 		if s.base in [WeaponDefs.Base.SHOTGUN, WeaponDefs.Base.SNIPER]:
 			camera.shake(0.6 if s.base == WeaponDefs.Base.SHOTGUN else 0.9)
-	var muzzle := origin + dir * 9.0 - dir.orthogonal() * 1.5
+	s.recoil = clampf(RECOIL[s.base], 1.0, 2.0)
+	var muzzle := gun_point(i, s.muzzle)
 	match s.base:
 		WeaponDefs.Base.RIFLE, WeaponDefs.Base.SHOTGUN, WeaponDefs.Base.PISTOL, WeaponDefs.Base.REVOLVER, WeaponDefs.Base.SMG, WeaponDefs.Base.SNIPER:
 			_fire_bullets(i, muzzle, dir)
@@ -415,7 +577,7 @@ func _fire_shot(i: int, s: Slot, target: int) -> void:
 	elif s.ammo == WeaponDefs.Ammo.INCENDIARY:
 		tint = Color(1.0, 0.36, 0.1)
 	var life := randf_range(0.04, 0.06)
-	_flashes.append([muzzle, dir.angle(), life, s.base, tint, randf_range(0.85, 1.15), randf_range(-PI / 18.0, PI / 18.0), randi() % 4, life])
+	_flashes.append([muzzle, dir.angle(), life, s.base, tint, randf_range(0.85, 1.15), randf_range(-PI / 18.0, PI / 18.0), randi() % 4, life, i])
 	_flash_layer.queue_redraw()
 	_sound(s, "shot")
 	shots[s.base] += 1
@@ -433,12 +595,12 @@ func _fire_shot(i: int, s: Slot, target: int) -> void:
 	if s.base in [WeaponDefs.Base.SHOTGUN, WeaponDefs.Base.SNIPER]:
 		if s.trait_id == "slamfire":
 			if effects:
-				effects.casing(origin, dir, "shell") # автомат без помпы: гильза сразу
+				effects.casing(gun_point(i, s.eject), dir, "shell") # автомат без помпы: гильза сразу
 		else:
 			s.rack_t = 0.25 if s.base == WeaponDefs.Base.SHOTGUN else 0.3
 			s.rack_dir = dir
 	elif s.base in [WeaponDefs.Base.RIFLE, WeaponDefs.Base.PISTOL, WeaponDefs.Base.SMG] and effects:
-		effects.casing(origin, dir, "brass_rifle" if s.base == WeaponDefs.Base.RIFLE else "brass_small")
+		effects.casing(gun_point(i, s.eject), dir, "brass_rifle" if s.base == WeaponDefs.Base.RIFLE else "brass_small")
 	s.mag -= 1
 	if s.mag <= 0:
 		_sound(s, "dry")
@@ -449,6 +611,7 @@ func _fire_shot(i: int, s: Slot, target: int) -> void:
 ## Веер ковбоя: барабан целиком по разным целям за FAN_TIME (темп сокращает его).
 func _start_fan(s: Slot) -> void:
 	s.fan_left = s.mag
+	s.fan_target = -1
 	s.fan_hit.clear()
 	s.fan_interval = WeaponDefs.FAN_TIME * WeaponDefs.FAN_BASE_RATE / (float(s.stats["rate"]) * _streak_mult(s)) / float(maxi(s.mag, 1))
 	s.fan_t = 0.0
@@ -456,15 +619,25 @@ func _start_fan(s: Slot) -> void:
 
 func _update_fan(i: int, s: Slot, delta: float) -> void:
 	s.fan_t -= delta
-	if s.fan_t > 0.0:
-		return
-	var target := MANUAL_TARGET if player.manual_aim else _fan_target(s)
+	var pending := s.fan_target == BOSS_TARGET and _boss_active
+	if s.fan_target >= 0 and s.fan_target < horde.count:
+		pending = horde.dead[s.fan_target] == 0 and horde.uid[s.fan_target] == s.fan_uid
+	var target := MANUAL_TARGET if player.manual_aim else (s.fan_target if pending else _fan_target(s))
+	s.fan_target = target
+	s.fan_uid = horde.uid[target] if target >= 0 else 0
 	if target == -1:
 		s.fan_left = 0 # цели кончились: оставшиеся патроны берегутся
+		return
+	var at := player.aim_point if target == MANUAL_TARGET else _target_position(target)
+	_aim_gun(i, at, delta)
+	if s.fan_t > 0.0:
+		return
+	if not _gun_aligned(i, at):
 		return
 	s.fan_left -= 1
 	s.fan_t += s.fan_interval
 	_fire_shot(i, s, target)
+	s.fan_target = -1
 	s.cooldown = 0.0
 
 
@@ -490,7 +663,8 @@ func _start_reload(s: Slot) -> void:
 	if s.base in [WeaponDefs.Base.PISTOL, WeaponDefs.Base.RIFLE, WeaponDefs.Base.SMG]:
 		_sound(s, "mag_out")
 		if effects:
-			effects.casing(player.global_position, player.aim_dir, "mag_" + GUN_IDS[s.base])
+			var i := slots.find(s)
+			effects.casing(gun_point(i, s.grip), Vector2.from_angle(s.angle), "mag_" + GUN_IDS[s.base])
 	elif s.base == WeaponDefs.Base.REVOLVER:
 		_sound(s, "cyl_open")
 
@@ -540,7 +714,7 @@ func _reload_actions(s: Slot, before: float, after: float) -> void:
 			_sound(s, "eject")
 			if effects:
 				for k in s.reload_missing:
-					effects.casing(player.global_position, Vector2.from_angle(TAU * k / maxf(1.0, s.reload_missing)), "brass_small")
+					effects.casing(gun_point(slots.find(s), s.eject), Vector2.from_angle(s.angle + TAU * k / maxf(1.0, s.reload_missing)), "brass_small")
 		if before < 0.5 and after >= 0.5:
 			_sound(s, "load")
 		if before < 0.95 and after >= 0.95:
@@ -590,6 +764,7 @@ func _spawn_bullet(p: Vector2, v: Vector2, life: float, dmg: float, slot: int, p
 		_bflags.resize(b + 128)
 		_blast.resize(b + 128)
 		_bdepth.resize(b + 128)
+		_bobstacle.resize(b + 128)
 	_bpos[b] = p
 	_bvel[b] = v
 	_blife[b] = life
@@ -600,6 +775,7 @@ func _spawn_bullet(p: Vector2, v: Vector2, life: float, dmg: float, slot: int, p
 	_bflags[b] = flags
 	_blast[b] = -1
 	_bdepth[b] = depth
+	_bobstacle[b] = -1
 	bullet_count += 1
 
 
@@ -620,6 +796,16 @@ func _update_bullets(delta: float) -> void:
 			if boss.hit_test(nearest, BULLET_RADIUS) and (hit == -1 or p0.distance_squared_to(nearest) < p0.distance_squared_to(probe)):
 				hit = BOSS_TARGET
 				probe = nearest
+		# Стена проверяется до цели; низкое укрытие пропускает пулю, бочка принимает удар.
+		var obstacle := obstacles.ray_hit(p0, probe if hit != -1 else p1, false, BULLET_RADIUS, _bobstacle[i]) if obstacles else -1
+		if obstacle != -1:
+			var s := slots[_bslot[i]]
+			obstacles.damage(obstacle, _bdmg[i], s.ammo == WeaponDefs.Ammo.INCENDIARY)
+			_bobstacle[i] = obstacle
+			if obstacles.high[obstacle] == 1:
+				_remove_bullet(i)
+				i -= 1
+				continue
 		if hit != -1:
 			if not _bullet_hit(i, hit, probe):
 				_remove_bullet(i)
@@ -707,6 +893,7 @@ func _remove_bullet(i: int) -> void:
 	_bflags[i] = _bflags[j]
 	_blast[i] = _blast[j]
 	_bdepth[i] = _bdepth[j]
+	_bobstacle[i] = _bobstacle[j]
 
 
 # --- попадание: патроны ------------------------------------------------------------------
@@ -834,21 +1021,13 @@ func _on_kill(slot: int, e: int, dir: Vector2, depth: int) -> void:
 ## slot >= 0 — взрыв ствола (патроны, детонатор), slot = -1 — «ничей» (граната игрока):
 ## урон без эффектов патронов, любая смерть — гибы.
 func explode(at: Vector2, dmg: float, radius: float, slot := -1, depth := 0, gibs := false) -> void:
-	last_explosion = at
+	if obstacles:
+		obstacles.blast(at, radius, dmg)
+	var kind := Explosions.Kind.GRENADE if slot < 0 else (Explosions.Kind.DETONATOR if depth > 0 else Explosions.Kind.LAUNCHER)
+	if explosions:
+		explosions.spawn(at, radius, kind)
 	if sfx:
 		sfx.play("explosions/grenade", at, -2.0)
-	if effects:
-		effects.flash_light(at, Color(1.0, 0.42, 0.12), radius * 2.5, 1.6, 0.15)
-	if effects:
-		for k in 14:
-			effects.emit(at, Vector2.from_angle(randf() * TAU) * randf_range(30.0, 160.0), randf_range(0.15, 0.4),
-				Color(1.0, randf_range(0.5, 0.9), 0.2), 1.5, 5.0)
-		for k in 6:
-			effects.emit(at, Vector2.from_angle(randf() * TAU) * randf_range(10.0, 40.0), randf_range(0.5, 1.0),
-				Color(0.2, 0.19, 0.18, 0.6), 4.0, 2.0)
-	if floor_decals:
-		# подпалина: лёгкая копоть, чтобы не забивать кровь
-		floor_decals.stamp(PixelArt.tex("blood_%d" % (randi() % 8)), at, randf() * TAU, Color(0.07, 0.06, 0.055, 0.3), radius / 45.0)
 	var s: Slot = slots[slot] if slot >= 0 else null
 	if _boss_active and boss.hit_test(at, radius):
 		var offset := boss.global_position - at
@@ -871,9 +1050,6 @@ func explode(at: Vector2, dmg: float, radius: float, slot := -1, depth := 0, gib
 			if depth < 2 and s.mod_rank(WeaponDefs.Module.DETONATOR) > 0:
 				_on_kill(slot, j, dir, depth)
 	horde.death_override = prev_override
-	var to_player := player.global_position.distance_to(at)
-	if camera and to_player < 120.0:
-		camera.shake(3.0 * (1.0 - to_player / 120.0))
 
 
 func _ammo_sparks(ammo: int, p: Vector2, dir: Vector2) -> void:
@@ -906,6 +1082,11 @@ func _rail_beam(i: int, from: Vector2, dir: Vector2, dmg: float, bounces: int, h
 	var length: float = s.stats["range"]
 	var half: float = s.stats["width"] * 0.5 + Horde.RADIUS
 	var to := from + dir * length
+	if obstacles:
+		# Рельса проходит насквозь и повреждает каждую машину на луче.
+		for obstacle in obstacles.count:
+			if obstacles.kind[obstacle] <= Obstacles.Kind.ACID and obstacles._segment(obstacle, from, to, 1.0) < INF:
+				obstacles.damage(obstacle, dmg, s.ammo == WeaponDefs.Ammo.INCENDIARY)
 	# кто на линии: сортируем по расстоянию вдоль луча
 	var hits: Array = []
 	if _boss_active and not hit_uids.has(BOSS_TARGET):
@@ -967,6 +1148,8 @@ func _fire_grenades(i: int, muzzle: Vector2, target: Vector2) -> void:
 
 
 func _spawn_grenade(from: Vector2, to: Vector2, slot: int, dmg: float, radius: float, small: bool, flags := 0) -> void:
+	if obstacles:
+		to = obstacles.free_point(to, 3.0)
 	var d := to - from
 	var spd: float = slots[slot].stats["speed"] if not small else 180.0
 	_gpos.append(from)
@@ -1008,6 +1191,8 @@ func _update_grenades(delta: float) -> void:
 
 ## Взрыв гранаты ствола; сплит у гранатомёта — кассета мини-гранат.
 func _detonate(at: Vector2, slot: int, dmg: float, radius: float, small: bool, flags: int) -> void:
+	if obstacles:
+		at = obstacles.free_point(at, 3.0)
 	explode(at, dmg, radius, slot, 0, flags & G_LAST != 0)
 	if not small and slot < slots.size() and slots[slot].mod_rank(WeaponDefs.Module.SPLIT) > 0:
 		var n := 2 + slots[slot].mod_rank(WeaponDefs.Module.SPLIT)
@@ -1092,6 +1277,10 @@ func _age_fx(delta: float) -> void:
 		_flashes[f][2] -= delta
 		if _flashes[f][2] <= 0.0:
 			_flashes.remove_at(f)
+		elif player != null and _flashes[f].size() > 9 and int(_flashes[f][9]) < slots.size():
+			var slot: int = _flashes[f][9]
+			_flashes[f][0] = gun_point(slot, slots[slot].muzzle)
+			_flashes[f][1] = gun_angle(slot)
 		f -= 1
 
 

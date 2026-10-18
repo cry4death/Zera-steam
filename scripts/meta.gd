@@ -13,13 +13,13 @@ extends Node
 ##   --save-file=<путь>    писать и читать этот файл (user://имя.json) даже в тест-режиме: проверка перезапуска
 
 const SAVE_VERSION := 3
-const DEFAULT_SETTINGS := {"master": 1.0, "weapons": 1.0, "world": 1.0, "ui": 1.0,
+const DEFAULT_SETTINGS := {"master": 1.0, "weapons": 1.0, "world": 1.0, "ui": 1.0, "music": 1.0,
 	"gore": 2, "shake": 1.0, "fullscreen": true, "auto_fire": true, "reduce_motion": false}
 signal settings_changed
 var settings: Dictionary = DEFAULT_SETTINGS.duplicate()
 const SAVE_PATH := "user://zera_save.json"
 ## Любой из этих флагов (по началу строки) — тест-режим игры: сохранение только в памяти.
-const TEST_FLAGS := ["--fx-test", "--hud-test", "--campaign-test", "--campaign-op", "--base-test", "--aim-test", "--audio-test", "--sim", "--bench", "--boss", "--alarm", "--ui-test", "--weapons-test", "--loadout", "--s3-test", "--meta-test", "--kinds", "--gore-stress", "--fresh-save"]
+const TEST_FLAGS := ["--guns-test", "--fx-test", "--hud-test", "--campaign-test", "--campaign-op", "--base-test", "--aim-test", "--audio-test", "--sim", "--bench", "--boss", "--alarm", "--ui-test", "--weapons-test", "--loadout", "--s3-test", "--meta-test", "--kinds", "--gore-stress", "--fresh-save"]
 
 # Уровень класса: накоплено ДНК для уровня n = 80 · (n − 1)^1.5 (BALANCE §11.2)
 const LEVEL_DNA_K := 80.0
@@ -126,12 +126,12 @@ func set_setting(key: String, value: Variant) -> void:
 
 
 func apply_settings() -> void:
-	for key: String in ["master", "weapons", "world", "ui"]:
+	for key: String in ["master", "weapons", "world", "ui", "music"]:
 		var bus := AudioServer.get_bus_index(key.capitalize() if key != "ui" else "UI")
 		if bus < 0:
 			continue
 		var gain := float(settings[key])
-		var trim := -9.0 if key == "weapons" else (-12.0 if key == "world" else 0.0)
+		var trim: float = {"weapons": -9.0, "world": -12.0, "music": -7.0}.get(key, 0.0)
 		AudioServer.set_bus_volume_db(bus, linear_to_db(maxf(gain, 0.0001)) + trim)
 		AudioServer.set_bus_mute(bus, gain <= 0.0)
 	if DisplayServer.get_name() != "headless" and not is_test_run() and not OS.get_cmdline_user_args().has("--base-test"):

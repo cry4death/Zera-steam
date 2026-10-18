@@ -11,8 +11,9 @@ var _selected := 0
 var _ui := 3.0
 var _rows: Array[Rect2] = []
 var _drag := -1
-const KEYS := ["master", "weapons", "world", "ui", "gore", "shake", "fullscreen", "auto_fire", "reduce_motion"]
-const LABELS := ["Общая", "Оружие", "Мир", "Интерфейс", "Жестокость", "Тряска экрана", "Полный экран", "Автострельба", "Уменьшить движение"]
+const KEYS := ["master", "weapons", "world", "ui", "music", "gore", "shake", "fullscreen", "auto_fire", "reduce_motion"]
+const LABELS := ["Общая", "Оружие", "Мир", "Интерфейс", "Музыка", "Жестокость", "Тряска экрана", "Полный экран", "Автострельба", "Уменьшить движение"]
+const SLIDERS := ["master", "weapons", "world", "ui", "music", "shake"]
 const GOLD := Color(1.0, 0.82, 0.35)
 const WHITE := Color(0.92, 0.90, 0.85)
 const DIM := Color(0.60, 0.60, 0.57)
@@ -31,6 +32,7 @@ func open(as_settings := false) -> void:
 	confirming = false
 	_selected = 0
 	visible = true
+	Music.duck(true)
 	if game != null:
 		get_tree().paused = true
 	_sound("click")
@@ -40,6 +42,7 @@ func open(as_settings := false) -> void:
 func close() -> void:
 	visible = false
 	_drag = -1
+	Music.duck(false)
 	Meta.save()
 	if game != null:
 		get_tree().paused = false
@@ -110,7 +113,7 @@ func _gui_input(event: InputEvent) -> void:
 			for i in _rows.size():
 				if _rows[i].has_point(button.position / _ui):
 					_selected = i
-					if settings_open and i in [0, 1, 2, 3, 5] and button.position.x / _ui >= _rows[i].position.x + 145.0:
+					if settings_open and i < KEYS.size() and KEYS[i] in SLIDERS and button.position.x / _ui >= _rows[i].position.x + 145.0:
 						_drag = i
 						_slider(i, button.position.x / _ui)
 					else:
@@ -167,7 +170,7 @@ func _draw() -> void:
 	_ui = maxf(1.0, floorf(size.y / 360.0))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE * _ui)
 	var view := size / _ui
-	var dimensions := Vector2(350, 348) if settings_open else Vector2(280, 208)
+	var dimensions := Vector2(350, 354) if settings_open else Vector2(280, 208)
 	var panel := Rect2((view - dimensions) * 0.5, dimensions)
 	var p := panel.position
 	draw_rect(Rect2(Vector2.ZERO, view), Color(0.025, 0.02, 0.02, 0.78))
@@ -181,24 +184,24 @@ func _draw() -> void:
 	if settings_open:
 		_text(p + Vector2(18, 64), "ГРОМКОСТЬ", DIM, 8)
 		for i in KEYS.size():
-			var r := Rect2(p + Vector2(18, 70 + i * 23), Vector2(314, 22))
+			var r := Rect2(p + Vector2(18, 70 + i * 21), Vector2(314, 20))
 			_rows.append(r)
 			if i == _selected:
 				draw_rect(r, Color(0.18, 0.15, 0.10))
 			_text(r.position + Vector2(4, 16), LABELS[i], WHITE, 10)
 			var value: Variant = Meta.settings[KEYS[i]]
-			if i in [0, 1, 2, 3, 5]:
+			if KEYS[i] in SLIDERS:
 				var bar := Rect2(r.position + Vector2(148, 11), Vector2(126, 4))
 				draw_rect(bar, Color(0.25, 0.22, 0.18))
 				draw_rect(Rect2(bar.position, Vector2(126 * float(value), 4)), GOLD)
 				draw_rect(Rect2(bar.position + Vector2(126 * float(value) - 1, -3), Vector2(3, 10)), WHITE)
 				_text(r.position + Vector2(281, 16), str(roundi(float(value) * 100)), GOLD, 9)
 			else:
-				_text(r.position + Vector2(148, 16), ["Мало", "Средне", "Максимум"][int(value)] if i == 4 else ("Вкл." if value else "Выкл."), GOLD, 10)
-		_text(p + Vector2(22, 285), "ПКМ — свой прицел · правый стик — прицел" if Meta.settings["auto_fire"] else "ЛКМ / правый курок — огонь · мышь / стик — прицел", GOLD, 7)
-		_text(p + Vector2(22, 297), "Движение: без пульсов и плавного автоповорота", DIM, 8)
-		_text(p + Vector2(22, 309), "Мало: меньше крови и гибов, без брызг на экране", DIM, 8)
-		_button(Rect2(p + Vector2(18, 316), Vector2(314, 22)), "НАЗАД", KEYS.size())
+				_text(r.position + Vector2(148, 16), ["Мало", "Средне", "Максимум"][int(value)] if KEYS[i] == "gore" else ("Вкл." if value else "Выкл."), GOLD, 10)
+		_text(p + Vector2(22, 291), "ПКМ — свой прицел · правый стик — прицел" if Meta.settings["auto_fire"] else "ЛКМ / правый курок — огонь · мышь / стик — прицел", GOLD, 7)
+		_text(p + Vector2(22, 303), "Движение: без пульсов и плавного автоповорота", DIM, 8)
+		_text(p + Vector2(22, 315), "Мало: меньше крови и гибов, без брызг на экране", DIM, 8)
+		_button(Rect2(p + Vector2(18, 322), Vector2(314, 22)), "НАЗАД", KEYS.size())
 	else:
 		if confirming:
 			_text(p + Vector2(18, 69), "Забег будет засчитан как смерть.", WHITE, 10)
