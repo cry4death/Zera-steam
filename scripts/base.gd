@@ -32,12 +32,12 @@ const PANEL_DARK := Color(0.04, 0.035, 0.035, 0.9)
 const TAB_NAMES := ["КАЗАРМА", "МАСТЕРСКАЯ", "АРСЕНАЛ", "СКЛАД", "ОПЕРАЦИИ"]
 const GLOBE_SCENE := preload("res://scenes/globe_view.tscn")
 const MODIFIER_TEXT := {
-	"runner_surge": "Прорыв бегунов: быстрые группы",
-	"elite_hunt": "Охота элиток: усиленные формы",
-	"acid_rain": "Кислотные выбросы: плевальщики",
-	"blood_frenzy": "Кровавая вспышка: тревога на 4:00",
-	"hardened_boss": "Броня объекта: +25% HP босса",
-	"resource_cache": "Военный склад: бонус снабжения",
+	"runner_surge": "Больше бегунов",
+	"elite_hunt": "Элитные группы",
+	"acid_rain": "Больше плевальщиков",
+	"blood_frenzy": "Доп. тревога · 4:00",
+	"hardened_boss": "HP объекта +25%",
+	"resource_cache": "Бонус снабжения",
 }
 const CATEGORY_NAMES := ["АВТОМАТЫ", "ДРОБОВИКИ", "РЕЙЛГАНЫ", "ГРАНАТОМЁТЫ", "ПИСТОЛЕТЫ", "РЕВОЛЬВЕРЫ", "ПП", "ВИНТОВКИ"]
 const BRANCH_COLORS := [Color(1.0, 0.52, 0.30), Color(1.0, 0.82, 0.35), Color(0.55, 0.92, 0.60)]
@@ -73,6 +73,8 @@ var _op_filter := 0
 var _op_armed := false
 var _op_journal := false
 var _op_scroll := 0
+var _op_pad := false
+var _op_tips: Dictionary = {}
 static var _globe_test_started := false
 var _hits: Array[Dictionary] = []
 var _hover_key := ""
@@ -175,6 +177,8 @@ func _gui_input(event: InputEvent) -> void:
 	if _leaving or _settings_menu != null and _settings_menu.visible:
 		return
 	if _tab == Tab.OPERATIONS and _globe != null:
+		if event is InputEventMouse:
+			_op_pad = false
 		var at := get_global_mouse_position() - _globe.global_position
 		var mouse_event := event as InputEventMouse
 		if mouse_event != null:
@@ -205,6 +209,18 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	var key := event as InputEventKey
 	if key != null and key.pressed:
+		if _tab == Tab.OPERATIONS:
+			_op_pad = false
+			if key.physical_keycode == KEY_Q or key.keycode == KEY_Q:
+				if not key.echo:
+					_click("op_filter:%d" % posmod(_op_filter + 1, 4))
+				get_viewport().set_input_as_handled()
+				return
+			if key.physical_keycode == KEY_J or key.keycode == KEY_J:
+				if not key.echo:
+					_click("op_journal")
+				get_viewport().set_input_as_handled()
+				return
 		var code := key.keycode
 		# буквенные команды работают и при русской раскладке
 		if key.physical_keycode in [KEY_A, KEY_D, KEY_W, KEY_S, KEY_E, KEY_F, KEY_R]:
@@ -238,6 +254,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	var pad := event as InputEventJoypadButton
 	if pad != null and pad.pressed:
+		if _tab == Tab.OPERATIONS:
+			_op_pad = true
+			if pad.button_index == JOY_BUTTON_Y:
+				_click("op_filter:%d" % posmod(_op_filter + 1, 4))
+				return
+			if pad.button_index == JOY_BUTTON_BACK:
+				_click("op_journal")
+				return
 		match pad.button_index:
 			JOY_BUTTON_A: _confirm()
 			JOY_BUTTON_B: _cancel()
@@ -252,6 +276,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	var axis := event as InputEventJoypadMotion
 	if _tab == Tab.OPERATIONS:
+		if axis != null and absf(axis.axis_value) > 0.22:
+			_op_pad = true
 		return
 	if axis != null and (axis.axis == JOY_AXIS_LEFT_X or axis.axis == JOY_AXIS_LEFT_Y):
 		var v := 0
@@ -647,8 +673,8 @@ func _change_to_battle() -> void:
 func _process(delta: float) -> void:
 	if _globe != null:
 		_globe.input_enabled = not _settings_menu.visible and not _leaving
-		_globe.position = (Vector2(144, 64) + _origin) * _ui
-		_globe.size = Vector2(264, 238) * _ui
+		_globe.position = (Vector2(150, 64) + _origin) * _ui
+		_globe.size = Vector2(282, 238) * _ui
 	_t += delta
 	_msg_t = maxf(_msg_t - delta, 0.0)
 	_shake = maxf(_shake - delta * 3.5, 0.0)
@@ -1000,6 +1026,10 @@ func _draw_tabs(font: Font) -> void:
 func _draw_hint(font: Font) -> void:
 	if _msg_t > 0.0:
 		_text_c(font, Vector2(320, 309), _msg, Color(RED, minf(_msg_t * 2.0, 1.0)), 8)
+		return
+	if _tab == Tab.OPERATIONS:
+		var help := "Стик · курки · крестовина · A начать" if _op_pad else "ЛКМ вращать · колесо масштаб · Enter начать"
+		_text_c(font, Vector2(291, 309), help, MUTED, 7)
 		return
 	var tail := ""
 	match _tab:
@@ -1595,7 +1625,7 @@ func _start_campaign() -> void:
 
 
 func _op_card_rect() -> Rect2:
-	return Rect2(416, 64, 216, 238)
+	return Rect2(432, 64, 200, 238)
 
 
 func _operation_matches(op: Dictionary) -> bool:
@@ -1606,10 +1636,22 @@ func _operation_matches(op: Dictionary) -> bool:
 	return _globe.matches_filter(Campaign.region_info(op["region_id"]))
 
 
+## Картинки кэшируются вместе с остальным артом базы.
+func _op_image(id: String, rect: Rect2, tint := Color.WHITE) -> void:
+	if not _tex.has(id):
+		_tex[id] = PixelArt.tex(id)
+	draw_texture_rect(_tex[id], rect, false, tint)
+
+
+func _op_tip(rect: Rect2, key: String, text: String) -> void:
+	_hit(rect, key)
+	_op_tips[key] = text
+
+
 func _draw_operations(font: Font) -> void:
+	_op_tips.clear()
 	draw_rect(Rect2(8, 64, 624, 238), Color("080d0e"))
-	_box(Rect2(8, 64, 130, 238), MUTED, 0.0, Color("101616"))
-	_box(_op_card_rect(), MUTED, 0.0, Color("101616"))
+	draw_rect(_op_card_rect(), Color("111717"))
 	var world := Campaign.world()
 	var critical := 0
 	var nests := 0
@@ -1619,87 +1661,112 @@ func _draw_operations(font: Font) -> void:
 	for id: String in world["nests"]:
 		if world["nests"][id]["alive"] and CampaignCatalog.NESTS[id]["playable"]:
 			nests += 1
-	_text(font, Vector2(16, 79), "Z.E.R.A. / ЗЕМЛЯ", WHITE, 10)
-	_text(font, Vector2(16, 96), "ХОД %03d" % int(world["turn"]), GOLD, 14)
-	_text(font, Vector2(16, 110), "Очагов активно: %d" % nests, WHITE, 8)
-	_text(font, Vector2(16, 121), "Регионов в критическом: %d" % critical, RED if critical > 0 else MUTED, 8)
-	for i in 4:
-		_button(font, Rect2(16 + (i % 2) * 59, 130 + (i / 2) * 18, 55, 15), ["Все", "Критические", "Доступные", "Ульи"][i], GOLD if _op_filter == i else MUTED, "op_filter:%d" % i, true, 7)
-	_text(font, Vector2(16, 181), "ЗАДАНИЯ ДИСПЕТЧЕРА", MUTED, 7)
+	_text(font, Vector2(16, 79), "ОПЕРАЦИИ", WHITE, 9)
+	var filter_label: String = ["Все задания", "Критические", "Доступные", "Ульи"][_op_filter]
+	_text_r(font, Vector2(146, 78), ("[Y] " if _op_pad else "[Q] ") + ["Все", "Крит.", "I–II", "Ульи"][_op_filter], MUTED, 7)
+	_op_tip(Rect2(94, 66, 54, 18), "op_filter:%d" % posmod(_op_filter + 1, 4), "Фильтр: %s. Все / критические / угроза I–II / ульи. Q или Y — следующий." % filter_label)
+	_text(font, Vector2(16, 97), "Ход %d · очагов %d · крит. %d" % [int(world["turn"]), nests, critical], MUTED, 7)
 	var offers := Campaign.offers()
 	var shown := 0
 	for i in offers.size():
 		var op := offers[i]
 		if not _operation_matches(op):
 			continue
-		var y := 184.0 + shown * 32.0
+		var y := 109.0 + shown * 35.0
 		shown += 1
 		var chosen := _op_sel == i
-		var color := GOLD if chosen else WHITE
-		var r := Rect2(14, y, 118, 30)
-		draw_rect(r, Color("30291b") if chosen else Color("1b2220"))
+		var r := Rect2(12, y, 136, 31)
+		if chosen or _hot("op:%d" % i):
+			draw_rect(r, Color("252b27"))
 		if chosen:
-			draw_rect(r, Color(color, 0.65), false)
-		_text(font, Vector2(18, y + 10), "[%d] %s · %s" % [i + 1, "УЛЕЙ" if op["type"] == "nest" else "ЗАЧИСТКА", _roman(op["threat"])], color, 7)
-		_text(font, Vector2(18, y + 19), str(op["name"]), color, 7)
-		# Номер операции: ход × 3 + место в списке (три предложения за ход).
-		_text(font, Vector2(18, y + 27), "%s · №%03d" % [CampaignCatalog.REGIONS[op["region_id"]]["name"], int(op["offered_turn"]) * 3 + i + 1], MUTED, 6)
-		_hit(r, "op:%d" % i)
+			draw_rect(Rect2(12, y, 2, 31), Color("c3b182"))
+		_op_image("ops_" + str(op["type"]), Rect2(17, y + 5, 21, 21))
+		var region_name: String = CampaignCatalog.REGIONS[op["region_id"]]["name"]
+		region_name = region_name.replace("Восточная", "Вост.").replace("Северная", "Сев.").replace("Западная", "Зап.").replace("Ближний", "Бл.").replace("Южная", "Юж.")
+		_text(font, Vector2(43, y + 12), "[%d] %s" % [i + 1, region_name], WHITE, 8)
+		_text(font, Vector2(43, y + 24), "%s · %s" % ["Удар по улью" if op["type"] == "nest" else "Зачистка", _roman(op["threat"])], MUTED, 7)
+		_op_tip(r, "op:%d" % i, "%s · №%03d" % [op["name"], int(op["offered_turn"]) * 3 + i + 1])
 	if shown == 0:
-		_text(font, Vector2(16, 204), "Заданий в фильтре нет", DIM, 7)
-	_text(font, Vector2(16, 289), "Один рапорт — один ход.", DIM, 7)
+		_text(font, Vector2(16, 123), "Заданий нет", MUTED, 8)
 	var info := Campaign.region_info(_op_region)
 	var accent: Color = GlobeView.COLORS[int(info["stage"])]
-	_text(font, Vector2(424, 78), str(info["name"]).to_upper(), WHITE, 10)
-	_text(font, Vector2(424, 91), "%s · %d / 100" % [info["stage_name"], info["infection"]], accent, 9)
-	_button(font, Rect2(424, 97, 199, 14), "ЖУРНАЛ ПРИЧИН  /  РЕГИОН", GOLD if _op_journal else MUTED, "op_journal", true, 7)
+	var title: String = str(offers[_op_sel]["name"]) if _op_sel >= 0 else str(info["name"])
+	_text(font, Vector2(440, 78), title, WHITE, 9)
+	_text(font, Vector2(440, 90), "%s · %s %d" % [info["name"], info["stage_name"], info["infection"]], accent, 7)
+	_button(font, Rect2(611, 66, 14, 16), "J", MUTED, "op_journal", true, 7)
+	_op_tips["op_journal"] = "Журнал региона: причины роста и последний рапорт. J / Back — открыть."
 	if _op_journal:
 		_draw_operation_journal(font, info)
+		_draw_op_help(font)
 		return
+	# Тон стадии не мешает различать здания и местность на снимке.
+	var tint := Color.WHITE.lerp(accent, 0.18 if int(info["stage"]) >= 2 else 0.05)
+	_op_image("ops_region_" + _op_region, Rect2(440, 97, 184, 59), tint)
 	if _op_sel < 0:
-		var y := 129.0
-		for line in _wrap(font, "Операций в этом регионе сейчас нет. Выберите задание Диспетчера слева.", 196, 9):
-			_text(font, Vector2(424, y), line, MUTED, 9)
-			y += 12
+		var y := 178.0
+		for line: String in _wrap(font, "Операций здесь пока нет. Выберите задание слева или другой регион на карте.", 180, 9):
+			_text(font, Vector2(440, y), line, MUTED, 9)
+			y += 13
 		for nest: Dictionary in info["nests"]:
-			for line in _wrap(font, "%s: %s" % [nest["name"], nest["status"] if nest["alive"] else "Уничтожен"], 196, 8):
-				y += 11
-				_text(font, Vector2(424, y), line, RED if nest["playable"] else DIM, 8)
-		_button(font, Rect2(424, 277, 199, 18), "НАЗАД [B / Esc]", MUTED, "op_back", true, 8)
+			for line: String in _wrap(font, "%s: %s" % [nest["name"], nest["status"] if nest["alive"] else "Уничтожен"], 180, 7):
+				y += 10
+				_text(font, Vector2(440, y), line, MUTED, 7)
+		_button(font, Rect2(440, 284, 184, 18), "НАЗАД [B / Esc]", MUTED, "op_back", true, 8)
+		_draw_op_help(font)
 		return
 	var op := offers[_op_sel]
-	_text(font, Vector2(424, 124), str(op["name"]).to_upper(), GOLD, 11)
-	_text(font, Vector2(424, 137), "%s · УГРОЗА %s / V" % ["УДАР ПО УЛЬЮ" if op["type"] == "nest" else "ЗАЧИСТКА", _roman(op["threat"])], accent, 8)
-	var y := 149.0
-	for line in _wrap(font, str(op["briefing"]), 196, 8):
-		_text(font, Vector2(424, y), line, WHITE, 8)
-		y += 10
-	y += 3
+	_op_image("ops_" + str(op["type"]), Rect2(440, 160, 14, 14))
+	_text(font, Vector2(459, 170), "Удар по улью" if op["type"] == "nest" else "Зачистка", WHITE, 8)
+	for i in 5:
+		_op_image("ops_threat", Rect2(568 + i * 11, 161, 9, 11), accent if i < int(op["threat"]) else Color("343d38"))
+	_op_tip(Rect2(566, 158, 58, 18), "op_help_threat", "Угроза: %d из 5. Влияет на состав противников и награду." % int(op["threat"]))
+	_op_image("ops_dispatcher", Rect2(440, 178, 18, 18))
+	_text(font, Vector2(463, 189), "Объект подтверждён. Работайте." if op["type"] == "nest" else "На 10:00 — Объект-7.", MUTED, 7)
+	_op_tip(Rect2(440, 177, 184, 19), "op_help_dispatch", str(op["briefing"]))
+	_text(font, Vector2(440, 203), "УСЛОВИЯ", MUTED, 7)
+	var y := 205.0
 	if op["modifiers"].is_empty():
-		_text(font, Vector2(424, y), "Условия: штатный периметр", MUTED, 8)
-		y += 10
+		_text(font, Vector2(440, 216), "Штатный периметр", WHITE, 8)
 	for modifier: String in op["modifiers"]:
-		_text(font, Vector2(424, y), str(MODIFIER_TEXT[modifier]), MUTED, 8)
-		y += 10
-	y += 4
-	_text(font, Vector2(424, y), "НАГРАДА ЗА ВЫПОЛНЕНИЕ", GOLD, 7)
-	y += 11
-	_text(font, Vector2(424, y), "ДНК ×%.2f · доп. ящик: %.0f%%" % [op["reward"]["dna_mul"], float(op["reward"]["extra_crate_chance"]) * 100.0], WHITE, 8)
-	y += 11
+		_op_image("ops_" + modifier, Rect2(440, y - 1, 14, 14))
+		_text(font, Vector2(459, y + 9), str(MODIFIER_TEXT[modifier]), WHITE, 8)
+		y += 14
+	_text(font, Vector2(440, 241), "ИТОГ ПРИ ПОБЕДЕ", MUTED, 7)
 	var effect: Dictionary = op["effects"]["win"]
-	y = _para(font, "Заражение: %s; в соседних регионах: %s" % [_signed(int(effect["infection"])), _signed(int(effect["neighbors"]))], y, GREEN, 8)
-	y = _para(font, "Обстановка обновится во всех регионах.", y, MUTED, 7)
-	y = _para(font, "Провал: заражение %s." % _signed(int(op["effects"]["loss"]["infection"])), y, RED, 8)
-	# Постоянный эффект улья и сдерживание отличают стратегическую цель от обычной зачистки.
-	var hold := "Рост заражения снижен на %d на %s" % [int(CampaignCatalog.BALANCE["suppression"]), _turns(int(effect["suppression"]))]
-	_para(font, ("Улей будет уничтожен. " + hold) if op["type"] == "nest" else hold, y, MUTED, 7)
-	_button(font, Rect2(424, 267, 199, 19), "НАЧАТЬ ОПЕРАЦИЮ [A / E]", GOLD, "op_start", true, 9)
-	_text(font, Vector2(424, 297), "B / Esc — назад · образцы сохранятся", DIM, 7)
+	var rewards := [
+		["ops_infection_down", _signed(int(effect["infection"])), "Заражение региона: %s (прямой эффект)." % _signed(int(effect["infection"]))],
+		["ops_neighbors", _signed(int(effect["neighbors"])), "Заражение каждого соседнего региона: %s." % _signed(int(effect["neighbors"]))],
+		["hud_dna", "×%.2f" % float(op["reward"]["dna_mul"]), "Множитель ДНК за выполненную операцию; бонус победы считается отдельно."],
+		["hud_crate", "%.0f%%" % (float(op["reward"]["extra_crate_chance"]) * 100.0), "Шанс дополнительного обычного ящика за победу."],
+	]
+	for i in rewards.size():
+		var x := 440.0 + i * 46.0
+		var reward: Array = rewards[i]
+		_op_image(reward[0], Rect2(x, 247, 12, 12), WHITE if i < 2 else MUTED)
+		_text(font, Vector2(x + 14, 257), reward[1], WHITE, 8)
+		_op_tip(Rect2(x, 244, 46, 18), "op_help_reward%d" % i, reward[2])
+	var hold := "Рост снижен на %d · %s" % [int(CampaignCatalog.BALANCE["suppression"]), _turns(int(effect["suppression"]))]
+	_text(font, Vector2(440, 269), hold + (" · улей уничтожен" if op["type"] == "nest" else ""), MUTED, 7)
+	_op_tip(Rect2(440, 262, 184, 10), "op_help_hold", "Рост заражения снижен на %d на %s, включая текущий ход. После операции обстановка обновится во всех регионах." % [int(CampaignCatalog.BALANCE["suppression"]), _turns(int(effect["suppression"]))])
+	_op_image("ops_infection_up", Rect2(440, 273, 10, 10))
+	_text(font, Vector2(454, 281), "Провал: заражение %s" % _signed(int(op["effects"]["loss"]["infection"])), MUTED, 7)
+	_button(font, Rect2(440, 286, 184, 16), "НАЧАТЬ ОПЕРАЦИЮ  [A / Enter]", WHITE, "op_start", true, 8)
+	_draw_op_help(font)
+
+
+## Справка под списком не закрывает брифинг и карту.
+func _draw_op_help(font: Font) -> void:
+	if not _op_tips.has(_hover_key):
+		return
+	var y := 244.0
+	for line: String in _wrap(font, _op_tips[_hover_key], 130, 7):
+		_text(font, Vector2(16, y), line, MUTED, 7)
+		y += 10
 
 
 func _draw_operation_journal(font: Font, info: Dictionary) -> void:
 	var rows: Array[String] = []
-	rows.append("СЕЙЧАС / ДАВЛЕНИЕ")
+	rows.append("РОСТ ЗАРАЖЕНИЯ")
 	for cause: String in info["danger_reasons"]:
 		rows.append(cause)
 	if info["danger_reasons"].is_empty():
@@ -1713,21 +1780,13 @@ func _draw_operation_journal(font: Font, info: Dictionary) -> void:
 				rows.append(cause)
 	var wrapped: Array[String] = []
 	for row: String in rows:
-		wrapped.append_array(_wrap(font, row, 195, 8))
+		wrapped.append_array(_wrap(font, row, 180, 8))
 	_op_scroll = clampi(_op_scroll, 0, maxi(0, wrapped.size() - 13))
 	for i in mini(13, wrapped.size() - _op_scroll):
-		_text(font, Vector2(424, 126 + i * 10), wrapped[_op_scroll + i], WHITE, 8)
-	_button(font, Rect2(424, 265, 96, 16), "↑ ВЫШЕ", MUTED, "op_scroll:0", true, 7)
-	_button(font, Rect2(527, 265, 96, 16), "↓ НИЖЕ", MUTED, "op_scroll:1", true, 7)
-	_button(font, Rect2(424, 283, 199, 15), "К БРИФИНГУ [B / Esc]", GOLD, "op_journal", true, 7)
-
-
-## Абзац в правой панели с переносом; возвращает y следующей строки.
-func _para(font: Font, s: String, y: float, c: Color, fs: int) -> float:
-	for line in _wrap(font, s, 196, fs):
-		_text(font, Vector2(424, y), line, c, fs)
-		y += fs + 2
-	return y
+		_text(font, Vector2(440, 110 + i * 11), wrapped[_op_scroll + i], WHITE, 8)
+	_button(font, Rect2(440, 265, 88, 16), "↑ ВЫШЕ", MUTED, "op_scroll:0", true, 7)
+	_button(font, Rect2(536, 265, 88, 16), "↓ НИЖЕ", MUTED, "op_scroll:1", true, 7)
+	_button(font, Rect2(440, 283, 184, 19), "К БРИФИНГУ [B / Esc]", WHITE, "op_journal", true, 7)
 
 
 ## Число со знаком и настоящим минусом: −40, +7.

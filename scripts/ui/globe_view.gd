@@ -7,35 +7,39 @@ signal region_selected(id: String)
 const COLORS := [Color("7da38c"), Color("c6b965"), Color("d58a4b"), Color("e04643"), Color("712d42")]
 const SHADER := """
 shader_type spatial;
-render_mode specular_disabled;
+render_mode unshaded;
 uniform sampler2D land : source_color, filter_linear_mipmap, repeat_enable;
-uniform vec3 centers[8];
+uniform sampler2D region_map : filter_nearest, repeat_enable;
+uniform sampler2D cities : filter_linear_mipmap, repeat_enable;
 uniform vec4 zones[8];
-uniform float motion_time = 0.0;
-uniform vec3 hive_center;
+uniform float infections[8];
 uniform bool hive_alive = true;
+uniform vec3 sun_direction = vec3(-0.68, 0.35, 0.64);
 varying vec3 local_point;
 void vertex() { local_point = VERTEX; }
 void fragment() {
     vec3 n = normalize(local_point);
     vec2 uv = vec2((atan(n.x, n.z) + PI) / (2.0 * PI), 0.5 - asin(n.y) / PI);
-    vec3 base = texture(land, uv).rgb;
-    vec3 color = base;
-    vec3 glow = vec3(0.0);
-    for (int i = 0; i < 8; i++) {
-        float d = dot(n, centers[i]);
-        float area = smoothstep(0.975, 0.999, d);
-        float pulse = zones[i].a > 0.5 ? 0.9 + 0.1 * sin(motion_time * 3.5) : 1.0;
-        color = mix(color, zones[i].rgb * 0.62, area * 0.78 * pulse);
-        glow += zones[i].rgb * area * 0.12 * pulse;
+    vec4 region = texture(region_map, uv);
+    int id = int(round(region.r * 255.0)) - 1;
+    vec3 color = texture(land, uv).rgb;
+    float infection = 0.0;
+    if (id >= 0 && id < 8) {
+        infection = infections[id];
+        float area = smoothstep(0.18, 0.70, infection) * region.g * 0.72;
+        // Удерживаемая суша без цветного ореола; улей матовый, только в своей зоне.
+        vec3 zone = zones[id].rgb;
+        if (id == 0 && hive_alive) { zone = mix(zone, vec3(0.17, 0.045, 0.09), 0.7); }
+        color = mix(color, zone * 0.45, area);
+        color = mix(color, vec3(0.22, 0.25, 0.22), region.b * 0.36);
     }
-    if (hive_alive) {
-        float halo = smoothstep(0.985, 1.0, dot(n, hive_center));
-        glow += vec3(0.55, 0.09, 0.25) * halo * (0.75 + 0.15 * sin(motion_time * 2.0));
-    }
-    ALBEDO = color;
-    EMISSION = color * 0.25 + glow;
-    ROUGHNESS = 1.0;
+    vec3 world_n = normalize((MODEL_MATRIX * vec4(n, 0.0)).xyz);
+    float day = dot(world_n, normalize(sun_direction));
+    color *= 0.48 + 0.72 * max(day, 0.0);
+    float night = 1.0 - smoothstep(-0.15, 0.3, day);
+    color += vec3(0.65, 0.52, 0.28) * texture(cities, uv).r * night * pow(1.0 - infection, 2.0) * 0.9;
+    float rim = pow(1.0 - max(world_n.z, 0.0), 5.0);
+    ALBEDO = color + vec3(0.018, 0.026, 0.028) * rim;
 }
 """
 
@@ -49,7 +53,11 @@ var selected := "east_europe"
 var filter := 0
 var yaw := -0.52
 var pitch := 0.48
-var zoom := 2.65
+var zoom := 2.22
+var _focus_zoom := 2.22
+var _hovered := ""
+var _idle := 0.0
+var _routes: Array[PackedVector3Array] = []
 var _target := Vector2.ZERO
 var _turning := false
 var _dragging := false
@@ -60,9 +68,11 @@ var _changed: Array[String] = []
 var _hits: Array[Dictionary] = []
 var _regions: Array[Dictionary] = []
 var _offers: Array[Dictionary] = []
+var _nest_texture: Texture2D
 
 
 func _ready() -> void:
+	_nest_texture = load("res://art/ops_nest.png") as Texture2D
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	clip_contents = true
 	viewport = SubViewport.new()
@@ -92,6 +102,8 @@ func _ready() -> void:
 	globe_material = ShaderMaterial.new()
 	globe_material.shader = shader
 	globe_material.set_shader_parameter("land", load("res://art/globe_land.png"))
+	globe_material.set_shader_parameter("region_map", load("res://art/globe_regions.png"))
+	globe_material.set_shader_parameter("cities", load("res://art/globe_cities.png"))
 	sphere.material_override = globe_material
 	viewport.add_child(sphere)
 	camera = Camera3D.new()
@@ -117,17 +129,28 @@ static func point(lat: float, lon: float) -> Vector3:
 func refresh() -> void:
 	_regions.clear()
 	_offers = Campaign.offers()
-	var centers := PackedVector3Array()
 	var zones := PackedVector4Array()
+	var infections := PackedFloat32Array()
+	_routes.clear()
 	for id: String in CampaignCatalog.REGIONS:
 		var info := Campaign.region_info(id)
 		_regions.append(info)
-		centers.append(point(info["lat"], info["lon"]))
 		var c: Color = COLORS[int(info["stage"])].srgb_to_linear()
 		zones.append(Vector4(c.r, c.g, c.b, 1.0 if int(info["stage"]) >= 3 else 0.0))
-	globe_material.set_shader_parameter("centers", centers)
+		infections.append(float(info["infection"]) / 100.0)
+		if int(info["stage"]) >= 2:
+			for neighbor: String in info["neighbors"]:
+				var other := Campaign.region_info(neighbor)
+				if int(other["infection"]) >= int(info["infection"]):
+					continue
+				var arc := PackedVector3Array()
+				var a := point(info["lat"], info["lon"])
+				var b := point(other["lat"], other["lon"])
+				for step in 49:
+					arc.append(a.slerp(b, step / 48.0) * 1.006)
+				_routes.append(arc)
 	globe_material.set_shader_parameter("zones", zones)
-	globe_material.set_shader_parameter("hive_center", point(52.0, 30.0))
+	globe_material.set_shader_parameter("infections", infections)
 	globe_material.set_shader_parameter("hive_alive", Campaign.world()["nests"]["object_7"]["alive"])
 
 
@@ -146,6 +169,8 @@ func focus_region(id: String) -> void:
 	var info: Dictionary = CampaignCatalog.REGIONS[id]
 	_target = Vector2(-deg_to_rad(float(info["lon"])), deg_to_rad(float(info["lat"])))
 	_turning = true
+	_idle = 0.0
+	_focus_zoom = 2.22
 	if Meta.settings["reduce_motion"]:
 		skip_motion()
 
@@ -154,6 +179,7 @@ func skip_motion() -> void:
 	if _turning:
 		yaw = _target.x
 		pitch = _target.y
+		zoom = _focus_zoom
 	_turning = false
 	_flash = 0.0
 	_update_pose()
@@ -174,6 +200,7 @@ func _update_pose() -> void:
 
 func _process(delta: float) -> void:
 	var reduced: bool = Meta.settings["reduce_motion"]
+	_idle += delta
 	if not input_enabled:
 		_dragging = false
 	if not reduced:
@@ -186,20 +213,24 @@ func _process(delta: float) -> void:
 				yaw += stick.x * delta * 1.5
 				pitch = clampf(pitch + stick.y * delta, -1.4, 1.4)
 				_turning = false
+				_idle = 0.0
 			var trigger := Input.get_joy_axis(device, JOY_AXIS_TRIGGER_RIGHT) - Input.get_joy_axis(device, JOY_AXIS_TRIGGER_LEFT)
-			zoom = clampf(zoom - trigger * delta, 2.25, 3.5)
+			if absf(trigger) > 0.05:
+				_turning = false
+				_idle = 0.0
+				zoom = clampf(zoom - trigger * delta, 2.08, 3.5)
 	if _turning:
 		if reduced:
 			skip_motion()
 		else:
 			yaw = lerp_angle(yaw, _target.x, 1.0 - exp(-delta * 7.0))
 			pitch = lerpf(pitch, _target.y, 1.0 - exp(-delta * 7.0))
-			if absf(angle_difference(yaw, _target.x)) + absf(pitch - _target.y) < 0.002:
+			zoom = lerpf(zoom, _focus_zoom, 1.0 - exp(-delta * 5.0))
+			if absf(angle_difference(yaw, _target.x)) + absf(pitch - _target.y) + absf(zoom - _focus_zoom) < 0.002:
 				_turning = false
-	elif not _dragging and not reduced:
-		yaw += delta * 0.018
+	elif not _dragging and not reduced and _idle > 8.0 and _hovered.is_empty():
+		yaw += delta * 0.012
 	_update_pose()
-	globe_material.set_shader_parameter("motion_time", 0.0 if reduced else _time)
 	queue_redraw()
 
 
@@ -214,7 +245,7 @@ func project_region(id: String) -> Vector2:
 
 
 func _display_side() -> float:
-	return minf(size.x, size.y)
+	return minf(size.x, size.y) * 1.1
 
 
 func pointer(event: InputEvent, at: Vector2) -> bool:
@@ -223,6 +254,7 @@ func pointer(event: InputEvent, at: Vector2) -> bool:
 		if button.button_index == MOUSE_BUTTON_LEFT:
 			if button.pressed and Rect2(Vector2.ZERO, size).has_point(at):
 				_dragging = true
+				_idle = 0.0
 				_moved = 0.0
 				return true
 			if not button.pressed and _dragging:
@@ -243,9 +275,17 @@ func pointer(event: InputEvent, at: Vector2) -> bool:
 						region_selected.emit(nearest)
 				return true
 		if button.pressed and Rect2(Vector2.ZERO, size).has_point(at) and button.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
-			zoom = clampf(zoom + (-0.16 if button.button_index == MOUSE_BUTTON_WHEEL_UP else 0.16), 2.25, 3.5)
+			_turning = false
+			_idle = 0.0
+			zoom = clampf(zoom + (-0.16 if button.button_index == MOUSE_BUTTON_WHEEL_UP else 0.16), 2.08, 3.5)
 			return true
 	var motion := event as InputEventMouseMotion
+	if motion != null:
+		_hovered = ""
+		for hit: Dictionary in _hits:
+			if at.distance_to(hit["point"]) < 9.0 * size.y / 238.0 or hit["rect"].has_point(at):
+				_hovered = hit["id"]
+		_idle = 0.0
 	if motion != null and _dragging:
 		_moved += motion.relative.length()
 		yaw += motion.relative.x / maxf(size.x, 1.0) * 3.0
@@ -297,6 +337,8 @@ func _layout_labels() -> void:
 	var labels: Array[Rect2] = []
 	var leaders: Array[PackedVector2Array] = []
 	for hit: Dictionary in _hits:
+		if hit["priority"] >= 2 and hit["id"] != _hovered:
+			continue
 		var name_text: String = CampaignCatalog.REGIONS[hit["id"]]["name"]
 		var prefix := "[" + str(hit["number"]) + "] " if hit["number"] != "" else ""
 		var normal := (Vector2(hit["point"]) - size * 0.5).normalized()
@@ -304,7 +346,7 @@ func _layout_labels() -> void:
 			normal = Vector2.RIGHT
 		# Короткое имя — запасной вариант, без потери номера операции.
 		var short_name := name_text.replace("Северная", "Сев.").replace("Восточная", "Вост.").replace("Западная", "Зап.").replace("Ближний", "Бл.").replace("Южная", "Юж.")
-		var variants: Array[String] = [prefix + name_text, prefix + short_name]
+		var variants: Array[String] = [prefix + short_name]
 		# Сначала ищем место с чистой выноской (не режет чужие подписи и значки),
 		# и только если его нет — любое свободное место.
 		for strict: bool in [true, false]:
@@ -399,12 +441,21 @@ func _draw() -> void:
 	var k := size.y / 238.0
 	var side := _display_side()
 	draw_texture_rect(viewport.get_texture(), Rect2((size - Vector2.ONE * side) * 0.5, Vector2.ONE * side), false)
-	var center := size * 0.5
-	var radius := side / zoom
-	draw_arc(center, radius + 4 * k, 0.0, TAU, 96, Color(0.37, 0.45, 0.4, 0.45), k, true)
-	for i in 4:
-		var direction := Vector2.from_angle(i * PI * 0.5)
-		draw_line(center + direction * (radius + 8 * k), center + direction * (radius + 15 * k), Color("71877c"), k)
+	# Дуги лежат на поверхности; обратная полусфера отсекается тем же порогом, что метки.
+	for arc: PackedVector3Array in _routes:
+		for i in range(1, arc.size()):
+			if i % 5 >= 3:
+				continue
+			var a := sphere.basis * arc[i - 1]
+			var b := sphere.basis * arc[i]
+			if a.z <= 0.12 or b.z <= 0.12:
+				continue
+			var screen_a := (camera.unproject_position(a) / Vector2(viewport.size) - Vector2.ONE * 0.5) * side + size * 0.5
+			var screen_b := (camera.unproject_position(b) / Vector2(viewport.size) - Vector2.ONE * 0.5) * side + size * 0.5
+			draw_line(screen_a, screen_b, Color("9d8870"), k * 0.65, true)
+			if i == 28:
+				var direction := (screen_b - screen_a).normalized()
+				draw_colored_polygon(PackedVector2Array([screen_b + direction * 2 * k, screen_b - direction * 3 * k + direction.orthogonal() * 2 * k, screen_b - direction * 3 * k - direction.orthogonal() * 2 * k]), Color("9d8870"))
 	_layout_labels()
 	for info: Dictionary in _regions:
 		if not matches_filter(info):
@@ -425,13 +476,12 @@ func _draw() -> void:
 		var r := 4.0 * k
 		var diamond := PackedVector2Array([at + Vector2(0, -r), at + Vector2(r, 0), at + Vector2(0, r), at + Vector2(-r, 0), at + Vector2(0, -r)])
 		draw_colored_polygon(diamond, Color("090d0c"))
-		var blink := 1.0 if Meta.settings["reduce_motion"] else 0.8 + 0.2 * sin(_time * 3.0)
-		var mark_color := Color(Color.WHITE, blink) if number != "" else c
+		var blink := 1.0
+		if int(info["stage"]) == 3 and not Meta.settings["reduce_motion"]:
+			blink = 0.85 + 0.15 * pow(maxf(0.0, sin(_time * 0.9)), 8.0)
+		var mark_color := Color(Color.WHITE, blink) if number != "" else Color(c, blink)
 		if nest:
-			var hexagon := PackedVector2Array()
-			for corner in 7:
-				hexagon.append(at + Vector2.from_angle(corner * TAU / 6.0) * 6 * k)
-			draw_polyline(hexagon, Color("e165a0"), 1.5 * k, true)
+			draw_texture_rect(_nest_texture, Rect2(at - Vector2.ONE * 7 * k, Vector2.ONE * 14 * k), false)
 		elif int(info["stage"]) == 0:
 			draw_arc(at, r, 0, TAU, 20, mark_color, k, true)
 		elif int(info["stage"]) == 2:
@@ -445,9 +495,7 @@ func _draw() -> void:
 				draw_line(diamond[3], diamond[4], mark_color, k, true)
 		else:
 			draw_polyline(diamond, mark_color, k * (1.5 if chosen else 1.0), true)
-		if nest:
-			draw_rect(Rect2(at - Vector2.ONE * 2 * k, Vector2.ONE * 4 * k), Color("e165a0"))
-		elif int(info["stage"]) >= 3:
+		if not nest and int(info["stage"]) >= 3:
 			draw_line(at + Vector2(0, -2 * k), at + Vector2(0, 2 * k), c, 2 * k)
 		if chosen or (_flash > 0.0 and _changed.has(info["id"])):
 			draw_arc(at, 8 * k, 0.0, TAU, 24, Color(0.95, 0.85, 0.57, 0.8), k, true)
@@ -456,11 +504,11 @@ func _draw() -> void:
 			continue
 		var rect: Rect2 = hit["rect"]
 		var at: Vector2 = hit["point"]
-		var c: Color = COLORS[int(hit["stage"])]
 		var edge := at.clamp(rect.position, rect.end)
-		draw_line(at, edge, Color(c, 0.55), k)
+		if at.distance_to(edge) > 20 * k:
+			draw_line(at, edge, Color("68736c"), k * 0.7)
 		draw_rect(rect, Color(0.025, 0.04, 0.04, 0.93))
-		draw_string(ThemeDB.fallback_font, rect.position + Vector2(3 * k, 9 * k), hit["label"], HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(7 * k), Color.WHITE if hit["priority"] < 2 else c)
+		draw_string(ThemeDB.fallback_font, rect.position + Vector2(3 * k, 9 * k), hit["label"], HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(7 * k), Color("e5e3d8") if hit["priority"] < 2 else Color("a3aca7"))
 	if _flash > 0.0:
 		draw_string(ThemeDB.fallback_font, Vector2(8, size.y - 6 * k), "ФРОНТ ОБНОВЛЁН · Esc / B — пропустить", HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(7 * k), Color("e4ce87"))
 
@@ -486,10 +534,61 @@ static func run_test(base: Control, path: String) -> void:
 	var tree := base.get_tree()
 	var state := {"checks": 0, "failed": 0}
 	await tree.create_timer(1.0).timeout
+	if OS.get_cmdline_user_args().has("--ops-benchmark"):
+		await _benchmark(base)
+		tree.quit.call_deferred()
+		return
+	if OS.get_cmdline_user_args().has("--ops-capture"):
+		await _capture(base, path)
+		tree.quit.call_deferred()
+		return
 	_check_test(state, "isolated_before_ready", not Meta.persist and Meta.runs == 0 and Meta.save_path == Meta.SAVE_PATH)
 	var globe: GlobeView = base.get("_globe")
 	_check_test(state, "viewport_active", globe.active and globe.viewport.render_target_update_mode == SubViewport.UPDATE_ALWAYS)
 	_check_test(state, "eight_zones_three_offers", globe._regions.size() == 8 and globe._offers.size() == 3)
+	var art_ok := true
+	for id: String in CampaignCatalog.REGIONS:
+		art_ok = art_ok and ResourceLoader.exists("res://art/ops_region_%s.png" % id)
+	for id: String in CampaignCatalog.MODIFIERS + ["clearance", "nest", "dispatcher", "threat", "infection_down", "infection_up", "neighbors"]:
+		art_ok = art_ok and ResourceLoader.exists("res://art/ops_%s.png" % id)
+	_check_test(state, "briefing_art_catalog_complete", art_ok)
+	var mask := (load("res://art/globe_regions.png") as Texture2D).get_image()
+	var mask_ok := mask.get_size() == Vector2i(2048, 1024) and mask.get_pixel(1024, 512).r == 0.0
+	var index := 0
+	for info: Dictionary in globe._regions:
+		var x := floori((float(info["lon"]) + 180.0) / 360.0 * mask.get_width())
+		var y := floori((90.0 - float(info["lat"])) / 180.0 * mask.get_height())
+		mask_ok = mask_ok and roundi(mask.get_pixel(x, y).r * 255.0) == index + 1
+		index += 1
+	_check_test(state, "land_mask_all_eight_centers_and_ocean", mask_ok)
+	_check_test(state, "spread_routes_present", not globe._routes.is_empty())
+	globe._layout_labels()
+	var sparse_labels := true
+	for hit: Dictionary in globe._hits:
+		if int(hit["priority"]) == 2:
+			sparse_labels = sparse_labels and str(hit["label"]).is_empty()
+	_check_test(state, "quiet_regions_have_no_permanent_labels", sparse_labels)
+	globe.zoom = 3.2
+	globe.focus_region("east_asia")
+	globe.skip_motion()
+	_check_test(state, "focus_zooms_to_operation", globe.zoom < 2.3)
+	var idle_yaw := globe.yaw
+	globe._idle = 9.0
+	globe._process(0.1)
+	_check_test(state, "idle_rotation", globe.yaw > idle_yaw)
+	Meta.set_setting("reduce_motion", true)
+	idle_yaw = globe.yaw
+	globe._process(0.1)
+	_check_test(state, "reduced_motion_stops_idle_rotation", globe.yaw == idle_yaw)
+	Meta.set_setting("reduce_motion", false)
+	base.call("_select_region", "east_europe", false)
+	globe.skip_motion()
+	await base.call("_test_key", KEY_Q)
+	_check_test(state, "keyboard_filter_cycle", globe.filter == 1)
+	base.call("_click", "op_filter:0")
+	await base.call("_test_key", KEY_J)
+	_check_test(state, "keyboard_journal", base.get("_op_journal"))
+	await base.call("_test_key", KEY_J)
 	# Плотный перебор проекций, фильтров, масштабов и размеров дисплея.
 	var pose := Vector3(globe.yaw, globe.pitch, globe.zoom)
 	var original_size := globe.size
@@ -638,7 +737,7 @@ static func run_test(base: Control, path: String) -> void:
 	_check_test(state, "motion_setting_sanitized", clean["reduce_motion"] and not Meta.clean_settings({"reduce_motion": "true"})["reduce_motion"])
 	await base.call("_test_key", KEY_O)
 	var settings: PauseMenu = base.get("_settings_menu")
-	settings._selected = 8
+	settings._selected = PauseMenu.KEYS.find("reduce_motion")
 	settings._change(1)
 	settings.queue_redraw()
 	_check_test(state, "settings_ui_motion_toggle", settings.visible and Meta.settings["reduce_motion"])
@@ -646,7 +745,7 @@ static func run_test(base: Control, path: String) -> void:
 	await base.call("_test_key", KEY_ESCAPE)
 	Meta.set_setting("reduce_motion", true)
 	Meta.persist = true
-	Meta.save_path = "res://tmp/c3_settings.json"
+	Meta.save_path = "res://design/tasks/reports/c5_settings.json"
 	Meta.save()
 	var loaded := Meta.load_save()
 	_check_test(state, "motion_setting_disk_roundtrip", loaded and Meta.settings["reduce_motion"])
@@ -662,7 +761,7 @@ static func run_test(base: Control, path: String) -> void:
 	base.call("_set_tab", 4)
 	_check_test(state, "viewing_does_not_advance", Campaign.world() == before)
 	# Щелчок списка и метки, затем настоящий переход база → боевая сцена.
-	await base.call("_test_click", Vector2(60, 200))
+	await base.call("_test_click", Vector2(60, 120))
 	_check_test(state, "mouse_offer_select", int(base.get("_op_sel")) == 0)
 	base.call("_select_operation", 2)
 	globe.skip_motion()
@@ -756,3 +855,56 @@ static func run_test(base: Control, path: String) -> void:
 	print("GLOBETEST checks=%d failed=%d" % [state["checks"], state["failed"]])
 	print("GLOBETEST ok=%s temporary_save=true" % str(state["failed"] == 0))
 	tree.quit(0 if state["failed"] == 0 else 1)
+
+
+## Одинаковый маршрут до и после правок, без снимков и смен сцен в замере.
+static func _benchmark(base: Control) -> void:
+	var tree := base.get_tree()
+	var globe: GlobeView = base.get("_globe")
+	for id: String in ["east_europe", "east_asia", "north_america"]:
+		base.call("_select_region", id, false)
+		globe.skip_motion()
+		await tree.create_timer(0.5).timeout
+		var start := Time.get_ticks_usec()
+		var worst := 0
+		var previous := start
+		for frame in 240:
+			await tree.process_frame
+			var now := Time.get_ticks_usec()
+			worst = maxi(worst, now - previous)
+			previous = now
+		var elapsed := (Time.get_ticks_usec() - start) / 1000000.0
+		print("OPSBENCH region=%s frames=240 avg_fps=%.1f worst_ms=%.2f viewport=%s" % [id, 240.0 / elapsed, worst / 1000.0, globe.viewport.size])
+
+
+## Реальные viewport-снимки обеих компоновок; состояние кампании не меняется.
+static func _capture(base: Control, path: String) -> void:
+	var tree := base.get_tree()
+	var globe: GlobeView = base.get("_globe")
+	tree.root.mode = Window.MODE_WINDOWED
+	tree.root.size = Vector2i(1920, 1080)
+	base.call("_select_operation", 2)
+	globe.skip_motion()
+	await tree.create_timer(0.4).timeout
+	await _test_shot(tree, path, "ops_1080")
+	for id: String in ["east_europe", "east_asia", "north_america"]:
+		base.call("_select_region", id, false)
+		globe.skip_motion()
+		await tree.create_timer(0.2).timeout
+		await _test_shot(tree, path, "globe_" + id)
+	base.call("_select_operation", 2)
+	globe.skip_motion()
+	await tree.create_timer(0.2).timeout
+	await _test_shot(tree, path, "brief_nest")
+	base.call("_select_region", "north_america", false)
+	globe.skip_motion()
+	globe.globe_material.set_shader_parameter("sun_direction", Vector3(-0.7, 0.2, -0.6))
+	await tree.create_timer(0.2).timeout
+	await _test_shot(tree, path, "night")
+	globe.globe_material.set_shader_parameter("sun_direction", Vector3(-0.68, 0.35, 0.64))
+	tree.root.size = Vector2i(1280, 720)
+	base.call("_select_operation", 2)
+	globe.skip_motion()
+	await tree.create_timer(0.3).timeout
+	await _test_shot(tree, path, "ops_720")
+	print("OPSCAPTURE screenshots=7 complete=true")

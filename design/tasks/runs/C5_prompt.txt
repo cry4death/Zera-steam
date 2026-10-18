@@ -1,0 +1,13 @@
+Задача: C5 (уровень high)
+
+Ты исполнитель в проекте игры на Godot 4.7.2. Рабочая папка — C:\Users\Dev\Desktop\zera-c5 (git worktree, ветка task/c5). Работаешь автономно, вопросов не задаёшь, доводишь до конца.
+
+1. Прочитай целиком: design/tasks/README.md, свою задачу design/tasks/C/C5_ops_screen.md, design/tasks/reports/U1.md и U1_audit.md (что автор считает «ИИ-стилем» — не возвращать), design/CAMPAIGN.md §4, §14, §22, design/SETTING.md. Посмотри design/tasks/reports/c4_globe_east_europe.png — так экран выглядит сейчас.
+2. Изучи scripts/ui/globe_view.gd, вкладку «Операции» в scripts/base.gd, scripts/campaign/* (только читать), tools/gen_art*.py, и пиши в их стиле (GDScript со статической типизацией, табы, комментарии по-русски).
+3. Трогай только файлы из списка «Можно трогать».
+4. Godot: C:\Users\Dev\Desktop\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64_console.exe. Сначала --headless --path . --import. Python (numpy, Pillow): C:\Users\Dev\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe. Natural Earth: C:\Users\Dev\Desktop\zera-assets\naturalearth\.
+5. Каждый оконный запуск — только через bash C:/Users/Dev/Desktop/zera-assets/locks/godot_exclusive.sh (см. README). Не оставляй открытых окон Godot и фоновых циклов.
+6. Git-коммиты не делай (песочница не пишет в .git) — коммитит ревьюер.
+7. Главный критерий — экран стал заметно чище, крупнее и нагляднее, больше картинок, меньше текста. Скриншоты и лист иконок смотри сам и итерируй, пока не станет хорошо.
+8. Отчёт design/tasks/reports/C5.md по шаблону design/tasks/templates/report.md: что сделано, файлы, вывод проверок дословно, скриншоты, отступления.
+9. В конце коротко: что сделано и что не получилось.
