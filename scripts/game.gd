@@ -872,7 +872,7 @@ func _apply_mission() -> void:
 	mission_mod_names = " · ".join(names) if not names.is_empty() else "Штатный периметр"
 	mission_title = "%s · %s" % [mission_config["name"], ["I", "II", "III", "IV", "V"][int(mission_config["threat"]) - 1]]
 	mission_region = "%s / УГРОЗА %s" % [mission_config["region_name"], ["I", "II", "III", "IV", "V"][int(mission_config["threat"]) - 1]]
-	mission_banner_t = 2.5
+	mission_banner_t = 3.6 # крупная плашка операции (HUD сворачивает её в компактную строку)
 	print("MISSION threat=%d modifiers=%s seed=%d profile=%s commit=%s persist=%s" % [mission_config["threat"], mission_modifiers, mission_config["seed"], profile, Campaign.enabled(), Meta.persist])
 
 
@@ -1134,6 +1134,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
 	if key == null or not key.pressed or key.echo:
 		return
+	if key.keycode != KEY_F11 and not $HUD/Hud.show_debug:
+		return # отладочные клавиши F1–F10 только при включённой отладке (F3)
 	match key.keycode:
 		KEY_F1:
 			for i in 10:
@@ -1833,6 +1835,11 @@ func _run_ui_test() -> void:
 	await get_tree().create_timer(1.0, true).timeout
 	await RenderingServer.frame_post_draw
 	get_viewport().get_texture().get_image().save_png(_shot_path.replace(".png", "_cards.png"))
+	level_up._hover = 1 # подробности по наведению
+	await get_tree().create_timer(0.2, true).timeout
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(_shot_path.replace(".png", "_cards_hover.png"))
+	level_up._hover = -1
 	level_up._pick(0)
 	await get_tree().create_timer(0.5, true).timeout
 	await RenderingServer.frame_post_draw
@@ -1864,6 +1871,11 @@ func _run_ui_test() -> void:
 	await get_tree().create_timer(1.0, true).timeout
 	await RenderingServer.frame_post_draw
 	get_viewport().get_texture().get_image().save_png(_shot_path.replace(".png", "_trader.png"))
+	trader_ui._hover = 1
+	await get_tree().create_timer(0.2, true).timeout
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(_shot_path.replace(".png", "_trader_hover.png"))
+	trader_ui._hover = -1
 	var key := InputEventKey.new()
 	key.keycode = KEY_SPACE
 	key.physical_keycode = KEY_SPACE
@@ -1872,12 +1884,19 @@ func _run_ui_test() -> void:
 	await get_tree().create_timer(0.3, true).timeout
 	print("UI test trader closed=%s paused=%s dashing=%s" % [not trader_ui.visible, get_tree().paused, player.is_dashing() or player.dash_cd > 0.0])
 	_open_results(false)
-	await get_tree().create_timer(1.5, true).timeout
+	await get_tree().create_timer(4.0, true).timeout # чек считается около трёх секунд
 	await _boss_screenshot("defeat")
 	results.visible = false
 	military_crates = 1
+	_full_loadout() # живой чек: четыре ствола и настоящие числа
+	kills = 1234
+	elites_killed = 14
+	best_combo = 87
+	time = 600.0
 	_open_results(true)
-	await get_tree().create_timer(1.5, true).timeout
+	await get_tree().create_timer(1.2, true).timeout
+	await _boss_screenshot("results_counting")
+	await get_tree().create_timer(3.0, true).timeout
 	await _boss_screenshot("results")
 	print("UI test results victory=true military=1 dna=%d paused=%s" % [results._stats["dna_total"], get_tree().paused])
 	print("UI test screenshots saved")
@@ -1968,10 +1987,19 @@ func _run_hud_test() -> void:
 			break
 	hud.set_operation(op)
 	print("HUDTEST operation=%s threat=%d modifiers=%s" % [op["name"], op["threat"], op["modifiers"]])
+	mission_config = op # крупная плашка операции в начале боя, затем компактная строка
+	mission_banner_t = 3.0
+	await _hud_shot("op_banner")
+	mission_banner_t = 0.0
 	await _hud_shot("op")
+	mission_config = {}
 	hud.show_debug = true
 	await _hud_shot("debug")
 	hud.show_debug = false
+	hud.ammo_sheet = true # лист всех патронов (U3)
+	await get_tree().create_timer(0.3).timeout
+	await _hud_shot("ammo_sheet")
+	hud.ammo_sheet = false
 	# 720p
 	if DisplayServer.get_name() != "headless":
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
@@ -2161,13 +2189,15 @@ func next_event() -> Dictionary:
 
 func _result_stats(victory: bool) -> Dictionary:
 	var names: Array[String] = []
+	var guns: Array[Array] = [] # для значков на экране итогов: модель, уровень, патроны, ранг патронов
 	for s in weapons.slots:
 		names.append("%s ур.%d · %s %s" % [WeaponDefs.MODELS[s.model]["name"], s.level, WeaponDefs.AMMO[s.ammo]["name"], WeaponDefs.ROMAN[s.ammo_rank]])
+		guns.append([s.model, s.level, s.ammo, s.ammo_rank])
 	var lines := _dna_lines()
 	var subtotal := dna_forecast()
 	var mult := 1.5 if victory else 1.0
 	var stats := {"victory": victory, "outcome": "victory" if victory else "defeat", "time": time, "kills": kills, "elites": elites_killed, "best_combo": best_combo,
-		"blood_liters": floor_decals.stamps_total * 0.015, "weapons": names, "crates": crates, "military_crates": military_crates,
+		"blood_liters": floor_decals.stamps_total * 0.015, "weapons": names, "guns": guns, "crates": crates, "military_crates": military_crates,
 		"dna_lines": lines, "dna_mult": mult, "dna_total": floori(subtotal * mult)}
 	if not mission_config.is_empty():
 		for key: String in ["run_id", "operation_id", "region_id", "type", "reward"]:

@@ -18,6 +18,7 @@ const SOUND_ROWS := 5
 ## Подсказка к выбранной строке (до двух строк); у ползунков её нет.
 const HELP := {
 	"gore": ["Мало: меньше крови и останков; без брызг на экране."],
+	"auto_fire": ["Авто: огонь без кнопки, ПКМ или правый стик — свой прицел.", "Выкл.: ЛКМ или правый курок — огонь, мышь или стик — прицел."],
 	"reduce_motion": ["Меньше анимации интерфейса: без пульсации и плавного", "поворота глобуса. Тряска экрана настраивается отдельно."],
 }
 const SLIDERS := ["master", "weapons", "world", "ui", "music", "shake"]
@@ -192,7 +193,9 @@ func _draw() -> void:
 	draw_rect(panel, Color(GOLD, 0.55), false)
 	draw_rect(Rect2(p, Vector2(dimensions.x, 3)), GOLD)
 	_text(p + Vector2(18, 29), "НАСТРОЙКИ" if settings_open else (("ПРЕРВАТЬ ОПЕРАЦИЮ?" if _in_operation() else "ЗАВЕРШИТЬ ВЫЛАЗКУ?") if confirming else "ПАУЗА"), GOLD, 17)
-	_text(p + Vector2(18, 45), "Изменения сохраняются сразу" if settings_open else "Карантинная зона · сектор 07", DIM, 9)
+	# регион операции одной строкой; в свободной вылазке и в настройках подзаголовка нет
+	if not settings_open and _in_operation():
+		_text(p + Vector2(18, 45), str(game.mission_config.get("region_name", "")), DIM, 9)
 	_rows.clear()
 	if settings_open:
 		var y := 64.0
@@ -217,7 +220,6 @@ func _draw() -> void:
 				_text(r.position + Vector2(281, 14), str(roundi(float(value) * 100)), GOLD, 9)
 			else:
 				_text(r.position + Vector2(148, 14), ["Мало", "Средне", "Максимум"][int(value)] if KEYS[i] == "gore" else ("Вкл." if value else "Выкл."), GOLD, 10)
-		_text(p + Vector2(22, 288), "ПКМ — свой прицел · правый стик — прицел" if Meta.settings["auto_fire"] else "ЛКМ / правый курок — огонь · мышь / стик — прицел", GOLD, 7)
 		var help: Array = HELP.get(KEYS[_selected], []) if _selected < KEYS.size() else []
 		for j in help.size():
 			_text(p + Vector2(22, 300 + j * 11), str(help[j]), DIM, 8)
@@ -238,7 +240,6 @@ func _draw() -> void:
 			for j in build.size():
 				var row: Array = build[j]
 				_text(p + Vector2(18 + float(row[3]), 207 + j * 10), str(row[0]), row[1], int(row[2]))
-		_text(p + Vector2(18, dimensions.y - 14.0), "↑↓ · ←→ · Enter / A · Esc / Start", DIM, 8)
 	draw_set_transform(Vector2.ZERO)
 
 

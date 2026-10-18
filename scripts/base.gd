@@ -36,8 +36,8 @@ const BRANCH_COLORS := [Color(1.0, 0.52, 0.30), Color(1.0, 0.82, 0.35), Color(0.
 const STAT_LABELS := {"damage": "УРОН", "rate": "СКОРОСТРЕЛЬНОСТЬ", "mag": "МАГАЗИН", "reload": "ПЕРЕЗАРЯДКА"}
 const RARITY_COLORS := [Color(0.72, 0.72, 0.68), WHITE, RARE]
 const CRATE_INFO := [
-	{"name": "ОБЫЧНЫЙ ЯЩИК", "odds": ["50% — модель оружия,", "из них 15% — редкая", "50% — 30–80 образцов"], "tex": "base_crate"},
-	{"name": "ВОЕННЫЙ ЯЩИК", "odds": ["80% — модель оружия,", "из них 50% — редкая", "20% — 30–80 образцов"], "tex": "base_crate_mil"},
+	{"name": "ОБЫЧНЫЙ ЯЩИК", "odds": ["модель 50% (редкая 15%)", "образцы 50% · 30–80"], "tex": "base_crate"},
+	{"name": "ВОЕННЫЙ ЯЩИК", "odds": ["модель 80% (редкая 50%)", "образцы 20% · 30–80"], "tex": "base_crate_mil"},
 ]
 
 # анимация вскрытия, секунды (у «вскрыть все» со второго ящика — быстрее)
@@ -953,7 +953,7 @@ func _draw_unlock_confirmation(font: Font) -> void:
 	for line in _wrap(font, str(node["text"]), 266.0, 9):
 		_text_c(font, Vector2(320, y), line, MUTED, 9)
 		y += 11.0
-	_text_c(font, Vector2(320, 202), "Стоимость: 1 очко · осталось %d" % Meta.skill_points(), GOLD, 9)
+	_text_c(font, Vector2(320, 202), "1 очко · останется %d" % (Meta.skill_points() - 1), GOLD, 9)
 	_button(font, Rect2(186, 215, 130, 20), "ОТКРЫТЬ [E / A]", GOLD, "unlock_yes", true, 9)
 	_button(font, Rect2(324, 215, 130, 20), "ОТМЕНА [Esc / B]", MUTED, "unlock_no", true, 9)
 
@@ -971,25 +971,23 @@ func _draw_top(font: Font) -> void:
 	draw_rect(Rect2(56, 17, 132, 6), Color(0.14, 0.12, 0.1))
 	draw_rect(Rect2(56, 17, 132.0 * frac, 6), Color(GOLD, 0.85))
 	draw_rect(Rect2(56, 17, 132, 6), Color(GOLD, 0.4), false, 1.0)
-	_text(font, Vector2(56, 32), "до след. уровня: %s ДНК" % _num(maxi(hi - Meta.dna_earned, 0)), MUTED, 7)
+	_text(font, Vector2(56, 32), "ещё %s ДНК" % _num(maxi(hi - Meta.dna_earned, 0)), MUTED, 7)
 	# очки навыков
 	var points := Meta.skill_points()
 	var pc := GREEN if points > 0 else DIM
-	_text(font, Vector2(206, 13), "ОЧКИ НАВЫКОВ", MUTED, 7)
+	_text(font, Vector2(206, 13), "ОЧКИ", MUTED, 7)
 	_text(font, Vector2(206, 31), str(points), pc, 16)
-	if points > 0:
-		_text(font, Vector2(226, 31), "доступно", Color(pc, 0.8), 7)
 	# ДНК
 	var shown := Meta.dna - _pending_dna
 	_dna_icon(Vector2(300, 20), 16.0, GOLD)
-	_text(font, Vector2(312, 13), "ОБРАЗЦЫ (ДНК)", MUTED, 7)
+	_text(font, Vector2(312, 13), "ДНК", MUTED, 7)
 	_text(font, Vector2(312, 31), _num(shown), GOLD.lerp(WHITE, _dna_flash * 2.0), 16)
 	# ящики
-	_draw_crate_chip(font, 0, Vector2(440, 6), Meta.crates, "ЯЩИКИ")
-	_draw_crate_chip(font, 1, Vector2(540, 6), Meta.military_crates, "ВОЕННЫЕ")
+	_draw_crate_chip(font, 0, Vector2(440, 6), Meta.crates)
+	_draw_crate_chip(font, 1, Vector2(540, 6), Meta.military_crates)
 
 
-func _draw_crate_chip(font: Font, kind: int, p: Vector2, count: int, label: String) -> void:
+func _draw_crate_chip(font: Font, kind: int, p: Vector2, count: int) -> void:
 	var tex: String = CRATE_INFO[kind]["tex"]
 	var body: Texture2D = _tex[tex + "_body"]
 	var s := body.get_size() / 3.0
@@ -997,8 +995,7 @@ func _draw_crate_chip(font: Font, kind: int, p: Vector2, count: int, label: Stri
 	draw_texture_rect(body, Rect2(((p + Vector2(0, 5)) * _ui).round() / _ui, s * 0.5), false, tint)
 	var lid: Texture2D = _tex[tex + "_lid"]
 	draw_texture_rect(lid, Rect2(((p + Vector2(0, 2)) * _ui).round() / _ui, lid.get_size() / 3.0 * 0.5), false, tint)
-	_text(font, p + Vector2(36, 8), label, MUTED, 7)
-	_text(font, p + Vector2(36, 25), "×%d" % count, GOLD if count > 0 else DIM, 15)
+	_text(font, p + Vector2(36, 21), "×%d" % count, GOLD if count > 0 else DIM, 16)
 
 
 func _draw_tabs(font: Font) -> void:
@@ -1037,15 +1034,15 @@ func _draw_hint(font: Font) -> void:
 	# подсказка для последнего использованного устройства; номера вкладок и так подписаны на кнопках вкладок
 	var tail := ""
 	match _tab:
-		Tab.BARRACKS: tail = "крестовина — выбор узла · A — открыть (1 очко)" if _pad_mode else "стрелки — выбор узла · E — открыть (1 очко)"
-		Tab.WORKSHOP: tail = "крестовина — модель и параметр · A — улучшить" if _pad_mode else "↑↓ — модель · ←→ — параметр · E — улучшить"
-		Tab.ARSENAL: tail = "A — выбрать модель для предложений при повышении уровня" if _pad_mode else "E — выбрать модель для предложений при повышении уровня"
-		Tab.CRATES: tail = "крестовина — тип · A — вскрыть · X — вскрыть все" if _pad_mode else "←→ — тип · E — вскрыть · R — вскрыть все · Enter — пропуск"
+		Tab.BARRACKS: tail = "A — открыть" if _pad_mode else "стрелки · E — открыть"
+		Tab.WORKSHOP: tail = "крестовина · A — улучшить" if _pad_mode else "↑↓ модель · ←→ параметр · E — улучшить"
+		Tab.ARSENAL: tail = "A — избранная" if _pad_mode else "E — избранная"
+		Tab.CRATES: tail = "крестовина · A — вскрыть · X — все" if _pad_mode else "←→ · E — вскрыть · R — все"
 		Tab.OPERATIONS: tail = "ЛКМ / стик — вращать · колесо / курки — масштаб · D-pad — регион · A / Enter — выбрать / начать"
 	if _tab == Tab.OPERATIONS:
 		tail = "1–5 / Tab — разделы · " + tail
 	elif _pad_mode:
-		tail = "LB / RB — вкладки · " + tail
+		tail = "LB / RB · " + tail
 	_text_c(font, Vector2(320, 309), tail, MUTED, 7)
 
 
@@ -1056,15 +1053,13 @@ func _draw_bottom(font: Font) -> void:
 	if _tab != Tab.OPERATIONS:
 		var start := Meta.model_for(WeaponDefs.Base.RIFLE)
 		_gun(start, Vector2(36, 336), 1)
-		_text(font, Vector2(62, 333), "Старт: %s" % WeaponDefs.MODELS[start]["short"], WHITE, 9)
+		_text(font, Vector2(62, 340), "Старт: %s" % WeaponDefs.MODELS[start]["short"], GOLD if _hot("tab:2") and _tab != Tab.ARSENAL else WHITE, 9)
 		if _tab != Tab.ARSENAL:
-			var link := Rect2(60, 338, 190, 11)
-			_text(font, Vector2(62, 346), "Выбор моделей — в Арсенале [3]", GOLD if _hot("tab:2") else MUTED, 7)
-			_hit(link, "tab:2")
+			_hit(Rect2(8, 320, 240, 34), "tab:2") # клик по стартовому стволу — в Арсенал
 	# свободный режим: небольшая вторичная кнопка
 	var br := Rect2(452, 320, 180, 20)
 	_button(font, br, "Свободная вылазка", MUTED, "fight:0", true, 9)
-	_text_c(font, Vector2(br.position.x + br.size.x * 0.5, 351), "Без изменений на карте · Space / Start", DIM, 6)
+	_text_c(font, Vector2(br.position.x + br.size.x * 0.5, 351), "Space / Start", DIM, 6)
 
 
 # --- казарма -----------------------------------------------------------------------------------
@@ -1118,11 +1113,11 @@ func _draw_barracks(font: Font) -> void:
 				_check_mark(r.position + Vector2(14, 58), GREEN)
 				_text(font, r.position + Vector2(22, 61), "ОТКРЫТ", GREEN, 8)
 			elif not prev_open:
-				_text(font, r.position + Vector2(10, 61), "сначала: " + str(branch["nodes"][i - 1]["name"]), DIM, 7)
+				_text(font, r.position + Vector2(10, 61), "после: " + str(branch["nodes"][i - 1]["name"]), DIM, 7)
 			elif can:
-				_text(font, r.position + Vector2(10, 61), "СТОИМОСТЬ: 1 ОЧКО", GOLD, 8)
+				_text(font, r.position + Vector2(10, 61), "1 очко", GOLD, 9)
 			else:
-				_text(font, r.position + Vector2(10, 61), "нужно очко навыка", Color(GOLD, 0.5), 8)
+				_text(font, r.position + Vector2(10, 61), "нет очков", Color(GOLD, 0.5), 8)
 			_hit(r, "node:%d" % idx)
 			if can and selected:
 				_button(font, Rect2(r.position.x + col_w - 84, r.position.y + 48, 78, 14), "ОТКРЫТЬ [E]", GOLD, "node_buy:%d" % idx, true, 8)
@@ -1229,13 +1224,10 @@ func _draw_workshop(font: Font) -> void:
 		var dps_next := _dps(model, _stats_with(model, nl))
 		var w := _width(font, line, 10)
 		_text(font, Vector2(206 + w, 263), "→ %.1f (%+.0f%%)" % [dps_next, (dps_next / maxf(dps_now, 0.01) - 1.0) * 100.0], GREEN, 10)
-	var proj := int(cur_st["proj"])
-	var extra := "магазин %d · перезарядка %.2f с · %.2f выстр/с" % [int(cur_st["mag"]), float(cur_st["reload"]), float(cur_st["rate"])]
-	if proj > 1:
-		extra = ("снарядов %d · " % proj) + extra
-	_text(font, Vector2(198, 276), extra, MUTED, 8)
-	_text(font, Vector2(198, 290), "вложено: %s ДНК · максимум модели: %d ДНК · редкие ×1.5" % [_num(_spent(model)), 2400 if m["rarity"] == WeaponDefs.Rarity.RARE else 1600], DIM, 7)
-	_text_r(font, Vector2(624, 263), "у вас %s ДНК" % _num(Meta.dna), GOLD, 9)
+	# магазин, перезарядка и темп уже в карточках параметров; здесь только то, чего в них нет
+	if int(cur_st["proj"]) > 1:
+		_text(font, Vector2(198, 276), "снарядов за выстрел: %d" % int(cur_st["proj"]), MUTED, 8)
+	_text_r(font, Vector2(624, 263), "вложено %s / %d" % [_num(_spent(model)), 2400 if m["rarity"] == WeaponDefs.Rarity.RARE else 1600], DIM, 7)
 
 
 # --- арсенал -----------------------------------------------------------------------------------
@@ -1265,13 +1257,11 @@ func _draw_arsenal(font: Font) -> void:
 				draw_rect(Rect2(r.position + Vector2(5, 5), Vector2(4, 4)), rc)
 			if owned:
 				_gun(id, r.position + Vector2(51, 14), 2)
-				_text_c(font, r.position + Vector2(51, 32), str(WeaponDefs.MODELS[id]["short"]), rc, 8)
-				_text_c(font, r.position + Vector2(51, 39), WeaponDefs.RARITY_NAMES[int(WeaponDefs.MODELS[id]["rarity"])], Color(rc, 0.65), 6)
+				_text_c(font, r.position + Vector2(51, 35), str(WeaponDefs.MODELS[id]["short"]), rc, 9)
 			else:
 				_gun(id, r.position + Vector2(51, 14), 2, Color(0.0, 0.0, 0.0, 0.9))
 				_text_c(font, r.position + Vector2(51, 17), "???", Color(MUTED, 0.9), 11)
-				_text_c(font, r.position + Vector2(51, 32), "???", DIM, 8)
-				_text_c(font, r.position + Vector2(51, 39), "из ящика", DIM, 6)
+				_text_c(font, r.position + Vector2(51, 35), "из ящика", DIM, 7)
 			_hit(r, "ars:%d" % idx)
 			if owned:
 				var sc := r.position + Vector2(r.size.x - 9, 9)
@@ -1294,8 +1284,7 @@ func _draw_arsenal(font: Font) -> void:
 	if owned:
 		_text(font, Vector2(452, y), str(m["name"]), rc, 11)
 		y += 11
-		_text(font, Vector2(452, y), "%s · %s" % [CATEGORY_NAMES[int(m["base"])].to_lower(), WeaponDefs.RARITY_NAMES[int(m["rarity"])]], MUTED, 8)
-		y += 6
+		y += 3
 		for line in _wrap(font, str(m.get("desc", WeaponDefs.BASES[int(m["base"])]["desc"])), 172.0, 8):
 			y += 9.5
 			_text(font, Vector2(452, y), line, WHITE, 8)
@@ -1312,11 +1301,9 @@ func _draw_arsenal(font: Font) -> void:
 	else:
 		_text(font, Vector2(452, y), "ЗАКРЫТАЯ МОДЕЛЬ", MUTED, 11)
 		y += 12
-		for line in _wrap(font, "Выдаётся из ящиков: обычные — с операций и сбросов, военные — за объект. Дубликат сдаётся за образцы.", 172.0, 8):
-			y += 9.5
-			_text(font, Vector2(452, y), line, DIM, 8)
+		_text(font, Vector2(452, y), "Выпадает из ящиков", DIM, 8)
 		y += 13
-		_text(font, Vector2(452, y), "РЕДКОСТЬ: " + WeaponDefs.RARITY_NAMES[int(m["rarity"])].to_upper(), RARE if m["rarity"] == WeaponDefs.Rarity.RARE else WHITE, 8)
+		_text(font, Vector2(452, y), WeaponDefs.RARITY_NAMES[int(m["rarity"])], RARE if m["rarity"] == WeaponDefs.Rarity.RARE else WHITE, 9)
 	# эфф. DPS на ур.1 для сравнения с серийной
 	var dps := WeaponDefs.effective_dps(id, 1)
 	var serial_dps := WeaponDefs.effective_dps(WeaponDefs.serial_model(int(m["base"])), 1)
@@ -1329,7 +1316,7 @@ func _draw_arsenal(font: Font) -> void:
 	if owned:
 		var is_fav: bool = Meta.model_for(int(m["base"])) == id
 		if is_fav:
-			_text_c(font, Vector2(538, 295), "Избранная в категории", GOLD, 8)
+			_text_c(font, Vector2(538, 295), "Избранная", GOLD, 8)
 		else:
 			_button(font, Rect2(452, 281, 172, 17), "СДЕЛАТЬ ИЗБРАННОЙ [E]", GOLD, "fav:%d" % _ars_sel, true, 8)
 
@@ -1356,27 +1343,19 @@ func _draw_crates(font: Font) -> void:
 		if count == 0:
 			_crate(info["tex"], r.position + Vector2(74, 62), 2, Vector2.ZERO, 0.0, 1.0, tint)
 		_text_c(font, r.position + Vector2(74, 104), "×%d" % count, GOLD if count > 0 else DIM, 17)
-		for j in 3:
-			_text_c(font, r.position + Vector2(74, 115 + j * 8), info["odds"][j], MUTED, 6)
+		for j in 2:
+			_text_c(font, r.position + Vector2(74, 116 + j * 9), info["odds"][j], MUTED, 7)
 		_hit(r, "csel:%d" % i)
 	var sel_count := Meta.military_crates if _crate_sel == 1 else Meta.crates
 	_button(font, Rect2(8, 206, 148, 24), "ВСКРЫТЬ [E]", GOLD, "copen:%d" % _crate_sel, sel_count > 0, 11)
 	var total := Meta.crates + Meta.military_crates
 	_button(font, Rect2(160, 206, 148, 24), "ВСКРЫТЬ ВСЕ (%d) [R]" % total, GOLD, "call:0", total > 0, 9)
-	# справка
-	var y := 244.0
-	for line in ["Ящики: трофеи с элиток, сбросы снабжения, награда за объект.",
-			"Новая модель навсегда попадает в Арсенал, дубликат",
-			"сдаётся за образцы (ДНК): обычная 40, редкая 100."]:
-		_text(font, Vector2(10, y), line, MUTED, 8)
-		y += 11
 	# журнал вскрытий этого визита
 	var log_r := Rect2(316, 64, 316, 238)
 	draw_rect(log_r, PANEL)
 	_text(font, Vector2(324, 77), "ЖУРНАЛ ПОСТАВОК", GOLD, 9)
 	if _history.is_empty():
-		_text(font, Vector2(324, 100), "Пока ничего не вскрыто.", DIM, 9)
-		_text(font, Vector2(324, 113), "Выбери ящик слева и нажми «ВСКРЫТЬ».", DIM, 8)
+		_text(font, Vector2(324, 100), "Пока ничего не вскрыто", DIM, 9)
 	for i in _history.size():
 		var h: Dictionary = _history[i]
 		var hy := 94.0 + i * 16.0
@@ -1404,7 +1383,7 @@ func _draw_stage(font: Font) -> void:
 	_text_c(font, Vector2(320, 56), "ВОЕННЫЙ ЯЩИК" if _open_mil else "ОБЫЧНЫЙ ЯЩИК", GOLD if _open_mil else WHITE, 12)
 	if _open_all:
 		var left := _open_queue.size()
-		_text_c(font, Vector2(320, 68), "вскрыто %d · осталось %d · Enter — пропуск · Esc — закончить" % [_open_log.size(), left], MUTED, 8)
+		_text_c(font, Vector2(320, 68), "%d / %d · Enter — дальше" % [_open_log.size(), _open_log.size() + left], MUTED, 8)
 	if _open in [Open.SHAKE, Open.LID, Open.FLASH]:
 		_draw_crate_stage(tex, center)
 	elif _open == Open.CARD:
@@ -1542,7 +1521,7 @@ func _draw_summary(font: Font) -> void:
 	y += 14
 	_text(font, Vector2(r.position.x + 14, y), "ИТОГО ДНК", GOLD, 11)
 	_text_r(font, Vector2(r.end.x - 14, y), "+%d" % (packs + dupes), GOLD, 11)
-	_text_c(font, Vector2(320, r.end.y - 6), "Enter / клик — на склад", DIM, 7)
+	_text_c(font, Vector2(320, r.end.y - 6), "Enter", DIM, 7)
 
 
 # --- оперативная карта --------------------------------------------------------------------------
