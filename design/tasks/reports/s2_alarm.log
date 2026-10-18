@@ -1,0 +1,55 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+D3D12 12_0 - Forward+ - Using Device #0: NVIDIA - NVIDIA GeForce RTX 3060 Ti
+
+HITCH 150.0 ms t=-4.87 zombies=258 level=1
+ALARM t=-5 phase=IDLE zombies=258 fps=1 worst_ms=0.0 pools=0 spits=0
+HITCH 83.3 ms t=-4.77 zombies=258 level=1
+ALARM t=-4 phase=IDLE zombies=193 fps=173 worst_ms=0.0 pools=0 spits=1
+ALARM t=-3 phase=IDLE zombies=125 fps=268 worst_ms=2.8 pools=0 spits=6
+ALARM t=-2 phase=IDLE zombies=104 fps=384 worst_ms=9.2 pools=4 spits=2
+ALARM t=-1 phase=IDLE zombies=48 fps=475 worst_ms=16.4 pools=6 spits=0
+ALARM_EVENT warn time=07:00
+ALARM t=0 phase=WARN zombies=56 fps=492 worst_ms=16.4 pools=6 spits=0
+ALARM t=1 phase=WARN zombies=65 fps=752 worst_ms=16.4 pools=2 spits=0
+ALARM t=2 phase=WARN zombies=48 fps=601 worst_ms=16.4 pools=0 spits=0
+ALARM_EVENT start time=07:03
+ALARM t=3 phase=ACTIVE zombies=51 fps=720 worst_ms=16.4 pools=0 spits=0
+ALARM t=4 phase=ACTIVE zombies=42 fps=722 worst_ms=16.4 pools=0 spits=0
+ALARM t=5 phase=ACTIVE zombies=59 fps=683 worst_ms=16.4 pools=0 spits=0
+ALARM t=6 phase=ACTIVE zombies=76 fps=740 worst_ms=16.4 pools=0 spits=0
+ALARM t=7 phase=ACTIVE zombies=93 fps=790 worst_ms=16.4 pools=0 spits=0
+ALARM t=8 phase=ACTIVE zombies=103 fps=679 worst_ms=16.4 pools=0 spits=0
+ALARM t=9 phase=ACTIVE zombies=127 fps=752 worst_ms=16.4 pools=0 spits=0
+ALARM t=10 phase=ACTIVE zombies=105 fps=630 worst_ms=16.4 pools=0 spits=0
+ALARM t=11 phase=ACTIVE zombies=112 fps=565 worst_ms=16.4 pools=0 spits=0
+ALARM t=12 phase=ACTIVE zombies=139 fps=600 worst_ms=16.4 pools=0 spits=0
+ALARM t=13 phase=ACTIVE zombies=136 fps=659 worst_ms=16.4 pools=0 spits=0
+CHAIN fats spawned, first burst queued, alive=148
+ALARM t=14 phase=ACTIVE zombies=124 fps=321 worst_ms=16.4 pools=0 spits=0
+ALARM t=15 phase=ACTIVE zombies=110 fps=359 worst_ms=16.4 pools=0 spits=0
+CHAIN worst_frame_ms=9.8 frames=888
+ALARM t=16 phase=ACTIVE zombies=123 fps=456 worst_ms=16.4 pools=0 spits=0
+ALARM t=17 phase=ACTIVE zombies=145 fps=598 worst_ms=16.4 pools=0 spits=0
+ALARM t=18 phase=ACTIVE zombies=147 fps=430 worst_ms=16.4 pools=0 spits=2
+ALARM screenshot: C:/Users/Dev/Desktop/GameZ/tasks/reports/s2_alarm.png
+HITCH 149.9 ms t=18.15 zombies=142 level=6
+ALARM t=19 phase=ACTIVE zombies=128 fps=182 worst_ms=16.4 pools=2 spits=3
+ALARM t=20 phase=ACTIVE zombies=111 fps=485 worst_ms=16.4 pools=2 spits=2
+ALARM t=21 phase=ACTIVE zombies=110 fps=402 worst_ms=16.4 pools=4 spits=0
+ALARM t=22 phase=ACTIVE zombies=111 fps=582 worst_ms=16.4 pools=2 spits=1
+ALARM t=23 phase=ACTIVE zombies=123 fps=486 worst_ms=16.5 pools=2 spits=1
+ALARM t=24 phase=ACTIVE zombies=125 fps=549 worst_ms=16.5 pools=1 spits=0
+ALARM t=25 phase=ACTIVE zombies=126 fps=617 worst_ms=16.5 pools=1 spits=2
+ALARM t=26 phase=ACTIVE zombies=134 fps=549 worst_ms=16.5 pools=1 spits=2
+ALARM t=27 phase=ACTIVE zombies=148 fps=561 worst_ms=16.5 pools=2 spits=0
+ALARM t=28 phase=ACTIVE zombies=126 fps=663 worst_ms=16.5 pools=2 spits=0
+ALARM t=29 phase=ACTIVE zombies=132 fps=507 worst_ms=16.5 pools=2 spits=0
+ALARM t=30 phase=ACTIVE zombies=132 fps=514 worst_ms=16.5 pools=0 spits=2
+ALARM t=31 phase=ACTIVE zombies=132 fps=517 worst_ms=16.5 pools=2 spits=1
+ALARM t=32 phase=ACTIVE zombies=134 fps=594 worst_ms=16.5 pools=2 spits=2
+ALARM_EVENT finish container=(1291.109, 630.5048) time=07:33
+CONTAINER dropped pos=(1291.109, 630.5048) time=07:33
+ALARM t=33 phase=DONE zombies=87 fps=506 worst_ms=16.6 pools=3 spits=0
+ALARM t=34 phase=DONE zombies=102 fps=419 worst_ms=16.6 pools=1 spits=0
+ALARM t=35 phase=DONE zombies=96 fps=686 worst_ms=16.6 pools=1 spits=1
+ALARM summary peak_zombies=163 min_fps=182 worst_frame_ms=16.6 physics_ms=2.23 process_ms=3.43 draw_calls=1459 horde_ms=0.41

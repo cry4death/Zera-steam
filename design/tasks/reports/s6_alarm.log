@@ -1,0 +1,56 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+HITCH 125.4 ms t=-4.87 zombies=27 level=1
+ALARM t=-5 phase=IDLE zombies=27 fps=1 worst_ms=0.0 pools=0 spits=0
+HITCH 91.3 ms t=-4.77 zombies=26 level=1
+ALARM t=-4 phase=IDLE zombies=1 fps=24 worst_ms=0.0 pools=0 spits=0
+ALARM t=-3 phase=IDLE zombies=0 fps=145 worst_ms=6.9 pools=0 spits=0
+ALARM t=-2 phase=IDLE zombies=0 fps=145 worst_ms=6.9 pools=0 spits=0
+ALARM t=-1 phase=IDLE zombies=0 fps=145 worst_ms=6.9 pools=0 spits=0
+ALARM_EVENT warn time=07:00
+ALARM t=0 phase=WARN zombies=0 fps=145 worst_ms=6.9 pools=0 spits=0
+ALARM t=1 phase=WARN zombies=0 fps=145 worst_ms=6.9 pools=0 spits=0
+ALARM t=2 phase=WARN zombies=8 fps=145 worst_ms=6.9 pools=0 spits=0
+ALARM_EVENT start time=07:03
+ALARM t=3 phase=ACTIVE zombies=4 fps=145 worst_ms=6.9 pools=0 spits=0
+ALARM t=4 phase=ACTIVE zombies=1 fps=145 worst_ms=6.9 pools=0 spits=0
+ALARM t=5 phase=ACTIVE zombies=11 fps=145 worst_ms=6.9 pools=0 spits=0
+ALARM t=6 phase=ACTIVE zombies=0 fps=145 worst_ms=6.9 pools=0 spits=0
+ALARM t=7 phase=ACTIVE zombies=0 fps=145 worst_ms=6.9 pools=0 spits=0
+ALARM t=8 phase=ACTIVE zombies=13 fps=145 worst_ms=6.9 pools=0 spits=0
+ALARM t=9 phase=ACTIVE zombies=11 fps=144 worst_ms=6.9 pools=0 spits=0
+ALARM t=10 phase=ACTIVE zombies=5 fps=145 worst_ms=6.9 pools=0 spits=0
+ALARM t=11 phase=ACTIVE zombies=0 fps=145 worst_ms=6.9 pools=0 spits=0
+ALARM t=12 phase=ACTIVE zombies=0 fps=145 worst_ms=6.9 pools=0 spits=0
+ALARM t=13 phase=ACTIVE zombies=4 fps=145 worst_ms=6.9 pools=0 spits=0
+CHAIN fats spawned, first burst queued, alive=16
+ALARM t=14 phase=ACTIVE zombies=1 fps=145 worst_ms=6.9 pools=0 spits=0
+ALARM t=15 phase=ACTIVE zombies=0 fps=145 worst_ms=6.9 pools=0 spits=0
+CHAIN worst_frame_ms=7.0 frames=363
+ALARM t=16 phase=ACTIVE zombies=0 fps=145 worst_ms=7.0 pools=0 spits=0
+ALARM t=17 phase=ACTIVE zombies=4 fps=145 worst_ms=7.0 pools=0 spits=0
+ALARM t=18 phase=ACTIVE zombies=10 fps=145 worst_ms=7.0 pools=0 spits=0
+ALARM t=19 phase=ACTIVE zombies=1 fps=145 worst_ms=7.0 pools=0 spits=0
+ALARM t=20 phase=ACTIVE zombies=9 fps=145 worst_ms=7.0 pools=0 spits=0
+ALARM t=21 phase=ACTIVE zombies=0 fps=145 worst_ms=7.0 pools=0 spits=0
+ALARM t=22 phase=ACTIVE zombies=9 fps=145 worst_ms=7.0 pools=0 spits=0
+ALARM t=23 phase=ACTIVE zombies=8 fps=144 worst_ms=7.0 pools=0 spits=0
+ALARM t=24 phase=ACTIVE zombies=0 fps=145 worst_ms=7.0 pools=0 spits=0
+ALARM t=25 phase=ACTIVE zombies=0 fps=145 worst_ms=7.0 pools=0 spits=0
+ALARM t=26 phase=ACTIVE zombies=7 fps=145 worst_ms=7.0 pools=0 spits=0
+ALARM t=27 phase=ACTIVE zombies=15 fps=145 worst_ms=7.0 pools=0 spits=0
+ALARM t=28 phase=ACTIVE zombies=8 fps=145 worst_ms=7.0 pools=0 spits=0
+ALARM t=29 phase=ACTIVE zombies=3 fps=145 worst_ms=7.0 pools=0 spits=0
+ALARM t=30 phase=ACTIVE zombies=6 fps=145 worst_ms=7.0 pools=0 spits=0
+ALARM t=31 phase=ACTIVE zombies=0 fps=145 worst_ms=7.0 pools=0 spits=0
+ALARM t=32 phase=ACTIVE zombies=10 fps=145 worst_ms=7.0 pools=0 spits=0
+ALARM_EVENT finish container=(1275.241, 619.8828) time=07:33
+CONTAINER dropped pos=(1275.241, 619.8828) time=07:33
+ALARM rewards mult=2 xp=2250 credits=350
+ALARM t=33 phase=DONE zombies=8 fps=145 worst_ms=7.0 pools=0 spits=0
+CONTAINER picked time=07:33 crates=1
+ALARM t=34 phase=DONE zombies=8 fps=145 worst_ms=7.0 pools=0 spits=0
+ALARM t=35 phase=DONE zombies=0 fps=145 worst_ms=7.0 pools=0 spits=0
+ALARM summary peak_zombies=23 min_fps=144 worst_frame_ms=7.0 physics_ms=3.69 process_ms=2.02 draw_calls=0 horde_ms=0.03
+ERROR: Failed to read the root certificate store.
+   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2582)

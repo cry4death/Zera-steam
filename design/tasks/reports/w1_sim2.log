@@ -1,0 +1,53 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+ERROR: Failed to read the root certificate store.
+   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2582)
+PICK lvl=2 { "type": "weapon", "id": 1, "rare": false } slot=-1 of ["weapon", "module", "level"]
+PICK lvl=3 { "type": "module", "id": 5, "rare": false } slot=0 of ["module", "level", "passive"]
+PICK lvl=4 { "type": "level", "slot": 1, "rare": false } slot=-1 of ["weapon", "level", "level"]
+PICK lvl=5 { "type": "level", "slot": 0, "rare": false } slot=-1 of ["level", "level", "weapon"]
+SIM 01:00 level=5 kills=85 xp=85/85 credits=4/4 credits_left=4 zombies=0 kinds=0/0/0/0 elites=0 elites_spawned=0 crates=0 nades=0 fps=144 | АК-С L2 Стан1 [Цепь1] | Мясник L2 Стан1 []
+PICK lvl=6 { "type": "level", "slot": 0, "rare": false } slot=-1 of ["module", "level", "weapon"]
+PICK lvl=7 { "type": "module", "id": 2, "rare": false } slot=0 of ["level", "module", "module"]
+SIM 02:00 level=7 kills=265 xp=256/265 credits=11/11 credits_left=11 zombies=5 kinds=5/0/0/0 elites=0 elites_spawned=0 crates=0 nades=5 fps=145 | АК-С L3 Стан1 [Цепь1,Спли1] | Мясник L2 Стан1 []
+PICK lvl=8 { "type": "ammo", "id": 1, "rare": false } slot=0 of ["ammo", "passive", "module"]
+PICK lvl=9 { "type": "ammo", "id": 1, "rare": false } slot=0 of ["weapon", "level", "ammo"]
+PICK lvl=10 { "type": "level", "slot": 1, "rare": false } slot=-1 of ["level", "module", "module"]
+SIM 03:00 level=10 kills=485 xp=483/485 credits=26/26 credits_left=26 zombies=16 kinds=14/2/0/0 elites=0 elites_spawned=0 crates=0 nades=10 fps=145 | АК-С L3 Эксп2 [Цепь1,Спли1] | Мясник L3 Стан1 []
+PICK lvl=11 { "type": "module", "id": 1, "rare": false } slot=1 of ["level", "level", "module"]
+PICK lvl=12 { "type": "passive", "id": 0, "rare": false } slot=-1 of ["weapon", "module", "passive"]
+SIM 04:00 level=12 kills=769 xp=781/805 credits=49/51 credits_left=49 zombies=9 kinds=8/0/1/0 elites=0 elites_spawned=0 crates=0 nades=15 fps=145 | АК-С L3 Эксп2 [Цепь1,Спли1] | Мясник L3 Стан1 [Проб1]
+PICK lvl=13 { "type": "weapon", "id": 6, "rare": false } slot=-1 of ["weapon", "ammo", "level"]
+PICK lvl=14 { "type": "weapon", "id": 3, "rare": false } slot=-1 of ["weapon", "level", "weapon"]
+TRADER 0 at 05:00 credits_left=3 bought=["level(50)", "passive(40)"]
+SIM 05:00 level=14 kills=1134 xp=1191/1254 credits=93/98 credits_left=3 zombies=3 kinds=0/0/3/0 elites=0 elites_spawned=0 crates=0 nades=20 fps=145 | АК-С L3 Эксп2 [Цепь1,Спли1] | Мясник L3 Стан1 [Проб1] | ППШ L1 Стан1 [] | Гром L2 Стан1 []
+PICK lvl=15 { "type": "module", "id": 4, "rare": false } slot=1 of ["ammo", "module", "passive"]
+PICK lvl=16 { "type": "module", "id": 5, "rare": false } slot=0 of ["module", "level", "ammo"]
+PICK lvl=17 { "type": "level", "slot": 0, "rare": false } slot=-1 of ["level", "module", "level"]
+SIM 06:00 level=17 kills=1548 xp=1707/1912 credits=161/183 credits_left=71 zombies=0 kinds=0/0/0/0 elites=0 elites_spawned=2 crates=0 nades=24 fps=145 | АК-С L4 Эксп2 [Цепь2,Спли1] | Мясник L3 Стан1 [Проб1,Сдво1] | ППШ L1 Стан1 [] | Гром L2 Стан1 []
+PICK lvl=18 { "type": "passive", "id": 3, "rare": false } slot=-1 of ["ammo", "module", "passive"]
+PICK lvl=19 { "type": "level", "slot": 1, "rare": false } slot=-1 of ["level", "level", "module"]
+SIM 07:00 level=19 kills=2026 xp=2272/2642 credits=240/292 credits_left=150 zombies=8 kinds=1/0/4/3 elites=0 elites_spawned=4 crates=0 nades=29 fps=145 | АК-С L4 Эксп2 [Цепь2,Спли1] | Мясник L4 Стан1 [Проб1,Сдво1] | ППШ L1 Стан1 [] | Гром L2 Стан1 []
+ALARM_EVENT warn time=07:00
+ALARM_EVENT start time=07:03
+PICK lvl=20 { "type": "module", "id": 0, "rare": false } slot=2 of ["level", "module", "level"]
+PICK lvl=21 { "type": "module", "id": 3, "rare": false } slot=3 of ["ammo", "ammo", "module"]
+LOOT РЕДКАЯ ДЕТАЛЬ: ammo slot=0 rare=true
+PICK lvl=22 { "type": "passive", "id": 4, "rare": false } slot=-1 of ["ammo", "level", "passive"]
+PICK lvl=23 { "type": "level", "slot": 0, "rare": false } slot=-1 of ["level", "level", "module"]
+ALARM_EVENT finish container=(1744.491, 985.9658) time=07:33
+CONTAINER dropped pos=(1744.491, 985.9658) time=07:33
+ALARM rewards mult=2 xp=2098 credits=280
+PICK lvl=24 { "type": "level", "slot": 1, "rare": false } slot=-1 of ["module", "passive", "level"]
+LOOT КРОВАВЫЙ КОНТЕЙНЕР: module slot=0 rare=false
+CONTAINER picked time=07:34 crates=1
+PICK lvl=25 { "type": "level", "slot": 3, "rare": false } slot=-1 of ["level", "passive", "passive"]
+SIM 08:00 level=25 kills=3028 xp=4425/5176 credits=542/634 credits_left=452 zombies=3 kinds=3/0/0/0 elites=0 elites_spawned=10 crates=2 nades=34 fps=145 | АК-С L5 Стан1 [Цепь2,Спли1,Сдво1] | Мясник L5 Стан1 [Проб1,Сдво1] | ППШ L1 Стан1 [Рико1] | Гром L3 Стан1 [Дето1]
+PICK lvl=26 { "type": "module", "id": 1, "rare": false } slot=1 of ["level", "level", "module"]
+PICK lvl=27 { "type": "ammo", "id": 3, "rare": true } slot=0 of ["level", "ammo", "level"]
+PICK lvl=28 { "type": "ammo", "id": 3, "rare": true } slot=0 of ["module", "passive", "ammo"]
+CALM 09:00 removed=0 left=25
+TRADER 1 at 09:00 credits_left=158 bought=["module(60)", "passive(60)", "level(75)", "module(150)", "ammo(60)"]
+SIM 09:00 level=28 kills=3669 xp=5370/6117 credits=653/762 credits_left=158 zombies=25 kinds=16/0/7/2 elites=0 elites_spawned=12 crates=2 nades=41 fps=144 | АК-С L5 Зажи1 [Цепь3,Спли1,Сдво2] | Мясник L5 Стан1 [Проб2,Сдво1] | ППШ L1 Стан1 [Рико1] | Гром L4 Стан1 [Дето1]
+PICK lvl=29 { "type": "ammo", "id": 0, "rare": false } slot=0 of ["ammo", "level", "ammo"]
+SIM 10:00 level=29 kills=3906 xp=6004/6419 credits=730/792 credits_left=235 zombies=1 kinds=1/0/0/0 elites=0 elites_spawned=14 crates=3 nades=42 fps=145 | АК-С L5 Стан1 [Цепь3,Спли1,Сдво2] | Мясник L5 Стан1 [Проб2,Сдво1] | ППШ L1 Стан1 [Рико1] | Гром L4 Стан1 [Дето1]

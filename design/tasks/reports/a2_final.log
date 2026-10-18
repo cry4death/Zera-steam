@@ -1,0 +1,4 @@
+SCOPE: PASS; tools/prep_sfx.py AST unchanged outside mechanics()
+A1 FINAL HASHES: PASS; 138 protected files unchanged; only permitted CREDITS.md extended
+IMPORT SETTINGS: PASS; 48 new .wav.import files; PCM; loops explicitly disabled
+TMP CLEANUP: rejected: blocked by policy; tmp remains (148314628 bytes)

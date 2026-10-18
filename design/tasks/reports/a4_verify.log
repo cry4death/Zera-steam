@@ -1,0 +1,12 @@
+FORMAT/COUNTS: PASS; 93 new WAV (PCM16/48 kHz; all mono); peak -17.41..-3.0 dBFS; no clipping; non-loop endpoints=0
+COUNTS ambience/horde=2, gore/bone=6, gore/gib=6, gore/hit=10, gore/splat=8, player/heartbeat=1, player/hurt=6, ui/click=3, ui/confirm=2, ui/deny=2, zombies/attack=6, zombies/boss_roar=3, zombies/death=8, zombies/fat=6, zombies/groan=14, zombies/runner=6, zombies/spit=4
+SOURCES/CODE: PASS; 24 zombies + 18 monsters, PCM24 stereo 44100 Hz, SHA256 correct; old generator functions unchanged
+TONALITY: reference noise=11.1 dB, sine=71.6 dB; all gore p95<24 dB, max<30 dB
+SEAM {"file": "ambience/horde_0.wav", "rms_last50_db": -37.76, "rms_first50_db": -39.7, "jump_last_to_first": 0.000214, "median_step": 0.000702, "p99_step": 0.003845, "max_step": 0.008484, "jump_over_p99": 0.06, "hf_seam_db_vs_avg": -10.74}
+SEAM {"file": "ambience/horde_1.wav", "rms_last50_db": -21.69, "rms_first50_db": -23.74, "jump_last_to_first": 0.000763, "median_step": 0.002106, "p99_step": 0.010071, "max_step": 0.022339, "jump_over_p99": 0.08, "hf_seam_db_vs_avg": 6.15}
+SEAM {"file": "player/heartbeat_0.wav", "rms_last50_db": -65.79, "rms_first50_db": -65.56, "jump_last_to_first": 0.0, "median_step": 6.1e-05, "p99_step": 0.00647, "max_step": 0.023804, "jump_over_p99": 0.0, "hf_seam_db_vs_avg": -49.64}
+MAIN HASHES: PASS; 394 files of main (WAV + .import) byte-identical; only CREDITS.md and manifest.json extended
+SIZE: sfx/ = 19.8 MB (limit 40)
+DETERMINISM: PASS; 290 WAV + manifest.json + CREDITS.md equal to a second build (--out)
+VISUALS: a4_waveforms.png, a4_voices.png, a4_gore.png, a4_player_ui.png, a4_loops.png
+SCENE: a4_scene.wav 20 s stereo, pre-normalization peak -3.4 dBFS, normalized to -1.5 dBFS

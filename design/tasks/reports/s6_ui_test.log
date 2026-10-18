@@ -1,0 +1,12 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+D3D12 12_0 - Forward+ - Using Device #0: AMD - AMD Radeon(TM) Graphics
+
+UI test container reroll_blocked=true cards=3
+UI test container pending_kept=true level_up_open_again=true loot_open=false
+UI test trader closed=true paused=false dashing=false
+BOSS screenshot: tmp/s6_ui_defeat.png
+BOSS screenshot: tmp/s6_ui_results.png
+UI test results victory=true military=1 dna=75 paused=true
+UI test screenshots saved
+ERROR: Failed to read the root certificate store.
+   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2582)
