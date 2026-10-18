@@ -132,7 +132,7 @@ func prototype_hint(card: Dictionary, i: int) -> String:
 			continue
 		var fits: bool = (card["type"] == "module" and card["id"] == r["module"]) or (card["type"] == "ammo" and card["id"] == r["ammo"])
 		if fits:
-			return "◆ рецепт «%s»" % r["name"]
+			return "Рецепт «%s»" % r["name"]
 	return ""
 
 

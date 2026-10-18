@@ -44,6 +44,15 @@ const NESTS := {
 	"hive_heart": {"region_id": "south_asia", "name": "Сердце Улья", "playable": false},
 }
 const MODIFIERS := ["runner_surge", "elite_hunt", "acid_rain", "blood_frenzy", "hardened_boss", "resource_cache"]
+## Единый словарь названий условий операции: брифинг («text»), баннер («name»), HUD («short»).
+const MODIFIER_INFO := {
+	"runner_surge": {"name": "Прорыв бегунов", "short": "Бегуны", "text": "Прорыв бегунов: быстрые группы"},
+	"elite_hunt": {"name": "Элитные группы", "short": "Элитные", "text": "Элитные группы: больше усиленных особей"},
+	"acid_rain": {"name": "Кислотные выбросы", "short": "Кислота", "text": "Кислотные выбросы: плевальщики"},
+	"blood_frenzy": {"name": "Дополнительная тревога", "short": "Доп. тревога 4:00", "text": "Дополнительная тревога на 4:00"},
+	"hardened_boss": {"name": "Усиленный объект", "short": "HP объекта +25%", "text": "Усиленный объект: +25% здоровья Объекта-7"},
+	"resource_cache": {"name": "Запас снабжения", "short": "Снабжение", "text": "Запас снабжения: больше ДНК и шанс ящика"},
+}
 ## Эти пары вместе перегружают арену; генератор их исключает.
 const INCOMPATIBLE := [["acid_rain", "blood_frenzy"], ["runner_surge", "blood_frenzy"]]
 ## Названия операций по заданию. Старые сохранённые предложения хранят прежние имена — они остаются валидными.

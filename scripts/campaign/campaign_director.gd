@@ -103,7 +103,7 @@ static func _operation(state: Dictionary, region: String, type: String, threat: 
 	var name: String = CampaignCatalog.OP_NAMES[type]
 	return {"id": "%s-%s-%d-%d" % [type, region, state["turn"], slot], "region_id": region,
 		"type": type, "seed": int(rng.randi() & 0x7fffffff), "offered_turn": int(state["turn"]),
-		"name": name, "briefing": "Диспетчер: объект подтверждён. Уничтожьте источник заражения." if type == "nest" else "Диспетчер: зачистите периметр. Уничтожьте носителя сигнала.",
+		"name": name, "briefing": "Диспетчер: уничтожьте Объект-7. Это ослабит заражение в регионе и у соседей." if type == "nest" else "Диспетчер: зачистите периметр. На 10:00 ожидается Объект-7. Уничтожьте его.",
 		"arena": "quarantine", "objective": "kill_boss", "supports_partial": false,
 		"threat": threat, "modifiers": modifiers,
 		"reward": {"dna_mul": minf(mul, CampaignCatalog.BALANCE["max_dna_mul"]), "extra_crate_chance": minf(chance, CampaignCatalog.BALANCE["max_crate_chance"])},

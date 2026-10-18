@@ -228,7 +228,7 @@ func _draw_consequences(font: Font, panel: Rect2) -> void:
 	draw_rect(panel, Color(GOLD, 0.45), false)
 	draw_rect(Rect2(p, Vector2(panel.size.x, 3)), GOLD)
 	_text(font, p + Vector2(14, 24), "ПОСЛЕДСТВИЯ", GOLD, 14)
-	_text(font, p + Vector2(14, 40), "ДИСПЕТЧЕР / ФРОНТ ОБНОВЛЁН", MUTED, 8)
+	_text(font, p + Vector2(14, 40), "Диспетчер: обстановка обновлена", MUTED, 8)
 	var y := 63.0
 	for event: String in _report.get("events", []):
 		for line in _wrap_words(font, event, 234, 10):
@@ -237,7 +237,7 @@ func _draw_consequences(font: Font, panel: Rect2) -> void:
 		y += 12
 	draw_line(p + Vector2(14, 201), p + Vector2(250, 201), Color(GOLD, 0.3))
 	_text(font, p + Vector2(14, 220), "Активных ульев: %d" % int(_report.get("nests_alive", 0)), GOLD, 11)
-	_text(font, p + Vector2(14, 237), "Регионов в критическом: %d" % int(_report.get("critical", 0)), MUTED, 9)
+	_text(font, p + Vector2(14, 237), "Критических регионов: %d" % int(_report.get("critical", 0)), MUTED, 9)
 	_text(font, p + Vector2(14, 256), "Причины изменений — в журнале региона", MUTED, 8)
 	_text(font, p + Vector2(14, 268), "на оперативной карте.", MUTED, 8)
 	_retry_button = Rect2()
@@ -300,7 +300,7 @@ func _draw_receipt(font: Font) -> void:
 		_body_text(font, Vector2(x, y), "—", MUTED, 8)
 		y += 10.0
 	y += 2.0
-	_body_text(font, Vector2(x + _body.size.x * 0.5 - _width(font, "— ОБРАЗЦЫ (ДНК) —", 9) * 0.5, y), "— ОБРАЗЦЫ (ДНК) —", GOLD, 9)
+	_body_text(font, Vector2(x + _body.size.x * 0.5 - _width(font, "ОБРАЗЦЫ (ДНК)", 9) * 0.5, y), "ОБРАЗЦЫ (ДНК)", GOLD, 9)
 	y += 13.0
 	var lines: Array = _stats.get("dna_lines", [])
 	columns = 2 if lines.size() > 8 else 1

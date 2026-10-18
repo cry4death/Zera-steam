@@ -41,15 +41,15 @@ static func pressure(state: Dictionary, id: String) -> Dictionary:
 	var raw := mini(own + neighbors + nest, CampaignCatalog.BALANCE["growth_cap"])
 	var suppression := int(CampaignCatalog.BALANCE["suppression"]) if int(region["suppressed_turns"]) > 0 else 0
 	if own > 0:
-		causes.append("Локальный рост +%d" % own)
+		causes.append("Собственный рост: +%d" % own)
 	if neighbors > 0:
-		causes.append("Соседние критические зоны +%d" % neighbors)
+		causes.append("Критические соседи: +%d" % neighbors)
 	if nest > 0:
-		causes.append("Действующий улей +%d" % nest)
+		causes.append("Действующий улей: +%d" % nest)
 	if raw < own + neighbors + nest:
-		causes.append("Предел роста −%d" % (own + neighbors + nest - raw))
+		causes.append("Рост ограничен: −%d (не больше +%d за ход)" % [own + neighbors + nest - raw, int(CampaignCatalog.BALANCE["growth_cap"])])
 	if suppression > 0:
-		causes.append("Подавление −%d (применено %d)" % [suppression, mini(raw, suppression)])
+		causes.append("Сдерживание: %s (до −%d за ход)" % [_signed(-mini(raw, suppression)), suppression])
 	return {"growth": maxi(0, raw - suppression), "causes": causes}
 
 
@@ -58,9 +58,12 @@ static func advance(state: Dictionary, operation: Dictionary, outcome: String) -
 	var direct_causes := {}
 	var target: String = operation["region_id"]
 	var effect: Dictionary = CampaignCatalog.BALANCE["nest" if outcome == "victory" and operation["type"] == "nest" else outcome]
-	_apply_direct(next, target, int(effect["infection"]), direct_causes, "Операция")
+	var label := "Провал операции"
+	if outcome == "victory":
+		label = "Ликвидация улья" if operation["type"] == "nest" else "Зачистка"
+	_apply_direct(next, target, int(effect["infection"]), direct_causes, label)
 	for id: String in CampaignCatalog.REGIONS[target]["neighbors"]:
-		_apply_direct(next, id, int(effect["neighbors"]), direct_causes, "Соседняя операция")
+		_apply_direct(next, id, int(effect["neighbors"]), direct_causes, label + " в соседнем регионе")
 	# N означает N пересчётов, включая текущий. После роста остаётся N−1.
 	# Победа с N=2 защищает ходы 1 и 2; на ходу 3 защиты уже нет.
 	next["regions"][target]["suppressed_turns"] = maxi(int(next["regions"][target]["suppressed_turns"]), int(effect["suppression"]))
@@ -88,7 +91,7 @@ static func advance(state: Dictionary, operation: Dictionary, outcome: String) -
 		var causes: Array = direct_causes.get(id, []).duplicate()
 		causes.append_array(p["causes"])
 		if after != prior_growth + int(p["growth"]):
-			causes.append("Предел заражения −%d" % (prior_growth + int(p["growth"]) - after))
+			causes.append("Заражение не выше %d: −%d" % [int(CampaignCatalog.BALANCE["infection_max"]), prior_growth + int(p["growth"]) - after])
 		if before != after or not causes.is_empty():
 			if before != after:
 				region["last_changed_turn"] = next["turn"]
@@ -117,7 +120,19 @@ static func _apply_direct(state: Dictionary, id: String, amount: int, causes: Di
 		return
 	var before := int(state["regions"][id]["infection"])
 	state["regions"][id]["infection"] = clampi(before + amount, CampaignCatalog.BALANCE["infection_min"], CampaignCatalog.BALANCE["infection_max"])
-	causes[id] = ["%s %+d (применено %+d)" % [label, amount, int(state["regions"][id]["infection"]) - before]]
+	var applied := int(state["regions"][id]["infection"]) - before
+	if applied == amount:
+		causes[id] = ["%s: %s" % [label, _signed(amount)]]
+	else:
+		var limit := "заражение достигло 0" if amount < 0 else "заражение достигло %d" % int(CampaignCatalog.BALANCE["infection_max"])
+		causes[id] = ["%s: %s из %s (%s)" % [label, _signed(applied), _signed(amount), limit]]
+
+
+## Знак — настоящий минус «−», как в остальных текстах.
+static func _signed(value: int) -> String:
+	if value < 0:
+		return "−%d" % -value
+	return "+%d" % value if value > 0 else "0"
 
 
 static func integer(value: Variant, low: int, high: int) -> bool:
