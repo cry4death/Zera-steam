@@ -216,7 +216,7 @@ func _death_headshot(p: Vector2, dir: Vector2, v: int) -> void:
 	for i in 5:
 		var vel := dir.rotated(randf_range(-0.6, 0.6)) * randf_range(80.0, 210.0)
 		var tid: int = [_t_skull, _t_jaw, _t_brain, _t_eye, _t_meat.pick_random()][i]
-		_add(Kind.GIB, tid, p, vel, randf() * TAU, randf_range(-20.0, 20.0), Color.WHITE, 6.0, i >= 2)
+		_add(Kind.GIB, tid, p, vel, randf() * TAU, randf_range(-20.0, 20.0), Color.WHITE, 6.0, i >= 2, 0.0, true)
 	_add_corpse(_corpse_tex(_t_headless, v), p, dir * randf_range(60.0, 100.0), dir.angle() + randf_range(-0.3, 0.3))
 	splatter.emit(p, 0.6)
 
@@ -236,11 +236,24 @@ func _death_gibs(p: Vector2, dir: Vector2, v: int) -> void:
 		parts.append(_t_guts.pick_random())
 	for i in 4:
 		parts.append(_t_meat.pick_random())
-	for t in parts:
-		var out := Vector2.from_angle(randf() * TAU) if v == 5 else dir.rotated(randf_range(-1.3, 1.3))
-		var vel := out * randf_range(60.0, 230.0)
+	# три силуэта события: тяжёлые куски (первые четыре) скользят по удару со сплошным мазком,
+	# мелкие падают рядом с телом или летят средним разлётом и оставляют лишь редкие капли
+	for n in parts.size():
+		var t := parts[n]
+		var heavy := n < 4
+		var out: Vector2
+		var vel: Vector2
+		if heavy:
+			out = Vector2.from_angle(randf() * TAU) if v == 5 else dir.rotated(randf_range(-0.7, 0.7))
+			vel = out * (randf_range(60.0, 140.0) if v == 5 else randf_range(90.0, 230.0))
+		elif n % 2 == 0:
+			out = Vector2.from_angle(randf() * TAU)
+			vel = out * randf_range(15.0, 60.0)
+		else:
+			out = dir.rotated(randf_range(-1.3, 1.3))
+			vel = out * randf_range(60.0, 150.0)
 		var bloody := t != _t_bone and t != _t_rib and t != _t_spine
-		_add(Kind.GIB, t, p + Vector2(randf_range(-3, 3), randf_range(-3, 3)), vel, randf() * TAU, randf_range(-18.0, 18.0), Color.WHITE, 4.5, bloody)
+		_add(Kind.GIB, t, p + Vector2(randf_range(-3, 3), randf_range(-3, 3)), vel, randf() * TAU, randf_range(-18.0, 18.0), Color.WHITE, 4.5, bloody, 0.0, not heavy)
 	splatter.emit(p, 1.0)
 
 
@@ -273,7 +286,7 @@ func _death_bisect(p: Vector2, dir: Vector2, facing: float, v: int) -> void:
 	var back := Vector2.from_angle(facing + PI)
 	_add_corpse(_t_legs[v], p + back * 3.0, back * randf_range(20.0, 40.0), facing)
 	for k in 2:
-		_add(Kind.GIB, _t_guts.pick_random(), p, dir.rotated(randf_range(-1.0, 1.0)) * randf_range(30.0, 80.0), randf() * TAU, 4.0, Color.WHITE, 6.0, true)
+		_add(Kind.GIB, _t_guts.pick_random(), p, dir.rotated(randf_range(-1.0, 1.0)) * randf_range(30.0, 80.0), randf() * TAU, 4.0, Color.WHITE, 6.0, true, 0.0, true)
 	var i := _add(Kind.CRAWLER, _t_top[v], p + Vector2.from_angle(facing) * 2.0, Vector2.ZERO, facing, 0.0, Color.WHITE, 0.0, true, randf_range(1.2, 2.0))
 	_var[i] = v
 	splatter.emit(p, 0.7)
@@ -308,13 +321,16 @@ func boss_plate(p: Vector2, dir: Vector2) -> void:
 ## Смерть босса: куски летят по всему экрану (дальность = скорость / drag, до ~500 px).
 func boss_burst(p: Vector2) -> void:
 	for i in 80:
-		var dir := Vector2.from_angle(TAU * i / 80.0 + randf_range(-0.12, 0.12))
+		# направления сгущаются в три «языка» и по скорости неравномерны: без ровного веера
+		var a := TAU * i / 80.0 + randf_range(-0.12, 0.12)
+		a += sin(a * 3.0 + 1.3) * 0.35
+		var dir := Vector2.from_angle(a)
 		var tex_id: int = _t_boss_gibs[i % 4] if i < 24 else _t_meat.pick_random()
-		_add(Kind.GIB, tex_id, p + dir * 12.0, dir * randf_range(220.0, 800.0), dir.angle(), randf_range(-18, 18), Color.WHITE, 1.5, true)
+		_add(Kind.GIB, tex_id, p + dir * 12.0, dir * randf_range(220.0, 800.0) * (1.0 + 0.3 * sin(a * 2.0)), dir.angle(), randf_range(-18, 18), Color.WHITE, 1.5, true, 0.0, i >= 24)
 	for i in 12:
 		boss_plate(p, Vector2.from_angle(TAU * i / 12.0))
 	for i in 8:
-		var dir := Vector2.from_angle(TAU * i / 8.0 + 0.2)
+		var dir := Vector2.from_angle(TAU * i / 8.0 + 0.2 + sin(float(i) * 2.1) * 0.3)
 		floor_decals.pool(_splats[i % _splats.size()], p + dir * randf_range(30.0, 130.0), dir.angle(), 3.2)
 		floor_decals.blood(_sprays[i % _sprays.size()], p + dir * 55.0, dir.angle(), 3.4, 0.8)
 	effects.blood_burst(p, Vector2.RIGHT, 200, 380.0, PI)
@@ -325,7 +341,9 @@ func _add_corpse(tex_id: int, p: Vector2, vel: Vector2, rot: float) -> void:
 	_add(Kind.CORPSE, tex_id, p, vel, rot, randf_range(-2.0, 2.0), CORPSE_TINT, 7.0, true, randf_range(0.5, 1.6))
 
 
-func _add(kind: int, tex_id: int, p: Vector2, v: Vector2, rot: float, spin: float, col: Color, drag: float, trail: bool, timer := 0.0) -> int:
+## trail: за обломком остаётся кровавый след. drops_only — мелкий кусок: только редкие капли, без сплошного мазка
+## (иначе десятки одинаково длинных линий из центра смерти складываются в «звезду»).
+func _add(kind: int, tex_id: int, p: Vector2, v: Vector2, rot: float, spin: float, col: Color, drag: float, trail: bool, timer := 0.0, drops_only := false) -> int:
 	if kind == Kind.GIB and gore_multiplier < 1.0 and randf() > gore_multiplier:
 		return -1
 	if count >= MAX_DEBRIS:
@@ -343,7 +361,7 @@ func _add(kind: int, tex_id: int, p: Vector2, v: Vector2, rot: float, spin: floa
 	_age[i] = 0.0
 	_timer[i] = timer
 	_col[i] = col
-	_trail[i] = 1 if trail else 0
+	_trail[i] = (2 if drops_only else 1) if trail else 0
 	_trail_pos[i] = p
 	_var[i] = 0
 	return i
@@ -375,7 +393,12 @@ func _physics_process(delta: float) -> void:
 			_vel[i] = v * exp(-_drag[i] * delta)
 			_rot[i] += _spin[i] * delta
 			_spin[i] *= spin_decay
-			if _trail[i] == 1:
+			if _trail[i] == 2:
+				# мелкие куски: редкие капли на пути, и в воздухе, и по земле
+				if p.distance_squared_to(_trail_pos[i]) > 100.0:
+					floor_decals.stamp_dot(p + Vector2(randf_range(-1, 1), randf_range(-1, 1)), randf_range(1.0, 2.0))
+					_trail_pos[i] = p
+			elif _trail[i] == 1:
 				var wide := _kind[i] == Kind.CORPSE or _kind[i] == Kind.CRAWLER
 				if v.length_squared() > 8100.0 and not wide:
 					# летит по воздуху — роняет редкие капли
@@ -453,7 +476,7 @@ func _bake(i: int) -> void:
 			floor_decals.pool(_splats.pick_random(), _pos[i], randf() * TAU, 0.9)
 			floor_decals.stamp(tex, _pos[i], _rot[i], _col[i])
 		Kind.GIB:
-			if _trail[i] == 1:
+			if _trail[i] != 0:
 				floor_decals.stamp_dot(_pos[i], 3.0)
 			floor_decals.stamp(tex, _pos[i], _rot[i], CORPSE_TINT)
 		Kind.BURNING:

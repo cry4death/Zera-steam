@@ -51,7 +51,7 @@ const CRATE_INFO := [
 # анимация вскрытия, секунды (у «вскрыть все» со второго ящика — быстрее)
 const SHAKE_T := 0.8
 const LID_T := 0.35
-const FLASH_T := 0.45
+const FLASH_T := 0.25
 const AUTO_NEXT := 1.6
 const FADE_T := 0.35
 
@@ -558,7 +558,7 @@ func _start_open(military: bool) -> void:
 	_present(res, military)
 
 
-## Показывает уже полученный из Meta результат: тряска → крышка → вспышка → карточка.
+## Показывает уже полученный из Meta результат: тряска → крышка → пауза → карточка.
 func _present(res: Dictionary, military: bool) -> void:
 	_open_res = res
 	_open_mil = military
@@ -582,7 +582,7 @@ func _enter_state(state: int) -> void:
 	_open_t = 0.0
 	match state:
 		Open.LID:
-			_shake = 1.0
+			_shake = 0.35
 			_play("ui/confirm", -9.0 if _open_res.get("rare", false) else -16.0)
 		Open.CARD:
 			_pending_dna = 0
@@ -801,12 +801,11 @@ func _wrap(font: Font, s: String, max_w: float, fs: int) -> Array[String]:
 	return out
 
 
-func _box(r: Rect2, accent: Color, border := 0.5, fill := PANEL, strip := true) -> void:
-	draw_rect(Rect2(r.position + Vector2(2, 3), r.size), Color(0, 0, 0, 0.35))
+## Плашка: рамка рисуется только при border > 0 (у фокуса и модального окна), тени и полос нет.
+func _box(r: Rect2, accent: Color, border := 0.0, fill := PANEL) -> void:
 	draw_rect(r, fill)
-	draw_rect(r, Color(accent, border), false, 1.0)
-	if strip:
-		draw_rect(Rect2(r.position, Vector2(r.size.x, 2)), Color(accent, 0.8))
+	if border > 0.0:
+		draw_rect(r, Color(accent, border), false, 1.0)
 
 
 func _button(font: Font, r: Rect2, label: String, color: Color, key: String, enabled := true, fs := 9) -> void:
@@ -886,6 +885,8 @@ func _draw() -> void:
 	_ts()
 	var font := ThemeDB.fallback_font
 	_draw_top(font)
+	# рабочая область одним тёмным непрозрачным фоном: блоки разделены отступами, а не рамками
+	draw_rect(Rect2(-_origin.x, 60, size.x / _ui, 252), Color(0.05, 0.047, 0.047, 1.0))
 	_draw_tabs(font)
 	match _tab:
 		Tab.BARRACKS: _draw_barracks(font)
@@ -978,7 +979,8 @@ func _draw_tabs(font: Font) -> void:
 		var active := _tab == i
 		var hot := _hot("tab:%d" % i)
 		draw_rect(r, Color(0.16, 0.13, 0.07, 0.95) if active else (Color(0.12, 0.11, 0.1, 0.92) if hot else Color(0.05, 0.045, 0.045, 0.85)))
-		draw_rect(r, Color(GOLD, 0.9 if active else (0.55 if hot else 0.22)), false, 1.0)
+		if active or hot:
+			draw_rect(r, Color(GOLD, 0.9 if active else 0.55), false, 1.0)
 		if active:
 			draw_rect(Rect2(r.position + Vector2(0, r.size.y - 2), Vector2(r.size.x, 2)), GOLD)
 		_text(font, r.position + Vector2(7, 13), str(i + 1), Color(GOLD, 0.7 if active else 0.4), 9)
@@ -1012,35 +1014,19 @@ func _draw_hint(font: Font) -> void:
 func _draw_bottom(font: Font) -> void:
 	draw_rect(Rect2(-_origin.x, 312, size.x / _ui, 48.0 + _origin.y), Color(0.03, 0.025, 0.025, 0.92))
 	draw_rect(Rect2(-_origin.x, 312, size.x / _ui, 1.0), Color(GOLD, 0.3))
-	# с чем идём в бой: избранная или серийная модель каждой категории
-	for b in 8:
-		var model := Meta.model_for(b)
-		var col := b % 4
-		var row := b / 4
-		var r := Rect2(8 + col * 106, 316 + row * 21, 102, 19)
-		var fav: bool = WeaponDefs.MODELS[model]["rarity"] != WeaponDefs.Rarity.SERIAL
-		var rc := _rarity_color(model)
-		draw_rect(r, Color(0.07, 0.065, 0.065, 0.9))
-		draw_rect(r, Color(rc, 0.4 if fav else 0.18), false, 1.0)
-		_gun(model, r.position + Vector2(19, 10), 1)
-		_text(font, r.position + Vector2(38, 9), str(WeaponDefs.MODELS[model]["short"]), rc if fav else WHITE, 8)
-		var steps := _total_steps(model)
-		_text(font, r.position + Vector2(38, 17), ("★ " if fav else "") + ("%d/20" % steps if steps > 0 else CATEGORY_NAMES[b].to_lower()), Color(GOLD, 0.8) if fav else DIM, 6)
-		if b == WeaponDefs.Base.RIFLE:
-			_text_r(font, r.position + Vector2(100, 8), "старт", Color(GREEN, 0.9), 6)
-	# кнопка «В БОЙ»
-	var br := Rect2(444, 316, 188, 40)
-	var hot := _hot("fight:0")
-	var pulse := 0.85 if Meta.settings["reduce_motion"] else 0.65 + 0.35 * sin(_t * 3.0)
-	draw_rect(Rect2(br.position + Vector2(2, 3), br.size), Color(0, 0, 0, 0.4))
-	draw_rect(br, Color(0.30, 0.20, 0.06) if hot else Color(0.20, 0.14, 0.05))
-	draw_rect(Rect2(br.position, Vector2(br.size.x, 14)), Color(GOLD, 0.08))
-	draw_rect(br, Color(GOLD, 1.0 if hot else pulse), false, 1.0)
-	draw_rect(Rect2(br.position, Vector2(br.size.x, 2)), GOLD)
-	_text_c(font, br.position + Vector2(br.size.x * 0.5, 18), "В БОЙ", GOLD, 16)
-	_text_c(font, br.position + Vector2(br.size.x * 0.5, 28), "свободный забег — мир не меняется", Color(GOLD, 0.8), 7)
-	_text_c(font, br.position + Vector2(br.size.x * 0.5, 36), "Space / Start", Color(GOLD, 0.6), 6)
-	_hit(br, "fight:0")
+	# с чем идём в бой: на вкладках базы — стартовая модель и путь к выбору; на карте основное действие — в брифинге
+	if _tab != Tab.OPERATIONS:
+		var start := Meta.model_for(WeaponDefs.Base.RIFLE)
+		_gun(start, Vector2(36, 336), 1)
+		_text(font, Vector2(62, 333), "Старт: %s" % WeaponDefs.MODELS[start]["short"], WHITE, 9)
+		if _tab != Tab.ARSENAL:
+			var link := Rect2(60, 338, 190, 11)
+			_text(font, Vector2(62, 346), "Выбор моделей — в Арсенале [3]", GOLD if _hot("tab:2") else MUTED, 7)
+			_hit(link, "tab:2")
+	# свободный режим: небольшая вторичная кнопка
+	var br := Rect2(452, 320, 180, 20)
+	_button(font, br, "Свободная вылазка", MUTED, "fight:0", true, 9)
+	_text_c(font, Vector2(br.position.x + br.size.x * 0.5, 351), "Без изменений на карте · Space / Start", DIM, 6)
 
 
 # --- казарма -----------------------------------------------------------------------------------
@@ -1055,8 +1041,7 @@ func _draw_barracks(font: Font) -> void:
 		for n: Dictionary in branch["nodes"]:
 			if Meta.tree.has(n["id"]):
 				opened += 1
-		draw_rect(Rect2(x, 64, col_w, 15), Color(accent, 0.15))
-		draw_rect(Rect2(x, 78, col_w, 1), Color(accent, 0.6))
+		draw_rect(Rect2(x, 78, col_w, 1), Color(MUTED, 0.3))
 		_text(font, Vector2(x + 6, 75), str(branch["name"]).to_upper(), accent, 10)
 		_text_r(font, Vector2(x + col_w - 6, 75), "%d/3" % opened, Color(accent, 0.8), 9)
 		for i in 3:
@@ -1083,10 +1068,9 @@ func _draw_barracks(font: Font) -> void:
 			# связка с предыдущим узлом
 			if i > 0:
 				draw_rect(Rect2(x + col_w * 0.5 - 1, r.position.y - 6, 2, 6), Color(border, 0.7) if prev_open else Color(DIM, 0.5))
-			draw_rect(Rect2(r.position + Vector2(2, 3), r.size), Color(0, 0, 0, 0.35))
 			draw_rect(r, Color(0.10, 0.09, 0.07, 0.94) if selected else PANEL)
-			draw_rect(r, Color(border, bd), false, 1.0)
-			draw_rect(Rect2(r.position, Vector2(3, r.size.y)), Color(border, 0.85 if (is_open or prev_open) else 0.3))
+			if selected or hot:
+				draw_rect(r, Color(border, bd), false, 1.0)
 			_text(font, r.position + Vector2(10, 14), "%d. %s" % [i + 1, node["name"]], name_c, 11)
 			var y := 26.0
 			for line in _wrap(font, str(node["text"]), col_w - 18.0, 8):
@@ -1114,7 +1098,6 @@ func _draw_workshop(font: Font) -> void:
 	# список открытых моделей
 	var list := Rect2(8, 64, 172, 238)
 	draw_rect(list, PANEL)
-	draw_rect(list, Color(GOLD, 0.25), false, 1.0)
 	_text(font, Vector2(14, 75), "МОДЕЛИ (%d)" % models.size(), GOLD, 9)
 	for i in models.size():
 		var id := models[i]
@@ -1144,11 +1127,8 @@ func _draw_workshop(font: Font) -> void:
 	var lv := _levels_of(model)
 	var panel := Rect2(188, 64, 444, 238)
 	draw_rect(panel, PANEL)
-	draw_rect(panel, Color(rc, 0.4), false, 1.0)
-	draw_rect(Rect2(panel.position, Vector2(panel.size.x, 2)), Color(rc, 0.8))
-	# шапка модели
+	# шапка модели: изображение на тёмной подложке, без рамки
 	draw_rect(Rect2(196, 72, 92, 44), PANEL_DARK)
-	draw_rect(Rect2(196, 72, 92, 44), Color(rc, 0.25), false, 1.0)
 	_gun(model, Vector2(242, 94), 2)
 	_text(font, Vector2(298, 87), str(m["name"]), rc, 14)
 	_text(font, Vector2(298, 99), "%s · %s" % [CATEGORY_NAMES[int(m["base"])].to_lower(), WeaponDefs.RARITY_NAMES[int(m["rarity"])]], MUTED, 8)
@@ -1169,7 +1149,8 @@ func _draw_workshop(font: Font) -> void:
 		var sel := _ws_stat == s
 		var hot := _hot("wss:%d" % s)
 		draw_rect(r, PANEL_DARK if not sel else Color(0.10, 0.085, 0.05, 0.94))
-		draw_rect(r, Color(GOLD, 0.85 if sel else (0.55 if hot else 0.22)), false, 1.0)
+		if sel or hot:
+			draw_rect(r, Color(GOLD, 0.85 if sel else 0.55), false, 1.0)
 		_text(font, r.position + Vector2(8, 13), STAT_LABELS[stat], WHITE if sel else MUTED, 8)
 		_text_r(font, r.position + Vector2(r.size.x - 8, 13), "%d/%d" % [level, Meta.WORKSHOP_MAX], GOLD if level > 0 else DIM, 9)
 		for p in Meta.WORKSHOP_MAX:
@@ -1224,8 +1205,8 @@ func _draw_workshop(font: Font) -> void:
 func _draw_arsenal(font: Font) -> void:
 	for b in 8:
 		var cell := Rect2(8 + (b / 4) * 216, 64 + (b % 4) * 59, 212, 55)
-		draw_rect(cell, PANEL)
-		draw_rect(cell, Color(GOLD, 0.18), false, 1.0)
+		# категория: заголовок и тонкая нейтральная линия, без плашки и рамки
+		draw_rect(Rect2(cell.position + Vector2(2, 11), Vector2(cell.size.x - 4, 1)), Color(MUTED, 0.25))
 		_text(font, cell.position + Vector2(6, 9), CATEGORY_NAMES[b], GOLD, 8)
 		var models := WeaponDefs.models_of(b)
 		_text_r(font, cell.position + Vector2(206, 9), "в бою: " + str(WeaponDefs.MODELS[Meta.model_for(b)]["short"]), MUTED, 7)
@@ -1238,10 +1219,12 @@ func _draw_arsenal(font: Font) -> void:
 			var sel := _ars_sel == idx
 			var hot := _hot("ars:%d" % idx)
 			var fav := owned and Meta.model_for(b) == id
-			draw_rect(r, Color(0.045, 0.04, 0.04, 0.95) if not sel else Color(0.09, 0.08, 0.06, 0.96))
-			draw_rect(r, Color(rc if owned else DIM, 0.95 if sel else (0.7 if hot else (0.45 if owned else 0.2))), false, 1.0)
-			if sel:
-				draw_rect(Rect2(r.position, Vector2(r.size.x, 2)), Color(rc if owned else MUTED, 0.9))
+			draw_rect(r, PANEL if not sel else Color(0.09, 0.08, 0.06, 0.96))
+			if sel or hot:
+				draw_rect(r, Color(rc if owned else DIM, 0.95 if sel else 0.7), false, 1.0)
+			# редкость: небольшая метка в углу и цвет названия
+			if owned and WeaponDefs.MODELS[id]["rarity"] != WeaponDefs.Rarity.SERIAL:
+				draw_rect(Rect2(r.position + Vector2(5, 5), Vector2(4, 4)), rc)
 			if owned:
 				_gun(id, r.position + Vector2(51, 14), 2)
 				_text_c(font, r.position + Vector2(51, 32), str(WeaponDefs.MODELS[id]["short"]), rc, 8)
@@ -1263,10 +1246,7 @@ func _draw_arsenal(font: Font) -> void:
 	var rc := _rarity_color(id)
 	var panel := Rect2(444, 64, 188, 238)
 	draw_rect(panel, PANEL)
-	draw_rect(panel, Color(rc if owned else DIM, 0.45), false, 1.0)
-	draw_rect(Rect2(panel.position, Vector2(panel.size.x, 2)), Color(rc if owned else DIM, 0.85))
 	draw_rect(Rect2(452, 72, 172, 58), PANEL_DARK)
-	draw_rect(Rect2(452, 72, 172, 58), Color(rc if owned else DIM, 0.22), false, 1.0)
 	if owned:
 		_gun(id, Vector2(538, 101), 3)
 	else:
@@ -1326,10 +1306,9 @@ func _draw_crates(font: Font) -> void:
 		var sel := _crate_sel == i
 		var hot := _hot("csel:%d" % i)
 		var accent := GOLD if i == 1 else WHITE
-		draw_rect(Rect2(r.position + Vector2(2, 3), r.size), Color(0, 0, 0, 0.35))
 		draw_rect(r, PANEL if not sel else Color(0.10, 0.09, 0.06, 0.94))
-		draw_rect(r, Color(accent, 0.9 if sel else (0.6 if hot else 0.3)), false, 1.0)
-		draw_rect(Rect2(r.position, Vector2(r.size.x, 2)), Color(accent, 0.8))
+		if sel or hot:
+			draw_rect(r, Color(accent, 0.9 if sel else 0.6), false, 1.0)
 		_text_c(font, r.position + Vector2(74, 14), info["name"], accent, 9)
 		var tint := Color.WHITE if count > 0 else Color(0.4, 0.4, 0.4, 0.8)
 		# стопка: до трёх ящиков друг на друге
@@ -1356,7 +1335,6 @@ func _draw_crates(font: Font) -> void:
 	# журнал вскрытий этого визита
 	var log_r := Rect2(316, 64, 316, 238)
 	draw_rect(log_r, PANEL)
-	draw_rect(log_r, Color(GOLD, 0.25), false, 1.0)
 	_text(font, Vector2(324, 77), "ЖУРНАЛ ПОСТАВОК", GOLD, 9)
 	if _history.is_empty():
 		_text(font, Vector2(324, 100), "Пока ничего не вскрыто.", DIM, 9)
@@ -1390,65 +1368,41 @@ func _draw_stage(font: Font) -> void:
 		var left := _open_queue.size()
 		_text_c(font, Vector2(320, 68), "вскрыто %d · осталось %d · Enter — пропуск · Esc — закончить" % [_open_log.size(), left], MUTED, 8)
 	if _open in [Open.SHAKE, Open.LID, Open.FLASH]:
-		_draw_crate_stage(tex, center, accent)
+		_draw_crate_stage(tex, center)
 	elif _open == Open.CARD:
 		_draw_card(font, center, accent)
 	elif _open == Open.SUMMARY:
 		_draw_summary(font)
-	if _open == Open.FLASH:
-		var f := clampf(1.0 - _open_t / _stage_dur(Open.FLASH), 0.0, 1.0)
-		draw_set_transform(Vector2.ZERO)
-		draw_rect(Rect2(Vector2.ZERO, size), Color(accent.lerp(Color.WHITE, 0.55), 0.92 * f * f))
-		_ts()
-	elif _open == Open.LID:
-		var f := clampf(_open_t / _stage_dur(Open.LID), 0.0, 1.0)
-		draw_set_transform(Vector2.ZERO)
-		draw_rect(Rect2(Vector2.ZERO, size), Color(accent, 0.18 * f))
-		_ts()
 
 
-func _draw_crate_stage(tex: String, center: Vector2, accent: Color) -> void:
+func _draw_crate_stage(tex: String, center: Vector2) -> void:
 	var crate_center := center + Vector2(0, 22)
 	var shake_off := Vector2.ZERO
 	var rot := 0.0
 	var lid_off := Vector2.ZERO
 	var lid_rot := 0.0
-	var lid_alpha := 1.0
-	var glow := 0.0
 	if _open == Open.SHAKE:
+		# короткая тряска: ящик вскрывают, а не заряжают
 		var u := _open_t / _stage_dur(Open.SHAKE)
-		var amp := 0.6 + u * u * 3.4
+		var amp := 0.4 + u * u * 1.6
 		shake_off = Vector2(sin(_open_t * 73.0) * amp, cos(_open_t * 59.0) * amp * 0.35)
-		rot = sin(_open_t * 47.0) * 0.012 * (1.0 + u * 4.0)
-		glow = clampf((u - 0.55) / 0.45, 0.0, 1.0) * 0.55 # свет из щели выдаёт цвет находки
+		rot = sin(_open_t * 47.0) * 0.008 * (1.0 + u * 2.0)
 	else:
+		# крышка сдвигается вбок и чуть проворачивается, дальше ящик стоит открытым
 		var since := _open_t if _open == Open.LID else _stage_dur(Open.LID) + _open_t
-		since /= _open_fast
-		lid_off = Vector2(150.0 * since, -250.0 * since + 520.0 * since * since)
-		lid_rot = since * 6.5
-		lid_alpha = clampf(1.6 - since * 1.8, 0.0, 1.0)
-		glow = 1.0
+		since = clampf(since / _open_fast / LID_T, 0.0, 1.0)
+		var e := 1.0 - pow(1.0 - since, 3.0)
+		lid_off = Vector2(46.0 * e, -3.0 * e)
+		lid_rot = 0.12 * e
 	# тень под ящиком
 	PixelArt.draw_dot(self, crate_center + Vector2(0, 34), 70.0, Color(0, 0, 0, 0.4))
-	if _open != Open.SHAKE:
-		# луч света из открытого ящика
-		var top := crate_center + Vector2(0, -26)
-		var beam := PackedVector2Array([top + Vector2(-56, 0), top + Vector2(56, 0), top + Vector2(120, -170), top + Vector2(-120, -170)])
-		var a := 0.85 * clampf(_open_t / 0.12 if _open == Open.LID else 1.0, 0.0, 1.0)
-		var cols := PackedColorArray([Color(accent, a), Color(accent, a), Color(accent, 0.0), Color(accent, 0.0)])
-		draw_polygon(beam, cols)
-		draw_rect(Rect2(top + Vector2(-54, -2), Vector2(108, 4)), Color(accent.lerp(Color.WHITE, 0.6), a))
-	if glow > 0.0 and _open == Open.SHAKE:
-		var seam := crate_center + Vector2(0, -26)
-		draw_rect(Rect2(seam + Vector2(-48, -1.5), Vector2(96, 3)), Color(accent.lerp(Color.WHITE, 0.4), glow))
-		draw_rect(Rect2(seam + Vector2(-60, -6), Vector2(120, 12)), Color(accent, glow * 0.18))
 	# корпус и крышка со смещением и наклоном
 	if absf(rot) > 0.0:
 		draw_set_transform((crate_center + shake_off + _origin) * _ui, rot, Vector2(_ui, _ui))
-		_crate_local(tex, lid_off, lid_rot, lid_alpha)
+		_crate_local(tex, lid_off, lid_rot, 1.0)
 		_ts()
 	else:
-		_crate(tex, crate_center + shake_off, 4, lid_off, lid_rot, lid_alpha)
+		_crate(tex, crate_center + shake_off, 4, lid_off, lid_rot, 1.0)
 
 
 ## Ящик в локальных координатах (после draw_set_transform с поворотом): центр корпуса — (0, 0).
@@ -1462,68 +1416,49 @@ func _crate_local(tex: String, lid_off: Vector2, lid_rot: float, lid_alpha: floa
 	draw_texture_rect(lid, Rect2(lid_center - ls * 0.5, ls), false, Color(1, 1, 1, lid_alpha))
 
 
-func _draw_card(font: Font, center: Vector2, accent: Color) -> void:
+func _draw_card(font: Font, _center: Vector2, accent: Color) -> void:
 	var res := _open_res
-	var pop := clampf(_open_t / 0.3, 0.0, 1.0)
-	var ease := 1.0 + 2.2 * pow(pop - 1.0, 3.0) + 1.2 * pow(pop - 1.0, 2.0) # выезд с лёгким перелётом
-	var is_new: bool = res["kind"] == "model" and not res["duplicate"]
+	var pop := clampf(_open_t / 0.2, 0.0, 1.0)
 	var cx := 320.0
 	var cy := 176.0
-	# лучи за карточкой у новой модели и редкой находки
-	if is_new or res["rare"]:
-		for i in 18:
-			var a := _t * 0.35 + i * TAU / 18.0
-			var d1 := Vector2(cos(a), sin(a))
-			var d2 := Vector2(cos(a + 0.09), sin(a + 0.09))
-			var c := Vector2(cx, cy)
-			var al := (0.2 if res["rare"] else 0.11) * pop
-			draw_polygon(PackedVector2Array([c, c + d1 * 260.0, c + d2 * 260.0]),
-				PackedColorArray([Color(accent, al * 1.6), Color(accent, 0.0), Color(accent, 0.0)]))
-		# искры
-		var n := 28 if res["rare"] else 12
-		for i in n:
-			var ang := i * 2.399963
-			var sp := 40.0 + (i * 37 % 90)
-			var life := fmod(_open_t * 0.9 + i * 0.173, 1.4)
-			var p := Vector2(cx, cy) + Vector2(cos(ang), sin(ang) * 0.8) * (30.0 + sp * life)
-			draw_rect(Rect2(p, Vector2(2, 2)), Color(accent.lerp(Color.WHITE, 0.5), clampf(1.0 - life / 1.4, 0.0, 1.0)))
-	var w := 236.0 * ease
-	var h := 156.0 * ease
-	var r := Rect2(cx - w * 0.5, cy - h * 0.5 + (1.0 - pop) * 14.0, w, h)
-	draw_rect(Rect2(r.position + Vector2(3, 4), r.size), Color(0, 0, 0, 0.5))
-	draw_rect(r, Color(0.06, 0.055, 0.055, 0.98))
-	draw_rect(r, Color(accent, 0.9), false, 1.0)
-	draw_rect(Rect2(r.position, Vector2(r.size.x, 3)), accent)
-	if pop < 0.7:
+	# карточка просто появляется на тёмной подложке: без лучей, искр и вспышки
+	var w := 236.0
+	var h := 156.0
+	var r := Rect2(cx - w * 0.5, cy - h * 0.5 + (1.0 - pop) * 6.0, w, h)
+	draw_rect(r, Color(0.05, 0.047, 0.047, 0.98 * pop))
+	draw_rect(r, Color(MUTED, 0.45 * pop), false, 1.0)
+	if pop < 0.6:
 		return
-	var fa := clampf((pop - 0.7) / 0.3, 0.0, 1.0)
+	var fa := clampf((pop - 0.6) / 0.4, 0.0, 1.0)
 	var top := r.position.y
 	if res["kind"] == "model":
 		var model: String = res["model"]
 		var m: Dictionary = WeaponDefs.MODELS[model]
-		var head := "НОВАЯ МОДЕЛЬ!"
-		var head_c := accent
+		var head := "Получено: " + str(m["name"])
+		var head_c := WHITE
 		if res["duplicate"]:
-			head = "ДУБЛИКАТ"
+			head = "Дубликат: " + str(m["name"])
 			head_c = MUTED
-		_text_c(font, Vector2(cx, top + 18), head, Color(head_c, fa), 12)
+		_text_c(font, Vector2(cx, top + 18), head, Color(head_c, fa), 11)
 		draw_rect(Rect2(cx - 100, top + 25, 200, 52), Color(0.03, 0.03, 0.03, 0.9 * fa))
-		draw_rect(Rect2(cx - 100, top + 25, 200, 52), Color(accent, 0.3 * fa), false, 1.0)
 		_gun(model, Vector2(cx, top + 51), 4, Color(1, 1, 1, fa) if not res["duplicate"] else Color(0.55, 0.55, 0.55, fa))
-		_text_c(font, Vector2(cx, top + 92), str(m["name"]), Color(accent, fa), 13)
-		var sub := "%s · %s" % [CATEGORY_NAMES[int(m["base"])].to_lower(), WeaponDefs.RARITY_NAMES[int(m["rarity"])]]
-		_text_c(font, Vector2(cx, top + 103), sub, Color(MUTED, fa), 8)
+		# редкость — цвет небольшой бирки и подпись
+		var tag := ("Редкая модель" if res["rare"] else "Обычная модель") if m["rarity"] != WeaponDefs.Rarity.SERIAL else "Серийная модель"
+		var tw := _width(font, tag, 8)
+		draw_rect(Rect2(cx - tw * 0.5 - 12, top + 87, 6, 6), Color(accent, fa))
+		_text(font, Vector2(cx - tw * 0.5 - 2, top + 94), tag, Color(accent, fa), 8)
+		_text_c(font, Vector2(cx, top + 106), CATEGORY_NAMES[int(m["base"])].to_lower(), Color(MUTED, fa), 8)
 		if res["duplicate"]:
-			_text_c(font, Vector2(cx, top + 126), "уже в Арсенале → +%d ДНК" % res["dna"], Color(GOLD, fa), 12)
+			_text_c(font, Vector2(cx, top + 128), "уже в Арсенале: +%d ДНК" % res["dna"], Color(GOLD, fa), 11)
 		else:
 			var tr: Dictionary = WeaponDefs.TRAITS[m["trait"]]
-			_text_c(font, Vector2(cx, top + 116), "черта: " + str(tr["name"]), Color(GOLD, fa), 9)
-			var yy := top + 127.0
+			_text_c(font, Vector2(cx, top + 118), "черта: " + str(tr["name"]), Color(GOLD, fa), 9)
+			var yy := top + 129.0
 			for line in _wrap(font, str(tr["text"]), 214.0, 8):
 				_text_c(font, Vector2(cx, yy), line, Color(WHITE, 0.85 * fa), 8)
 				yy += 9.5
 	else:
-		_text_c(font, Vector2(cx, top + 18), "ПАЧКА ДНК", Color(accent, fa), 12)
+		_text_c(font, Vector2(cx, top + 18), "Получено: образцы ДНК", Color(WHITE, fa), 11)
 		_dna_icon(Vector2(cx, top + 62), 44.0, Color(GOLD, fa))
 		_text_c(font, Vector2(cx, top + 118), "+%d ДНК" % res["dna"], Color(GOLD, fa), 20)
 		_text_c(font, Vector2(cx, top + 132), "добавлено на счёт", Color(MUTED, fa), 8)
@@ -1673,8 +1608,8 @@ func _operation_matches(op: Dictionary) -> bool:
 
 func _draw_operations(font: Font) -> void:
 	draw_rect(Rect2(8, 64, 624, 238), Color("080d0e"))
-	_box(Rect2(8, 64, 130, 238), MUTED, 0.3, Color("101616"), false)
-	_box(_op_card_rect(), MUTED, 0.3, Color("101616"), false)
+	_box(Rect2(8, 64, 130, 238), MUTED, 0.0, Color("101616"))
+	_box(_op_card_rect(), MUTED, 0.0, Color("101616"))
 	var world := Campaign.world()
 	var critical := 0
 	var nests := 0
@@ -1703,10 +1638,12 @@ func _draw_operations(font: Font) -> void:
 		var color := GOLD if chosen else WHITE
 		var r := Rect2(14, y, 118, 30)
 		draw_rect(r, Color("30291b") if chosen else Color("1b2220"))
-		draw_rect(r, Color(color, 0.65 if chosen else 0.2), false)
+		if chosen:
+			draw_rect(r, Color(color, 0.65), false)
 		_text(font, Vector2(18, y + 10), "[%d] %s · %s" % [i + 1, "УЛЕЙ" if op["type"] == "nest" else "ЗАЧИСТКА", _roman(op["threat"])], color, 7)
 		_text(font, Vector2(18, y + 19), str(op["name"]), color, 7)
-		_text(font, Vector2(18, y + 27), str(CampaignCatalog.REGIONS[op["region_id"]]["name"]), MUTED, 6)
+		# Номер операции: ход × 3 + место в списке (три предложения за ход).
+		_text(font, Vector2(18, y + 27), "%s · №%03d" % [CampaignCatalog.REGIONS[op["region_id"]]["name"], int(op["offered_turn"]) * 3 + i + 1], MUTED, 6)
 		_hit(r, "op:%d" % i)
 	if shown == 0:
 		_text(font, Vector2(16, 204), "Заданий в фильтре нет", DIM, 7)
@@ -1750,14 +1687,12 @@ func _draw_operations(font: Font) -> void:
 	_text(font, Vector2(424, y), "ДНК ×%.2f · доп. ящик: %.0f%%" % [op["reward"]["dna_mul"], float(op["reward"]["extra_crate_chance"]) * 100.0], WHITE, 8)
 	y += 11
 	var effect: Dictionary = op["effects"]["win"]
-	_text(font, Vector2(424, y), "Прямой эффект: %d; соседям %d" % [effect["infection"], effect["neighbors"]], GREEN, 8)
-	y += 10
-	_text(font, Vector2(424, y), "Затем — один перерасчёт фронта.", MUTED, 8)
-	y += 10
-	_text(font, Vector2(424, y), "Провал: +%d; рост давления на регион." % int(op["effects"]["loss"]["infection"]), RED, 8)
-	# Постоянный эффект улья и подавление отличают стратегическую цель от обычной зачистки.
-	y += 10
-	_text(font, Vector2(424, y), "Улей исчезнет навсегда; защита 3 хода." if op["type"] == "nest" else "Подавление: %d пересчёта фронта." % int(effect["suppression"]), MUTED, 7)
+	y = _para(font, "Заражение: %s; в соседних регионах: %s" % [_signed(int(effect["infection"])), _signed(int(effect["neighbors"]))], y, GREEN, 8)
+	y = _para(font, "Обстановка обновится во всех регионах.", y, MUTED, 7)
+	y = _para(font, "Провал: заражение %s." % _signed(int(op["effects"]["loss"]["infection"])), y, RED, 8)
+	# Постоянный эффект улья и сдерживание отличают стратегическую цель от обычной зачистки.
+	var hold := "Рост заражения снижен на %d на %s" % [int(CampaignCatalog.BALANCE["suppression"]), _turns(int(effect["suppression"]))]
+	_para(font, ("Улей будет уничтожен. " + hold) if op["type"] == "nest" else hold, y, MUTED, 7)
 	_button(font, Rect2(424, 267, 199, 19), "НАЧАТЬ ОПЕРАЦИЮ [A / E]", GOLD, "op_start", true, 9)
 	_text(font, Vector2(424, 297), "B / Esc — назад · образцы сохранятся", DIM, 7)
 
@@ -1785,6 +1720,26 @@ func _draw_operation_journal(font: Font, info: Dictionary) -> void:
 	_button(font, Rect2(424, 265, 96, 16), "↑ ВЫШЕ", MUTED, "op_scroll:0", true, 7)
 	_button(font, Rect2(527, 265, 96, 16), "↓ НИЖЕ", MUTED, "op_scroll:1", true, 7)
 	_button(font, Rect2(424, 283, 199, 15), "К БРИФИНГУ [B / Esc]", GOLD, "op_journal", true, 7)
+
+
+## Абзац в правой панели с переносом; возвращает y следующей строки.
+func _para(font: Font, s: String, y: float, c: Color, fs: int) -> float:
+	for line in _wrap(font, s, 196, fs):
+		_text(font, Vector2(424, y), line, c, fs)
+		y += fs + 2
+	return y
+
+
+## Число со знаком и настоящим минусом: −40, +7.
+func _signed(v: int) -> String:
+	return ("+%d" % v) if v > 0 else ("−%d" % -v if v < 0 else "0")
+
+
+func _turns(n: int) -> String:
+	var tail := n % 10
+	if n % 100 >= 11 and n % 100 <= 14 or tail == 0 or tail >= 5:
+		return "%d ходов" % n
+	return "%d ход" % n if tail == 1 else "%d хода" % n
 
 
 func _roman(tier: int) -> String:

@@ -945,7 +945,11 @@ def credit_chip(tier):
 
 # --- кровь, пол, следы --------------------------------------------------------------------
 
-def splat(seed, size, stretch=1.0):
+# площадь (в пикселях) масок луж до U1-20: новые несимметричные маски покрывают не меньше
+BLOOD_COVER = [529, 671, 794, 996, 1182, 1732, 1610, 1656]
+
+
+def splat(seed, size, stretch=1.0, min_cover=0, grow=1.0):
     """Маска ТОЛЩИНЫ крови (яркость = толщина): неровные лопасти, густой центр, капли с хвостами.
     Цвет, блик и высыхание считает шейдер blood.gdshader."""
     rng = random.Random(seed)
@@ -953,22 +957,38 @@ def splat(seed, size, stretch=1.0):
     img = Image.new("RGBA", (w, size), (0, 0, 0, 0))
     px = img.load()
     c = (w / 2, size / 2)
-    lobes = [(c[0] - (w - size) * 0.25, c[1], size * 0.2)]
-    if stretch > 1.0:
+    pool = stretch <= 1.0
+    # Лужа (U1-20): несимметричная — крупные спокойные лопасти вдоль случайной оси, брызги только
+    # в одну сторону и с короткими хвостами; без радиальных «спиц» вокруг центра.
+    axis = rng.uniform(-math.pi, math.pi) if pool else 0.0
+    if pool:
+        ax, ay = math.cos(axis), math.sin(axis)
+        lobes = []
+        for _ in range(rng.randint(4, 5)):
+            t = rng.uniform(-0.26, 0.28) * size
+            side = rng.uniform(-0.07, 0.07) * size
+            lobes.append((c[0] + ax * t - ay * side, c[1] + ay * t + ax * side, size * rng.uniform(0.22, 0.30) * grow))
+        for _ in range(rng.randint(4, 6)):
+            a = axis + rng.uniform(-1.2, 1.2)
+            dist = rng.uniform(0.22, 0.36) * size
+            lobes.append((c[0] + math.cos(a) * dist, c[1] + math.sin(a) * dist * 0.85, rng.uniform(0.08, 0.16) * size * grow))
+    else:
+        lobes = [(c[0] - (w - size) * 0.25, c[1], size * 0.2)]
         n = 10
         for i in range(n):
             t = i / (n - 1)
             lobes.append((w * (0.16 + 0.7 * t), c[1] + rng.uniform(-0.07, 0.07) * size, size * (0.2 - 0.14 * t)))
-    for _ in range(rng.randint(6, 10) if stretch <= 1.0 else rng.randint(2, 4)):
-        a = rng.uniform(-math.pi, math.pi)
-        dist = rng.uniform(0.05, 0.3) * size
-        lobes.append((c[0] + math.cos(a) * dist, c[1] + math.sin(a) * dist * 0.8, rng.uniform(0.07, 0.17) * size))
+        for _ in range(rng.randint(2, 4)):
+            a = rng.uniform(-math.pi, math.pi)
+            dist = rng.uniform(0.05, 0.3) * size
+            lobes.append((c[0] + math.cos(a) * dist, c[1] + math.sin(a) * dist * 0.8, rng.uniform(0.07, 0.17) * size))
     drops = []
-    for _ in range(rng.randint(12, 22)):
-        a = rng.uniform(-math.pi, math.pi) if stretch <= 1.0 else rng.uniform(-0.45, 0.45)
-        dist = rng.uniform(0.3, 0.48)
-        r = rng.uniform(1.4, 3.6)
+    for _ in range(rng.randint(8, 14) if pool else rng.randint(12, 22)):
+        a = axis + rng.uniform(-0.9, 0.9) if pool else rng.uniform(-0.45, 0.45)
+        dist = rng.uniform(0.3, 0.47) if pool else rng.uniform(0.3, 0.48)
+        r = rng.uniform(1.2, 3.0) if pool else rng.uniform(1.4, 3.6)
         drops.append((c[0] + math.cos(a) * dist * w, c[1] + math.sin(a) * dist * size, r, a))
+    tail = 2.0 if pool else 4.0  # длина хвоста капли в радиусах
     max_r = size * 0.45
     for y in range(size):
         for x in range(w):
@@ -990,9 +1010,12 @@ def splat(seed, size, stretch=1.0):
                 along = dx * math.cos(a) + dy * math.sin(a)
                 across = -dx * math.sin(a) + dy * math.cos(a)
                 if (along * along) / (br * br * 2.0) + (across * across) / (br * br) <= 1.0 or \
-                        (-br * 4 < along < 0 and abs(across) < br * 0.45):
+                        (-br * tail < along < 0 and abs(across) < br * 0.45):
                     px[x, y] = (150, 150, 150, 255)  # капля — тоньше лужи
                     break
+    if min_cover and pool and sum(1 for p in img.getdata() if p[3]) < min_cover:
+        # площадь пятна не меньше прежней: gore не слабеет, меняется только форма
+        return splat(seed, size, stretch, min_cover, grow * 1.07)
     return img
 
 
@@ -1098,7 +1121,7 @@ def main():
     save(gib_jaw().image(), "gib_jaw")
     save(gib_eye().image(), "gib_eye")
     for k in range(8):
-        save(splat(100 + k, 30 + k * 6), "blood_%d" % k)
+        save(splat(100 + k, 30 + k * 6, min_cover=BLOOD_COVER[k]), "blood_%d" % k)
     for k in range(4):
         save(splat(200 + k, 27 + k * 6, 2.3), "spray_%d" % k)
     for t in range(3):

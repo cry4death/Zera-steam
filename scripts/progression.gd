@@ -195,7 +195,9 @@ static func _num(v: float) -> String:
 
 # --- тексты карт ----------------------------------------------------------------------------
 
-## {kind, title, lines, color} для отрисовки карты.
+## {kind, title, lines, color} для отрисовки карты. Для компактной лицевой стороны (U1-14) дополнительно:
+## icon — имя спрайта в art/ (icon_gun — спрайт ствола, он крупнее иконок деталей), sub — короткое описание,
+## front — эффект получаемого ранга, more — подробности (ранги II–III, черта), показываются по наведению.
 func describe(card: Dictionary) -> Dictionary:
 	var rare: bool = card.get("rare", false)
 	match card["type"]:
@@ -204,13 +206,17 @@ func describe(card: Dictionary) -> Dictionary:
 			var model: String = card.get("model", Meta.model_for(card["id"]))
 			var m: Dictionary = WeaponDefs.MODELS[model]
 			var st := WeaponDefs.model_stats(model, 1)
+			var stats := "урон %s · %.1f выстр/с · магазин %d" % [_num(st["damage"]), st["rate"], st["mag"]]
 			var lines: Array = [m.get("desc", WeaponDefs.BASES[card["id"]]["desc"])]
+			var more: Array = []
 			if m["trait"] != "":
-				lines.append("◆ %s: %s" % [WeaponDefs.TRAITS[m["trait"]]["name"], WeaponDefs.TRAITS[m["trait"]]["text"]])
-			lines.append("урон %s · %.1f выстр/с · магазин %d" % [_num(st["damage"]), st["rate"], st["mag"]])
+				var trait_line := "Черта «%s»: %s" % [WeaponDefs.TRAITS[m["trait"]]["name"], WeaponDefs.TRAITS[m["trait"]]["text"]]
+				lines.append(trait_line)
+				more.append(trait_line)
+			lines.append(stats)
 			var model_rare: bool = m["rarity"] == WeaponDefs.Rarity.RARE
 			return {"kind": "НОВЫЙ СТВОЛ" + (" · РЕДКИЙ" if model_rare else ""), "title": m["name"], "color": C_RARE if model_rare else C_WEAPON,
-				"lines": lines}
+				"lines": lines, "icon": "gun_" + model, "icon_gun": true, "sub": lines[0], "front": [stats], "more": more}
 		"level":
 			var s: Weapons.Slot = weapons.slots[card["slot"]]
 			var up: Dictionary = WeaponDefs.level_info(s.model, s.level + 1)
@@ -219,18 +225,50 @@ func describe(card: Dictionary) -> Dictionary:
 				lines.append("+1 слот модуля")
 			if s.level + 1 == WeaponDefs.MAX_LEVEL:
 				lines.append("ур. 5 открывает прототипы")
-			return {"kind": "УЛУЧШЕНИЕ СТВОЛА", "title": "%s → ур. %d" % [s.short_name(), s.level + 1], "color": C_COMMON, "lines": lines}
+			return {"kind": "УЛУЧШЕНИЕ СТВОЛА", "title": "%s → ур. %d" % [s.short_name(), s.level + 1], "color": C_COMMON, "lines": lines,
+				"icon": "gun_" + s.model, "icon_gun": true, "sub": "", "front": lines, "more": []}
 		"module":
 			var d: Dictionary = WeaponDefs.MODULES[card["id"]]
 			return {"kind": "МОДУЛЬ" + (" · РЕДКИЙ" if rare else ""), "title": d["name"], "color": C_RARE if rare else C_COMMON,
-				"lines": [d["desc"]], "ranks": d["ranks"]}
+				"lines": [d["desc"]], "ranks": d["ranks"], "icon": "card_mod_%d" % card["id"], "sub": d["desc"],
+				"front": ["%s: %s" % [WeaponDefs.ROMAN[1], d["ranks"][0]]], "more": _more_ranks(d["ranks"])}
 		"ammo":
 			var d: Dictionary = WeaponDefs.AMMO[card["id"]]
 			return {"kind": "ПАТРОНЫ" + (" · РЕДКИЕ" if rare else ""), "title": d["name"], "color": C_RARE if rare else C_COMMON,
-				"lines": [d["desc"]], "ranks": d["ranks"]}
+				"lines": [d["desc"]], "ranks": d["ranks"], "icon": "card_ammo_%d" % card["id"], "sub": d["desc"],
+				"front": ["%s: %s" % [WeaponDefs.ROMAN[1], d["ranks"][0]]], "more": _more_ranks(d["ranks"])}
 		"passive":
 			var d: Dictionary = WeaponDefs.PASSIVES[card["id"]]
 			var lv: int = passives.get(card["id"], 0)
+			var lines: Array = [d["text"], "уровень %d из %d" % [lv + 1, WeaponDefs.MAX_PASSIVE]]
 			return {"kind": "ПАССИВКА", "title": "%s %s" % [d["name"], WeaponDefs.ROMAN[lv + 1]], "color": C_PASSIVE,
-				"lines": [d["text"], "уровень %d из %d" % [lv + 1, WeaponDefs.MAX_PASSIVE]]}
-	return {"kind": "", "title": "?", "color": C_COMMON, "lines": []}
+				"lines": lines, "icon": "card_pas_%d" % card["id"], "sub": "", "front": lines, "more": []}
+	return {"kind": "", "title": "?", "color": C_COMMON, "lines": [], "icon": "", "sub": "", "front": [], "more": []}
+
+
+static var _icon_cache: Dictionary = {}
+
+
+## Спрайт карты из общего кэша. Все иконки подгружаются заранее (preload_icons): первый кадр не рисует белое пятно.
+static func card_icon(icon_name: String) -> Texture2D:
+	if not _icon_cache.has(icon_name):
+		_icon_cache[icon_name] = PixelArt.tex(icon_name)
+	return _icon_cache[icon_name]
+
+
+static func preload_icons() -> void:
+	for id: String in WeaponDefs.MODEL_ORDER:
+		card_icon("gun_" + id)
+	for k in 6:
+		card_icon("card_mod_%d" % k)
+		card_icon("card_pas_%d" % k)
+	for k in 4:
+		card_icon("card_ammo_%d" % k)
+
+
+## Ранги II–III одной строкой каждый (ранг I вынесен на лицевую сторону).
+static func _more_ranks(ranks: Array) -> Array:
+	var out: Array = []
+	for k in range(1, mini(3, ranks.size())):
+		out.append("%s: %s" % [WeaponDefs.ROMAN[k + 1], ranks[k]])
+	return out

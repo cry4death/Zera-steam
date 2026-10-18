@@ -159,7 +159,7 @@ var _xdmg := PackedFloat32Array()
 var _xrad := PackedFloat32Array()
 var _xflag := PackedByteArray()
 
-# эффекты для отрисовки: лучи [от, до, ширина, время, цвет], взрывы [центр, радиус, время]
+# эффекты для отрисовки: лучи [от, до, ширина, время, цвет]
 var _beams: Array = []
 # Вспышек мало (до четырёх стволов); один общий аддитивный слой.
 const FLASH_KINDS := ["rifle", "shotgun", "rifle", "launcher", "small", "small", "small", "sniper"]
