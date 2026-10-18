@@ -14,7 +14,7 @@ NAMES += ["tires", "bags", "paper", "boards", "glass", "cone"]
 
 
 def sprite(index):
-    rng = random.Random(7301 + index)
+    rng = random.Random(7301 + index // 4 if index < 20 else 7301 + index)
     im = Image.new("RGBA", (W, H))
     d = ImageDraw.Draw(im)
     cx, cy = W // 2, H // 2
@@ -37,14 +37,14 @@ def sprite(index):
         d.line((x + 9, y + 3, x + length - 12, y + 3), fill=light, width=2)
         d.line((x + length - 4, y + 12, x + length - 4, y + width - 8), fill=dark, width=4)
         # Двигатель справа, окна с наклоном, крыша, швы дверей.
-        cabin0, cabin1 = x + length * .28, x + length * .68
+        cabin0, cabin1 = x + length * [.28, .16, .30, .38, .69][kind], x + length * [.68, .72, .68, .75, .84][kind]
         glass = (32, 48, 53) if state < 3 else (18, 21, 21)
         d.polygon([(cabin0-11,y+10),(cabin0+7,y+9),(cabin0+7,y+width-9),(cabin0-11,y+width-11)], fill=glass)
         d.polygon([(cabin1,y+8),(cabin1+20,y+14),(cabin1+20,y+width-14),(cabin1,y+width-8)], fill=glass)
         d.rectangle((cabin0+10,y+8,cabin1-3,y+width-9), fill=light if state < 3 else (57,55,47))
         for wy in (y+8, y+width-13):
             d.rectangle((cabin0+13,wy,cabin1-7,wy+4), fill=glass)
-        for wx in (cabin0+9, cabin1-2, x+length-28):
+        for wx in ((cabin0+9, cabin1-2, x+length-28) if kind != 1 else (cabin1-2, x+length-22)):
             d.line((wx,y+14,wx,y+width-15), fill=dark, width=2)
         d.rectangle((x+length-8,y+12,x+length-4,y+26), fill=(179,174,122) if state < 3 else (70,64,46))
         d.rectangle((x+length-8,y+width-27,x+length-4,y+width-13), fill=(179,174,122) if state < 3 else (70,64,46))
@@ -63,6 +63,14 @@ def sprite(index):
             d.line((x+length-5,wy,x+length-1,wy),fill=(30,33,30),width=2)
         d.line((cabin1+27,y+18,x+length-17,y+20),fill=light)
         d.line((cabin1+27,y+width-18,x+length-17,y+width-20),fill=dark)
+        if kind == 1:
+            d.line((cabin0+4,y+11,cabin0+4,y+width-12),fill=(104,114,106),width=2)
+            d.rectangle((x+8,cy-18,x+21,cy+18),fill=(42,44,40))
+        if kind == 3:
+            d.rectangle((cabin0+12,y+17,cabin1-6,y+width-19),fill=(85,91,61))
+            d.line((cabin0+19,y+18,cabin0+19,y+width-20),fill=(114,115,78),width=3)
+        if state == 1 and kind in (1,2):
+            d.polygon([(cabin0+12,y+4),(cabin0-6,y-18),(cabin0+23,y-18),(cabin0+34,y+3)],fill=base,outline=dark)
         if kind == 2:
             d.rectangle((cabin0+12,y+32,cabin1-6,y+44), fill=(30,36,39))
             d.rectangle((cabin0+15,y+33,cabin0+29,y+39), fill=(111,39,35))
@@ -179,16 +187,22 @@ def sprite(index):
 def bloody(im, index, stage):
     if not stage:
         return im
-    rng = random.Random(8123 + index)
+    rng = random.Random(8123 + index // 4 * 73 + index % 4 * 19)
     layer = Image.new("RGBA", im.size)
     d = ImageDraw.Draw(layer)
     bounds = im.getbbox()
-    for _ in range(stage * 28):
-        xx, yy = rng.randrange(bounds[0],bounds[2]),rng.randrange(bounds[1],bounds[3])
-        rr = rng.randrange(1,6)
-        d.ellipse((xx-rr,yy-rr,xx+rr*2,yy+rr),fill=(89+rng.randrange(32),10,13,215))
-        if rr > 3:
-            d.line((xx,yy,xx+3,yy+10),fill=(75,8,11,180),width=2)
+    # Три разных места попадания, косые следы и мелкий разлёт вокруг основной кляксы.
+    for impact in range(stage):
+        cx = rng.randrange(bounds[0]+3,bounds[2]-2)
+        cy = rng.randrange(bounds[1]+3,bounds[3]-2)
+        direction = rng.uniform(-1.1,1.1)
+        for k in range(24):
+            xx = round(cx + rng.gauss(0,17))
+            yy = round(cy + rng.gauss(0,8))
+            rr = rng.randrange(1,5)
+            d.ellipse((xx-rr,yy-rr,xx+rr*2,yy+rr),fill=(82+rng.randrange(30),9,13,215))
+            if k % 5 == 0:
+                d.line((xx,yy,xx+direction*16,yy+10+rng.randrange(8)),fill=(69,8,11,180),width=2)
     layer.putalpha(ImageChops.multiply(layer.getchannel("A"),im.getchannel("A")))
     return Image.alpha_composite(im,layer)
 
@@ -200,12 +214,12 @@ def main():
         for i,im in enumerate(sprites):
             n=stage*len(NAMES)+i
             atlas.paste(bloody(im,i,stage),(n%8*W,n//8*H))
-    atlas.save(os.path.join(ROOT,"art","obst_atlas.png"))
+    atlas.save(os.path.join(ROOT,"art","map_vehicles.png"))
     # Контактный лист ×4 относительно игровых размеров; асфальт и кровь.
     sheet=Image.new("RGB",(1536,1970),(27,29,29))
     d=ImageDraw.Draw(sheet)
     font=ImageFont.truetype("C:/Windows/Fonts/consola.ttf",16)
-    d.text((20,14),"O1 / QUARANTINE   |   4x world scale   |   intact - damaged - burning - wreck",font=font,fill=(197,189,159))
+    d.text((20,14),"O2 / VEHICLES   |   4x world scale   |   intact - damaged - burning - wreck",font=font,fill=(197,189,159))
     for i,im in enumerate(sprites):
         x,y=(i%4)*384,60+(i//4)*208
         asphalt=Image.open(os.path.join(ROOT,"art/asphalt.png")).convert("RGB")
@@ -223,11 +237,12 @@ def main():
         pic=bloody(im,i,2 if i%4>=2 else 0).resize((384,192),Image.Resampling.NEAREST)
         sheet.paste(pic,(x,y-10),pic)
         if i <20 and i%4 ==2:
-            fire=Image.open(os.path.join(ROOT,"art/fx_explosion_medium.png")).convert("RGBA").crop((432,0,576,144))
+            row=(i//4)%3; frame=2+(i//4)%4
+            fire=Image.open(os.path.join(ROOT,"art/fx_explosion_medium.png")).convert("RGBA").crop((frame*144,row*144,(frame+1)*144,(row+1)*144))
             fire=fire.resize((100,112),Image.Resampling.NEAREST)
-            sheet.paste(fire,(x+220,y+5),fire)
+            sheet.paste(fire,(x+170+(i//4%4)*15,y+5+(i//4%3)*12),fire)
         d.text((x+14,y+174),NAMES[i],font=font,fill=(181,179,156))
-    sheet.save(os.path.join(ROOT,"design/tasks/reports/o1_sheet.png"))
+    sheet.save(os.path.join(ROOT,"design/tasks/reports/o2_vehicles.png"))
     print("OBSTART atlas=2304x2448 tiles=136 blood_stages=4 deterministic=true")
 
 

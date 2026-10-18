@@ -2,7 +2,7 @@ class_name Obstacles
 extends Node2D
 ## O1: общая сетка, packed-строки, ограниченная очередь детонаций и один атлас.
 
-enum Kind { SEDAN, HATCH, POLICE, JEEP, TRUCK, RED, ACID, JERSEY, BAGS, FENCE, WOOD, TIRES, RUBBISH, PAPER, BOARDS, GLASS, CONE }
+enum Kind { SEDAN, HATCH, POLICE, JEEP, TRUCK, RED, ACID, JERSEY, BAGS, FENCE, WOOD, TIRES, RUBBISH, PAPER, BOARDS, GLASS, CONE, STRUCTURE }
 enum State { INTACT, DAMAGED, BURNING, WRECK, GONE }
 const CELL := 16.0
 const ART_CELL := Vector2(288, 144)
@@ -66,14 +66,37 @@ var _fire_tick := 0.0
 var _visual_tick := 0.0
 var _view_cell := Vector2i(-999, -999)
 var _atlas: Texture2D
+var _wall_blood: Texture2D
 var _fire: Texture2D
 var _smoke: Texture2D
 var _fx: Node2D
 var _rng := RandomNumberGenerator.new()
+var _structure_tex: Array[Texture2D] = []
+var _extent := PackedVector2Array()
+var _blood_at := PackedVector2Array()
+var _ray_seen := PackedInt32Array()
+var _ray_stamp := 0
+var profile_enabled := false
+var resolve_usec := 0
+var move_usec := 0
+var ray_usec := 0
+var resolve_calls := 0
+var move_calls := 0
+var ray_calls := 0
+var _art: MultiMesh
+var _art_node: MultiMeshInstance2D
+var _art_buffer := PackedFloat32Array()
+var _art_rows := PackedInt32Array()
+var _art_slot := PackedInt32Array()
+var _art_dirty := PackedByteArray()
+var _art_pending := PackedInt32Array()
+var _structures := PackedInt32Array()
+var draw_usec := 0
 
 
 func _ready() -> void:
-	_atlas = PixelArt.tex("obst_atlas")
+	_atlas = PixelArt.tex("map_vehicles")
+	_wall_blood = PixelArt.tex("map_wall_blood")
 	_fire = PixelArt.tex("fx_explosion_medium")
 	_smoke = PixelArt.tex("fx_smoke")
 	process_priority = -20
@@ -81,11 +104,39 @@ func _ready() -> void:
 	_fx.draw.connect(_draw_fx)
 	add_child(_fx)
 	_rng.seed = 17081
+	_art_node = MultiMeshInstance2D.new()
+	_art = MultiMesh.new()
+	_art.transform_format = MultiMesh.TRANSFORM_2D
+	_art.use_custom_data = true
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = PackedVector2Array([Vector2(-48, -24), Vector2(48, -24), Vector2(48, 24), Vector2(-48, 24)])
+	arrays[Mesh.ARRAY_TEX_UV] = PackedVector2Array([Vector2.ZERO, Vector2.RIGHT, Vector2.ONE, Vector2.DOWN])
+	arrays[Mesh.ARRAY_INDEX] = PackedInt32Array([0, 1, 2, 0, 2, 3])
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	_art.mesh = mesh
+	_art_node.multimesh = _art
+	_art_node.texture = _atlas
+	var shader := Shader.new()
+	shader.code = "shader_type canvas_item; varying vec2 cell; void vertex() { cell = INSTANCE_CUSTOM.xy; } void fragment() { COLOR = texture(TEXTURE, (cell + UV) / vec2(8.0, 17.0)); }"
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	_art_node.material = material
+	add_child(_art_node)
+	move_child(_fx, -1)
 
 
 func setup(rect: Rect2, layout: Array[Dictionary]) -> void:
 	arena = rect
 	count = layout.size()
+	_structure_tex.resize(count)
+	_extent.resize(count)
+	_blood_at.resize(count)
+	_ray_seen.resize(count)
+	_ray_seen.fill(0)
+	_ray_stamp = 0
+	profile_enabled = OS.get_cmdline_user_args().has("--obstacle-profile")
 	pos.resize(count)
 	half.resize(count)
 	axis.resize(count)
@@ -100,12 +151,19 @@ func setup(rect: Rect2, layout: Array[Dictionary]) -> void:
 	_burning.clear()
 	_smoking.clear()
 	_blast_queue.clear()
+	_structures.clear()
+	_art_rows.clear()
+	_art_slot.resize(count)
+	_art_slot.fill(-1)
+	_art_dirty.resize(count)
+	_art_dirty.fill(0)
+	_art_pending.clear()
 	for i in count:
 		kind[i] = int(layout[i]["kind"])
 		pos[i] = layout[i]["pos"]
 		rotation_angle[i] = float(layout[i].get("angle", 0.0))
 		axis[i] = Vector2.from_angle(rotation_angle[i])
-		state[i] = State.INTACT
+		state[i] = int(layout[i].get("state", State.INTACT))
 		blood[i] = 0
 		burn[i] = 0.0
 		var k := kind[i]
@@ -116,9 +174,34 @@ func setup(rect: Rect2, layout: Array[Dictionary]) -> void:
 			half[i] = Vector2(12, 12)
 		if k == Kind.WOOD:
 			half[i] = Vector2(16, 5)
-		high[i] = 1 if k <= Kind.TRUCK or k == Kind.JERSEY or k == Kind.FENCE else 0
+		if k == Kind.STRUCTURE:
+			_structures.append(i)
+			half[i] = layout[i]["half"]
+			var size := Vector2i(half[i] * 2.0)
+			_structure_tex[i] = PixelArt.tex("map_roof_%d_%d_%d_%d" % [int(layout[i]["skin"]), size.x, size.y, i % 3])
+		else:
+			_structure_tex[i] = null
+		_extent[i] = axis[i].abs() * half[i].x + axis[i].orthogonal().abs() * half[i].y
+		high[i] = 1 if k == Kind.STRUCTURE or k <= Kind.TRUCK or k == Kind.JERSEY or k == Kind.FENCE else 0
 		round_shape[i] = 1 if k in [Kind.RED, Kind.ACID, Kind.BAGS] else 0
 		hp[i] = 120.0 if k <= Kind.TRUCK else 12.0
+		if k <= Kind.TRUCK:
+			if state[i] == State.DAMAGED:
+				hp[i] = 60.0
+				_smoking.append(i)
+			elif state[i] == State.BURNING:
+				burn[i] = 4.0 + float(i % 3)
+				_burning.append(i)
+	# Сначала мусор, затем корпуса; один draw call на весь старый атлас O1.
+	for layer in 2:
+		for i in count:
+			if kind[i] != Kind.STRUCTURE and (kind[i] >= Kind.TIRES) == (layer == 0):
+				_art_slot[i] = _art_rows.size()
+				_art_rows.append(i)
+				_mark_art(i)
+	_art_buffer.resize(_art_rows.size() * 12)
+	if _art:
+		_art.instance_count = _art_rows.size()
 	grid_w = ceili(rect.size.x / CELL)
 	grid_h = ceili(rect.size.y / CELL)
 	var n := grid_w * grid_h
@@ -152,7 +235,7 @@ func rebuild_grid() -> void:
 	_link_obj.clear()
 	_link_next.clear()
 	for i in count:
-		if kind[i] >= Kind.TIRES or state[i] == State.GONE:
+		if (kind[i] >= Kind.TIRES and kind[i] != Kind.STRUCTURE) or state[i] == State.GONE:
 			continue
 		var a := axis[i].abs()
 		var extent := a * half[i].x + Vector2(a.y, a.x) * half[i].y + Vector2.ONE * 34.0
@@ -187,6 +270,8 @@ func rebuild_grid() -> void:
 
 func _local(i: int, p: Vector2) -> Vector2:
 	var rel := p - pos[i]
+	if rotation_angle[i] == 0.0:
+		return Vector2(rel.x, -rel.y)
 	var a := axis[i]
 	return Vector2(rel.dot(a), rel.dot(a.orthogonal()))
 
@@ -210,6 +295,9 @@ func contains(p: Vector2, r := 0.1) -> bool:
 
 ## Узкая фаза только в занятых окрестностях; повтор нужен в стыке двух блоков.
 func resolve(p: Vector2, r: float) -> Vector2:
+	var started := Time.get_ticks_usec() if profile_enabled else 0
+	if profile_enabled:
+		resolve_calls += 1
 	for pass_index in 4:
 		var changed := false
 		var link := near_head[cell_at(p)]
@@ -217,6 +305,10 @@ func resolve(p: Vector2, r: float) -> Vector2:
 			var i := _link_obj[link]
 			link = _link_next[link]
 			if state[i] == State.GONE:
+				continue
+			# AABB отсеивает дальнюю часть расширенного бакета крови.
+			var rel := (p - pos[i]).abs() - _extent[i]
+			if rel.x >= r + 0.02 or rel.y >= r + 0.02:
 				continue
 			var q := _local(i, p)
 			if round_shape[i] == 1:
@@ -243,16 +335,24 @@ func resolve(p: Vector2, r: float) -> Vector2:
 			changed = true
 		if not changed:
 			break
+	if profile_enabled:
+		resolve_usec += Time.get_ticks_usec() - started
 	return p
 
 
 ## Подшаги исключают туннелирование рывка, тарана и сильного отброса.
 func move_actor(from: Vector2, to: Vector2, r: float) -> Vector2:
-	var steps := maxi(1, ceili(from.distance_to(to) / 4.0))
+	var started := Time.get_ticks_usec() if profile_enabled else 0
+	if profile_enabled:
+		move_calls += 1
+	# Обычный тик — один resolve; рывок и сильный отброс — подшаги.
+	var steps := maxi(1, ceili(from.distance_to(to) / maxf(4.0, r * 0.8)))
 	var step := (to - from) / float(steps)
 	var p := from
 	for j in steps:
 		p = resolve(p + step, r)
+	if profile_enabled:
+		move_usec += Time.get_ticks_usec() - started
 	return p
 
 
@@ -310,6 +410,10 @@ func _segment(i: int, from: Vector2, to: Vector2, radius: float) -> float:
 
 ## Для коротких пуль достаточно бакета середины; длинные лучи проходят сетку.
 func ray_hit(from: Vector2, to: Vector2, only_high := false, radius := 1.0, ignore := -1) -> int:
+	var started := Time.get_ticks_usec() if profile_enabled else 0
+	if profile_enabled:
+		ray_calls += 1
+	_ray_stamp += 1
 	var steps := maxi(1, ceili(from.distance_to(to) / CELL))
 	var best := -1
 	var best_t := INF
@@ -323,6 +427,9 @@ func ray_hit(from: Vector2, to: Vector2, only_high := false, radius := 1.0, igno
 		while link != -1:
 			var i := _link_obj[link]
 			link = _link_next[link]
+			if _ray_seen[i] == _ray_stamp:
+				continue
+			_ray_seen[i] = _ray_stamp
 			if i == ignore or state[i] == State.GONE or (only_high and high[i] == 0):
 				continue
 			if not only_high and high[i] == 0 and kind[i] != Kind.RED and kind[i] != Kind.ACID:
@@ -331,6 +438,8 @@ func ray_hit(from: Vector2, to: Vector2, only_high := false, radius := 1.0, igno
 			if t < best_t:
 				best_t = t
 				best = i
+	if profile_enabled:
+		ray_usec += Time.get_ticks_usec() - started
 	return best
 
 
@@ -346,8 +455,9 @@ func steering(p: Vector2, direct: Vector2) -> Vector2:
 	var c := cell_at(p)
 	var d := distance[c]
 	if d != NO_PATH:
-		if d == absi(c % grid_w - _target_cell % grid_w) + absi(c / grid_w - _target_cell / grid_w) 				and blocked[cell_at(p + direct * 20.0)] == 0 and blocked[cell_at(p + direct * 40.0)] == 0:
-			return Vector2.ZERO
+		if d == absi(c % grid_w - _target_cell % grid_w) + absi(c / grid_w - _target_cell / grid_w):
+			if near_head[c] == -1 or (blocked[cell_at(p + direct * 20.0)] == 0 and blocked[cell_at(p + direct * 40.0)] == 0):
+				return Vector2.ZERO
 		return flow[c]
 	# Агент мог быть растолкнут в запас сетки: берёт ближайшую свободную клетку.
 	var best := NO_PATH
@@ -469,6 +579,7 @@ func damage(i: int, amount: float, fire := false) -> void:
 		else:
 			state[i] = State.BURNING
 			_blast_queue.append(i)
+	_mark_art(i)
 	queue_redraw()
 
 
@@ -479,10 +590,12 @@ func blast(at: Vector2, radius: float, amount: float) -> void:
 		var d2 := pos[i].distance_squared_to(at)
 		if d2 > (radius + half[i].x) * (radius + half[i].x):
 			continue
-		if kind[i] >= Kind.TIRES:
+		if kind[i] >= Kind.TIRES and kind[i] != Kind.STRUCTURE:
 			var away := (pos[i] - at).normalized()
 			pos[i] += away * 12.0
 			rotation_angle[i] += 0.7
+			axis[i] = Vector2.from_angle(rotation_angle[i])
+			_mark_art(i)
 		elif kind[i] <= Kind.ACID:
 			damage(i, amount * (1.0 - 0.5 * minf(sqrt(d2) / radius, 1.0)), amount >= 100.0)
 	queue_redraw()
@@ -499,6 +612,7 @@ func charge(at: Vector2, radius: float) -> bool:
 			continue
 		if kind[i] == Kind.BAGS or kind[i] == Kind.WOOD:
 			state[i] = State.GONE
+			_mark_art(i)
 			dirty = true
 		else:
 			damage(i, 180.0, true)
@@ -515,10 +629,13 @@ func splatter(at: Vector2, _dir := Vector2.ZERO, _death := 0, _facing := 0.0, _v
 	while link != -1:
 		var i := _link_obj[link]
 		link = _link_next[link]
-		if kind[i] >= Kind.TIRES or state[i] == State.GONE or blood[i] >= 3:
+		if (kind[i] >= Kind.TIRES and kind[i] != Kind.STRUCTURE) or state[i] == State.GONE or blood[i] >= 3:
 			continue
 		if _overlaps(i, at, 30.0):
+			var local := _local(i, at)
+			_blood_at[i] = Vector2(local.x, -local.y).clamp(-half[i] + Vector2.ONE * 3, half[i] - Vector2.ONE * 3)
 			blood[i] += 1
+			_mark_art(i)
 			blood_events += 1
 			changed = true
 	if changed:
@@ -578,6 +695,7 @@ func _detonate(i: int) -> void:
 		splatter(pos[i])
 	if not car:
 		rebuild_grid()
+	_mark_art(i)
 	queue_redraw()
 
 
@@ -606,17 +724,53 @@ func _tile(i: int) -> int:
 func _draw() -> void:
 	if _atlas == null:
 		return
+	var started := Time.get_ticks_usec() if profile_enabled else 0
+	_sync_art()
 	var view := PixelArt.view_rect(self, 130.0)
-	# Мусор в том же пакете, перед высокими объектами.
-	for layer in 2:
-		for i in count:
-			if state[i] == State.GONE or not view.has_point(pos[i]) or (kind[i] >= Kind.TIRES) != (layer == 0):
-				continue
-			var tile := _tile(i) + int(blood[i]) * TILES
-			var source := Rect2(Vector2(tile % 8, tile / 8) * ART_CELL, ART_CELL)
-			draw_set_transform(pos[i], rotation_angle[i], Vector2.ONE * PixelArt.ART_SCALE)
-			draw_texture_rect_region(_atlas, Rect2(-ART_CELL * 0.5, ART_CELL), source)
+	for i in _structures:
+		if not view.intersects(Rect2(pos[i] - _extent[i], _extent[i] * 2.0)):
+			continue
+		draw_set_transform(pos[i], rotation_angle[i])
+		draw_texture_rect(_structure_tex[i], Rect2(-half[i], half[i] * 2.0), false)
+		if blood[i] > 0:
+			var mark := Rect2(_blood_at[i] - Vector2(8, 3), Vector2(16, 10)).intersection(Rect2(-half[i], half[i] * 2.0))
+			draw_texture_rect_region(_wall_blood, mark, Rect2(0, 0, 128, 32))
 	draw_set_transform(Vector2.ZERO)
+	if profile_enabled:
+		draw_usec += Time.get_ticks_usec() - started
+
+
+func _mark_art(i: int) -> void:
+	if _art_slot[i] < 0 or _art_dirty[i] != 0:
+		return
+	_art_dirty[i] = 1
+	_art_pending.append(i)
+
+
+func _sync_art() -> void:
+	if _art == null or _art_pending.is_empty():
+		return
+	# Только изменившиеся строки; кровь на одном кузове не пересобирает весь пакет.
+	for i in _art_pending:
+		var slot := _art_slot[i]
+		_art_dirty[i] = 0
+		var o := slot * 12
+		var a := axis[i] if state[i] != State.GONE else Vector2.ZERO
+		_art_buffer[o] = a.x
+		_art_buffer[o + 1] = -a.y
+		_art_buffer[o + 2] = 0.0
+		_art_buffer[o + 3] = pos[i].x
+		_art_buffer[o + 4] = a.y
+		_art_buffer[o + 5] = a.x
+		_art_buffer[o + 6] = 0.0
+		_art_buffer[o + 7] = pos[i].y
+		var tile := _tile(i) + int(blood[i]) * TILES
+		_art_buffer[o + 8] = float(tile % 8)
+		_art_buffer[o + 9] = float(tile / 8)
+		_art_buffer[o + 10] = 0.0
+		_art_buffer[o + 11] = 0.0
+	_art_pending.clear()
+	_art.buffer = _art_buffer
 
 
 func _draw_fx() -> void:
@@ -625,12 +779,12 @@ func _draw_fx() -> void:
 		if not view.has_point(pos[i]):
 			continue
 		var frame := int(Time.get_ticks_msec() / 180 + i) % 8
-		var at := pos[i] + axis[i] * 20.0
+		var at := pos[i] + axis[i] * (12.0 + float(i % 4) * 5.0) + axis[i].orthogonal() * float(i % 3 - 1) * 7.0
 		_fx.draw_texture_rect_region(_smoke, Rect2(at + Vector2(-14, -30), Vector2(28, 32)), Rect2(frame * 96, 0, 96, 96), Color(0.55, 0.55, 0.52, 0.45))
 	for i in _burning:
 		if not view.has_point(pos[i]):
 			continue
 		var frame := int(Time.get_ticks_msec() / 80 + i) % 8
-		var at := pos[i] + axis[i] * 18.0
+		var at := pos[i] + axis[i] * (8.0 + float(i % 5) * 5.0) + axis[i].orthogonal() * float(i % 3 - 1) * 7.0
 		_fx.draw_texture_rect_region(_smoke, Rect2(at + Vector2(-24, -50), Vector2(48, 52)), Rect2(frame * 96, 0, 96, 96), Color(0.55, 0.54, 0.51, 0.65))
 		_fx.draw_texture_rect_region(_fire, Rect2(at - Vector2(16, 30), Vector2(32, 36)), Rect2((frame + 2) * 144, (i % 3) * 144, 144, 144))

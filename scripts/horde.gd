@@ -47,6 +47,8 @@ const VARIANT_WEIGHTS := [0.4, 0.2, 0.2, 0.2]
 var arena := Rect2()
 var player: Player
 var obstacles: Obstacles
+var benchmark_spawn := false # Стресс боя сохраняет плотность кольца O1 на всех картах.
+var map_entries := PackedVector2Array()
 var floor_decals: FloorDecals
 var minutes := 0.0
 var update_ms := 0.0
@@ -243,6 +245,20 @@ func despawn_far(center: Vector2, r: float) -> int:
 
 ## Точка на кольце за краем экрана, внутри арены.
 func spawn_point(center: Vector2) -> Vector2:
+	if not benchmark_spawn and not map_entries.is_empty():
+		var view := PixelArt.view_rect(self, 88.0)
+		var best := Vector2.INF
+		var best_distance := INF
+		# Ближайший вход за экраном; небольшой разброс сохраняет несколько направлений.
+		for entry in map_entries:
+			if view.has_point(entry):
+				continue
+			var d := center.distance_squared_to(entry) * randf_range(0.85, 1.15)
+			if d < best_distance:
+				best = entry
+				best_distance = d
+		if best != Vector2.INF:
+			return obstacles.free_point(best, RADIUS * 2.0) if obstacles else best
 	var inner := arena.grow(-RADIUS * 2.0)
 	for attempt in 12:
 		var p := center + Vector2.from_angle(randf() * TAU) * spawn_ring
@@ -441,13 +457,13 @@ func _physics_process(delta: float) -> void:
 	_rebuild_grid()
 	_separate()
 	if obstacles:
-		var near := obstacles.near_head
+		var near := obstacles.blocked
 		var ogw := obstacles.grid_w
 		var gw1 := ogw - 1
 		var gh1 := obstacles.grid_h - 1
 		for i in count:
 			var p := pos[i]
-			if near[clampi(int(p.x / CELL), 0, gw1) + clampi(int(p.y / CELL), 0, gh1) * ogw] != -1:
+			if near[clampi(int(p.x / CELL), 0, gw1) + clampi(int(p.y / CELL), 0, gh1) * ogw] != 0:
 				pos[i] = obstacles.resolve(p, radius[i])
 	_render()
 	queue_redraw()
@@ -472,7 +488,7 @@ func _move(delta: float) -> void:
 	var decay := exp(-10.0 * delta)
 	var touch_damage := 0.0
 	var damage_scale := 1.0 + damage_growth_per_min * minutes
-	var near := obstacles.near_head if obstacles else PackedInt32Array()
+	var near := obstacles.blocked if obstacles else PackedByteArray()
 	var ogw := obstacles.grid_w if obstacles else 1
 	var gw1 := ogw - 1
 	var gh1 := (obstacles.grid_h if obstacles else 1) - 1
@@ -485,9 +501,11 @@ func _move(delta: float) -> void:
 		var old := p
 		var to := ppos - p
 		var d := to.length()
-		if d > far_distance:
+		if d > far_distance and (benchmark_spawn or map_entries.is_empty()):
 			# отставших возвращаем в кольцо, чтобы орда не терялась позади
 			p = spawn_point(ppos)
+			if obstacles:
+				p = obstacles.free_point(p, radius[i])
 			old = p
 			to = ppos - p
 			d = to.length()
@@ -506,7 +524,7 @@ func _move(delta: float) -> void:
 		if dead[i] == 1: # огонь мог убить в этом кадре
 			continue
 		var move_dir := dir
-		if obstacles and d > 90.0:
+		if obstacles and (d > 90.0 or near[clampi(int(p.x / CELL), 0, gw1) + clampi(int(p.y / CELL), 0, gh1) * ogw] != 0):
 			# Направление поля обходов обновляется раз в 4 тика на зомби: ZERO — идти прямо.
 			if (i + _frame) & 3 == 0:
 				steer[i] = obstacles.steering(p, dir)
@@ -527,7 +545,8 @@ func _move(delta: float) -> void:
 					spit_cd[i] = SPIT_COOLDOWN
 					move_dir = Vector2.ZERO
 		p += move_dir * spd * delta + k * delta
-		if obstacles and near[clampi(int(p.x / CELL), 0, gw1) + clampi(int(p.y / CELL), 0, gh1) * ogw] != -1:
+		# Обычный шаг разрешается один раз после расталкивания; быстрый отброс — со свипом.
+		if obstacles and old.distance_squared_to(p) > 16.0:
 			p = obstacles.move_actor(old, p, radius[i])
 		knock[i] = k * decay
 		# игрок «тяжёлый»: выталкивает зомби из себя
