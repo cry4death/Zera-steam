@@ -4,6 +4,59 @@ import json
 from pathlib import Path
 
 from PIL import Image, ImageDraw
+import numpy as np
+
+
+# Порядок совпадает с CampaignCatalog.REGIONS; это оперативные зоны, не границы стран.
+CENTERS = [(52, 30), (48, 6), (61, 95), (30, 45), (27, 15), (36, 116), (42, -100), (21, 78)]
+
+
+def region_maps(image: Image.Image, output: Path) -> None:
+    width, height = image.size
+    lat = np.deg2rad(90 - (np.arange(height)[:, None] + .5) * 180 / height)
+    lon = np.deg2rad((np.arange(width)[None, :] + .5) * 360 / width - 180)
+    x, y, z = np.cos(lat) * np.sin(lon), np.broadcast_to(np.sin(lat), (height, width)), np.cos(lat) * np.cos(lon)
+    scores = []
+    for i, (a, b) in enumerate(CENTERS):
+        a, b = np.deg2rad([a, b])
+        # Низкочастотная неровность общей границы, без рассыпанных пикселей.
+        wobble = .012 * np.sin(x * 22 + i * 2) * np.sin(z * 19 + y * 17 + i)
+        scores.append(x * np.cos(a) * np.sin(b) + y * np.sin(a) + z * np.cos(a) * np.cos(b) + wobble)
+    scores = np.stack(scores)
+    ids = np.argmax(scores, axis=0).astype(np.uint8) + 1
+    land = np.asarray(image)[:, :, 0] > 35
+    border = ((ids != np.roll(ids, 1, 0)) | (ids != np.roll(ids, 1, 1))) & land
+    density = np.clip((scores.max(axis=0) - .88) / .12, 0, 1)
+    density = density * density * (3 - 2 * density)
+    density *= .78 + .22 * np.sin(x * 27 + y * 13) * np.sin(z * 24 - y * 19)
+    encoded = np.zeros((height, width, 4), dtype=np.uint8)
+    encoded[:, :, 0] = np.where(land, ids, 0)
+    encoded[:, :, 1] = (density * 255).astype(np.uint8)
+    encoded[:, :, 2] = border * 255
+    encoded[:, :, 3] = land * 255
+    Image.fromarray(encoded).save(output / "globe_regions.png")
+
+    # Условные огни городов; не демографические данные и не дополнительные игровые объекты.
+    cities = Image.new("L", (width, height))
+    cd = ImageDraw.Draw(cities)
+    rng = np.random.default_rng(20261018)
+    locations = [(51, 0), (49, 2), (52, 13), (52, 21), (50, 30), (56, 38), (60, 30),
+                 (41, 29), (31, 31), (25, 55), (35, 51), (55, 83), (56, 93), (43, 132),
+                 (40, 116), (31, 121), (36, 140), (37, 127), (23, 113), (19, 73), (29, 77),
+                 (23, 90), (14, 101), (41, -74), (42, -88), (34, -118), (38, -122), (30, -96), (49, -123)]
+    for a, b in locations:
+        xx = round((b + 180) / 360 * width) % width
+        yy = round((90 - a) / 180 * height)
+        if land[yy, xx]:
+            cd.ellipse((xx - 1, yy - 1, xx + 1, yy + 1), fill=220)
+        for _ in range(18):
+            xx = round((b + 180 + rng.normal(0, .9)) / 360 * width) % width
+            yy = round((90 - a + rng.normal(0, .55)) / 180 * height)
+            if 0 <= yy < height and land[yy, xx]:
+                cd.point((xx, yy), fill=int(rng.integers(110, 256)))
+    cities = Image.fromarray(np.where(land, np.asarray(cities), 0).astype(np.uint8))
+    cities.save(output / "globe_cities.png")
+    print("CAMPAIGNART globe_regions.png RGBA: zone/density/border/land; globe_cities.png; seed=20261018")
 
 
 def generate(source: Path, output: Path) -> None:
@@ -39,15 +92,17 @@ def generate(source: Path, output: Path) -> None:
                     shifted = [(x + offset, y) for x, y in points]
                     draw.polygon(shifted, fill=land if index == 0 else ocean)
                     draw.line(shifted, fill=(109, 122, 114), width=scale)
-    # Сетка остаётся сдержанной; заражение рисуется движком поверх географии.
+    output.mkdir(parents=True, exist_ok=True)
+    region_maps(image.resize((2048, 1024), Image.Resampling.NEAREST), output)
+    # Редкая сетка остаётся сдержанной; заражение рисуется поверх суши.
     grid = Image.new("RGBA", image.size)
     gd = ImageDraw.Draw(grid)
-    for lon in range(-180, 181, 15):
+    for lon in range(-180, 181, 30):
         x = (lon + 180) / 360 * width
-        gd.line((x, 0, x, height), fill=(133, 155, 146, 35), width=scale)
-    for lat in range(-75, 76, 15):
+        gd.line((x, 0, x, height), fill=(133, 155, 146, 17), width=scale)
+    for lat in range(-60, 61, 30):
         y = (90 - lat) / 180 * height
-        gd.line((0, y, width, y), fill=(133, 155, 146, 35), width=scale)
+        gd.line((0, y, width, y), fill=(133, 155, 146, 17), width=scale)
     image = Image.alpha_composite(image.convert("RGBA"), grid).convert("RGB")
     output.mkdir(parents=True, exist_ok=True)
     image.resize((2048, 1024), Image.Resampling.LANCZOS).save(output / "globe_land.png")
