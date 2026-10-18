@@ -187,7 +187,11 @@ func _spawn_group(n: int, shares: Array) -> void:
 	var directional := randf() < float(profile.get("directional", DIRECTIONAL_CHANCE))
 	var origin := Vector2.ZERO
 	var tangent := Vector2.ZERO
-	if directional:
+	if not horde.benchmark_spawn and not horde.map_entries.is_empty():
+		origin = horde.spawn_point(center)
+		_wave_angle = (center - origin).angle()
+		tangent = Vector2.from_angle(_wave_angle).orthogonal()
+	elif directional:
 		# подряд идущие стены держатся одной стороны, новая — со случайной
 		_wave_angle = _wave_angle + randf_range(-0.3, 0.3) if _last_directional else randf() * TAU
 		var inner := horde.arena.grow(-Horde.RADIUS * 2.0)

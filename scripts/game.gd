@@ -18,7 +18,9 @@ extends Node2D
 ## Старт в 6:55, оружие как --loadout, бессмертие; раз в секунду печатает ALARM t=..,
 ## в конце — худший кадр. С --no-fire зомби не убиваются (пик 500 живых).
 
-const ARENA := Rect2(0, 0, 2560, 1440)
+## Карты: --fresh-save --map=<id>; --map-test проверяет все планы.
+## --fresh-save --loadout --map=<id> --map-shots сохраняет обзор и бой, затем выходит.
+var ARENA := Rect2(0, 0, 2560, 1440)
 const BaseScreen := preload("res://scripts/base.gd")
 const BENCH_TARGET := 500
 var _bench_target := BENCH_TARGET
@@ -165,6 +167,11 @@ var pause_menu: PauseMenu
 var obstacles: Obstacles
 var _layout_seed := 81073
 var _obstacles_test := false
+var _map_id := ""
+var _map_data: Dictionary = {}
+var _map_test := false
+var _map_shots := false
+var _map_load_ms := 0.0
 
 @onready var sfx: Sfx = $Sfx
 @onready var player: Player = $World/Player
@@ -339,6 +346,8 @@ func _run_obstacles_test() -> void:
 	# Игрок и быстрый рывок: тонкий забор не туннелируется.
 	var from := Vector2(1280, 675)
 	var to := obstacles.move_actor(from, Vector2(1280, 760), Player.RADIUS)
+	if to.y >= 720 or obstacles.contains(to, Player.RADIUS - 0.01):
+		print("OBSTEST dash from=%s to=%s radius=%.2f" % [from, to, Player.RADIUS])
 	ok = _obstacle_check(to.y < 720 and not obstacles.contains(to, Player.RADIUS - 0.01), "dash_stopped") and ok
 	var demo: Array[Dictionary] = [
 		{"kind": Obstacles.Kind.SEDAN, "pos": Vector2(1280, 720)},
@@ -370,6 +379,131 @@ func _run_obstacles_test() -> void:
 	if OS.get_cmdline_user_args().has("--obstacles-shots") and DisplayServer.get_name() != "headless":
 		await _obstacle_shots()
 	get_tree().quit(0 if ok else 1)
+
+
+## O2: проверяем авторские планы, не исправляя их случайным переносом объектов.
+func _run_map_test() -> void:
+	set_physics_process(false)
+	set_process(false)
+	horde.set_physics_process(false)
+	hazards.set_physics_process(false)
+	obstacles.set_physics_process(false)
+	var ok := true
+	for id: String in MapLoader.IDS:
+		var data := MapLoader.load_map(id)
+		ok = _obstacle_check(not data.is_empty(), "map_load_" + id) and ok
+		if data.is_empty():
+			continue
+		var layout := MapLoader.layout(data, 81073)
+		ok = _obstacle_check(layout == MapLoader.layout(data, 81073), "map_same_seed_" + id) and ok
+		var other := MapLoader.layout(data, 81074)
+		ok = _obstacle_check(layout != other, "map_different_details_" + id) and ok
+		ok = _obstacle_check(_map_geometry(layout) == _map_geometry(other), "map_fixed_plan_" + id) and ok
+		var rect := Rect2(Vector2.ZERO, data["size"])
+		obstacles.setup(rect, layout)
+		if not obstacles.connected():
+			print("MAPTEST unreachable id=%s at=%s" % [id, obstacles.cell_center(obstacles.unreachable_cell())])
+		ok = _obstacle_check(obstacles.connected(), "map_connected_" + id) and ok
+		ok = _obstacle_check(not obstacles.contains(data["start"], Player.RADIUS), "map_start_" + id) and ok
+		var entries: PackedVector2Array = data["spawn_points"]
+		for entry in entries:
+			ok = _obstacle_check(not obstacles.contains(entry, 19.0), "map_entry_" + id) and ok
+		for loop: Array in data["loops"]:
+			for j in loop.size():
+				var from := MapLoader.point(loop[j])
+				var to := MapLoader.point(loop[(j + 1) % loop.size()])
+				ok = _obstacle_check(obstacles.move_actor(from, to, 8.0).distance_to(to) < 0.1, "map_loop_" + id) and ok
+		for i in obstacles.count:
+			if obstacles.kind[i] == Obstacles.Kind.STRUCTURE:
+				var from := obstacles.pos[i] - obstacles.axis[i] * (obstacles.half[i].x + 20)
+				ok = _obstacle_check(not obstacles.line_clear(from, obstacles.pos[i]), "map_high_structure_" + id) and ok
+		for row in layout:
+			var at: Vector2 = row["pos"]
+			ok = _obstacle_check(not obstacles.contains(obstacles.free_point(at, 12.0), 11.95), "map_drop_" + id) and ok
+		player.position = data["start"]
+		horde.arena = rect
+		horde.map_entries = entries
+		horde.count = 0
+		spawner.profile = {"directional": 1.0}
+		for group in 20:
+			spawner._spawn_group(5, [100, 0, 0, 0])
+		for i in horde.count:
+			var nearest := INF
+			for entry in entries:
+				nearest = minf(nearest, horde.pos[i].distance_to(entry))
+			ok = _obstacle_check(nearest < 90.0, "map_directional_entry_" + id) and ok
+		if OS.get_cmdline_user_args().has("--map-validate-only"):
+			continue
+		horde.count = 0
+		horde.arena = rect
+		horde.map_entries = entries
+		horde.far_distance = 5000.0
+		for i in 500:
+			var at := entries[i % entries.size()] + Vector2(float(i % 9) * 4, float(i % 7) * 4)
+			var e := horde.spawn(at, Horde.Kind.SHAMBLER, i % 17 == 0)
+			horde.hp[e] = 100000.0
+			horde.max_hp[e] = 100000.0
+		var penetrations := 0
+		for frame in 3600:
+			obstacles.navigation_step(1.0 / 60.0, player.position)
+			horde._physics_process(1.0 / 60.0)
+			if frame % 4 == 0:
+				for i in horde.count:
+					if obstacles.contains(horde.pos[i], horde.radius[i] - 0.04):
+						penetrations += 1
+			if frame % 600 == 599:
+				await get_tree().process_frame
+		ok = _obstacle_check(penetrations == 0, "map_500_no_penetrations_" + id) and ok
+		print("MAPTEST id=%s connected=%s fixed_plan=%s seconds=60 alive=%d penetrations=%d objects=%d" % [id, obstacles.connected(), _map_geometry(layout) == _map_geometry(other), horde.count, penetrations, layout.size()])
+	var wall: Array[Dictionary] = []
+	for j in 9:
+		wall.append({"kind": Obstacles.Kind.JERSEY, "pos": Vector2(1088 + j * 44, 720)})
+	obstacles.setup(ARENA, wall)
+	var dash := obstacles.move_actor(Vector2(1280, 675), Vector2(1280, 760), Player.RADIUS)
+	ok = _obstacle_check(dash.y < 720 and not obstacles.contains(dash, Player.RADIUS - 0.01), "map_swept_wall") and ok
+	if dash.y >= 720:
+		print("MAPTEST dash=%s extent=%s pos=%s half=%s" % [dash, obstacles._extent[4], obstacles.pos[4], obstacles.half[4]])
+	print("MAPTEST ok=%s maps=%d" % [ok, MapLoader.IDS.size()])
+	get_tree().quit(0 if ok else 1)
+
+
+func _map_geometry(layout: Array[Dictionary]) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for row in layout:
+		var k := int(row["kind"])
+		if k >= Obstacles.Kind.TIRES and k != Obstacles.Kind.STRUCTURE:
+			continue
+		result.append({"pos": row["pos"], "angle": row.get("angle", 0.0), "half": row.get("half", Vector2.ZERO)})
+	return result
+
+
+func _run_map_shots() -> void:
+	set_physics_process(false)
+	$HUD.visible = false
+	camera.target = null
+	camera.shake_multiplier = 0.0
+	camera.position_smoothing_enabled = false
+	camera.position = ARENA.get_center()
+	camera.zoom = Vector2.ONE * minf(1920.0 / ARENA.size.x, 1080.0 / ARENA.size.y)
+	var dir := "res://design/tasks/reports"
+	await get_tree().create_timer(0.6).timeout
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(dir.path_join("o2_%s_overview.png" % _map_id))
+	player.position = Vector2(1840, 790) if _map_id == "quarantine_checkpoint" else Vector2(1408, 800)
+	player.position = obstacles.free_point(player.position, Player.RADIUS)
+	camera.position = player.position
+	camera.zoom = Vector2.ONE * 2.1
+	player.force_auto_aim = true
+	for i in 140:
+		var at := player.position + Vector2.from_angle(float(i) * 2.4) * (150.0 + float(i % 10) * 13.0)
+		horde.spawn(at, i % 4)
+	weapons.firing_enabled = true
+	weapons.set_physics_process(true)
+	await get_tree().create_timer(1.15).timeout
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(dir.path_join("o2_%s_fight.png" % _map_id))
+	print("MAPSHOTS id=%s overview=true fight=true" % _map_id)
+	get_tree().quit()
 
 
 func _obstacle_check(ok: bool, label: String) -> bool:
@@ -532,7 +666,13 @@ func _ready() -> void:
 		get_tree().quit(1)
 		return
 	for arg in OS.get_cmdline_user_args():
-		if arg == "--obstacles-test":
+		if arg == "--map-test":
+			_map_test = true
+		elif arg == "--map-shots":
+			_map_shots = true
+		elif arg.begins_with("--map="):
+			_map_id = arg.trim_prefix("--map=")
+		elif arg == "--obstacles-test":
 			_obstacles_test = true
 		elif arg.begins_with("--layout-seed="):
 			_layout_seed = arg.trim_prefix("--layout-seed=").to_int()
@@ -586,7 +726,18 @@ func _ready() -> void:
 	if _bench or _obstacles_test or Array(OS.get_cmdline_user_args()).any(func(a: String) -> bool: return a.begins_with("--layout-seed=")):
 		seed(_layout_seed)
 
-	ground.setup(ARENA)
+	var map_started := Time.get_ticks_usec()
+	if not mission_config.is_empty() and not Array(OS.get_cmdline_user_args()).any(func(a: String) -> bool: return a.begins_with("--layout-seed=")):
+		_layout_seed = int(mission_config["seed"])
+	if _map_id.is_empty():
+		_map_id = str(MapLoader.REGION_MAP.get(mission_config.get("region_id", "east_europe"), "quarantine_checkpoint"))
+	_map_data = MapLoader.load_map(_map_id)
+	if _map_data.is_empty():
+		get_tree().quit(1)
+		return
+	ARENA = Rect2(Vector2.ZERO, _map_data["size"])
+	ground.setup(ARENA, _map_data)
+	_map_load_ms = (Time.get_ticks_usec() - map_started) / 1000.0
 	floor_decals.setup(ARENA)
 	effects.floor_decals = floor_decals
 	explosions.floor_decals = floor_decals
@@ -600,9 +751,11 @@ func _ready() -> void:
 	weapons.sfx = sfx
 	gore.setup(floor_decals, effects, ARENA, player)
 	player.arena = ARENA
-	player.position = ARENA.get_center()
+	player.position = _map_data["start"]
 	player.effects = effects
 	horde.setup(ARENA, player, floor_decals)
+	horde.map_entries = _map_data["spawn_points"]
+	horde.benchmark_spawn = _bench
 	weapons.player = player
 	weapons.horde = horde
 	weapons.boss = boss
@@ -630,6 +783,7 @@ func _ready() -> void:
 	hazards.floor_decals = floor_decals
 	hazards.effects = effects
 	hazards.camera = camera
+	var collision_started := Time.get_ticks_usec()
 	if not OS.get_cmdline_user_args().has("--no-obstacles"):
 		obstacles = Obstacles.new()
 		obstacles.name = "Obstacles"
@@ -642,7 +796,7 @@ func _ready() -> void:
 		obstacles.sfx = sfx
 		if not mission_config.is_empty() and not Array(OS.get_cmdline_user_args()).any(func(a: String) -> bool: return a.begins_with("--layout-seed=")):
 			_layout_seed = int(mission_config["seed"])
-		obstacles.setup(ARENA, ArenaLayout.generate(_layout_seed, ArenaLayout.QUARANTINE))
+		obstacles.setup(ARENA, ArenaLayout.generate(_layout_seed, ArenaLayout.QUARANTINE) if _obstacles_test else MapLoader.layout(_map_data, _layout_seed))
 		player.obstacles = obstacles
 		horde.obstacles = obstacles
 		weapons.obstacles = obstacles
@@ -652,6 +806,8 @@ func _ready() -> void:
 		horde.enemy_killed.connect(obstacles.splatter)
 		while obstacles.nav_completed == 0:
 			obstacles.navigation_step(0.0, player.position)
+	_map_load_ms += (Time.get_ticks_usec() - collision_started) / 1000.0
+	print("MAP loaded id=%s size=%s load_ms=%.2f seed=%d" % [_map_id, ARENA.size, _map_load_ms, _layout_seed])
 	boss.horde = horde
 	boss.player = player
 	boss.effects = effects
@@ -754,6 +910,17 @@ func _ready() -> void:
 		_run_weapons_test.call_deferred()
 	if OS.get_cmdline_user_args().has("--fx-test"):
 		_run_fx_test.call_deferred()
+	if _map_test or _map_shots:
+		spawner.enabled = false
+		weapons.firing_enabled = false
+		weapons.set_physics_process(false)
+		player.god_mode = true
+		player.set_physics_process(false)
+		gems.collected.disconnect(progression.add_xp)
+		if _map_test:
+			_run_map_test.call_deferred()
+		else:
+			_run_map_shots.call_deferred()
 	if _obstacles_test:
 		spawner.enabled = false
 		weapons.firing_enabled = false
@@ -2361,6 +2528,8 @@ func _bench_step(delta: float) -> void:
 		Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), Performance.get_monitor(Performance.OBJECT_COUNT),
 		gore.count, effects.particle_count(), floor_decals.pool_count()])
 	print("%s physics_avg_ms=%.2f hud_ms=%.3f" % [label, _bench_physics_ms / n, _bench_hud_ms / n])
+	if obstacles and obstacles.profile_enabled:
+		print("OBSPROFILE move_calls=%d move_ms=%.3f resolve_calls=%d resolve_ms=%.3f ray_calls=%d ray_ms=%.3f nav_worst_us=%d" % [obstacles.move_calls, obstacles.move_usec / 1000.0, obstacles.resolve_calls, obstacles.resolve_usec / 1000.0, obstacles.ray_calls, obstacles.ray_usec / 1000.0, obstacles.nav_worst_usec])
 	if _shot_path != "":
 		await RenderingServer.frame_post_draw
 		get_viewport().get_texture().get_image().save_png(_shot_path)

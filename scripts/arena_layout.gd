@@ -10,6 +10,11 @@ const QUARANTINE := {"name": "quarantine", "size": Vector2(2560, 1440),
 static func generate(layout_seed: int, profile: Dictionary) -> Array[Dictionary]:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = layout_seed
+	if profile.has("set_pieces"):
+		var details: Array[Dictionary] = []
+		for piece: Dictionary in profile["set_pieces"]:
+			details.append_array(SetPieces.build(piece, rng))
+		return details
 	var size: Vector2 = profile.get("size", Vector2(2560, 1440))
 	var center := size * 0.5
 	var safe: float = profile.get("safe_radius", 200.0)
