@@ -1,6 +1,0 @@
-Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
-
-ERROR: Failed to read the root certificate store.
-   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2582)
-W1ASSERT all_shot_ids=true reload_order=true revolver_six=true shell_by_shell=true delayed_ejection=true twin_and_pierce=true
-W1ASSERT ejection_right=true casings_baked=true mags_baked=true recoil_spring=true headless_silent=true
