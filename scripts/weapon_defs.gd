@@ -104,38 +104,38 @@ const BASES := {
 
 ## Патроны: индексы совпадают с Weapon.Ammo (STANDARD, EXPANSIVE, INCENDIARY, CRYO).
 const AMMO := [
-	{"name": "Стандартные", "desc": "+10% шанс крита; крит взрывает голову",
+	{"name": "Стандартные", "big": ["+10%", "крит"], "desc": "+10% шанс крита; крит взрывает голову",
 		"ranks": ["+10% крит", "+15% крит", "крит ×2.5"]},
-	{"name": "Экспансивные", "desc": "Всплеск урона вокруг цели; убитых рвёт на куски",
+	{"name": "Экспансивные", "big": ["30%", "всплеск"], "desc": "Всплеск урона вокруг цели; убитых рвёт на куски",
 		"ranks": ["всплеск 30%", "всплеск 45%", "всплеск и при убийстве"]},
-	{"name": "Зажигательные", "desc": "Поджигают; горящие трупы поджигают соседей",
+	{"name": "Зажигательные", "big": ["4/с", "огонь"], "desc": "Поджигают; горящие трупы поджигают соседей",
 		"ranks": ["огонь 4/с", "огонь 6/с", "огонь перекидывается вдвое дальше"]},
-	{"name": "Крио", "desc": "Замедляют и замораживают; замёрзших раскалывает",
+	{"name": "Крио", "big": ["4", "попадания до заморозки"], "desc": "Замедляют и замораживают; замёрзших раскалывает",
 		"ranks": ["заморозка с 4 попаданий", "заморозка с 3 попаданий", "осколки ранят и морозят соседей"]},
 ]
 
 const MODULES := {
-	Module.RICOCHET: {"name": "Рикошет", "desc": "Снаряд отскакивает к следующей цели",
+	Module.RICOCHET: {"name": "Рикошет", "big": ["1", "отскок"], "desc": "Снаряд отскакивает к следующей цели",
 		"ranks": ["1 отскок", "2 отскока", "3 отскока"]},
-	Module.PIERCE: {"name": "Пробивание", "desc": "Снаряд проходит сквозь врагов",
+	Module.PIERCE: {"name": "Пробивание", "big": ["2", "цели насквозь"], "desc": "Снаряд проходит сквозь врагов",
 		"ranks": ["сквозь 2", "сквозь 4", "сквозь 6, +20% урона за каждого"]},
-	Module.SPLIT: {"name": "Сплит", "desc": "При попадании разлетается осколками",
+	Module.SPLIT: {"name": "Сплит", "big": ["3", "осколка"], "desc": "При попадании разлетается осколками",
 		"ranks": ["3 осколка", "4 осколка", "5 осколков"]},
-	Module.DETONATOR: {"name": "Детонатор", "desc": "Убитые этим стволом взрываются",
+	Module.DETONATOR: {"name": "Детонатор", "big": ["25%", "шанс взрыва"], "desc": "Убитые этим стволом взрываются",
 		"ranks": ["шанс 25%", "шанс 40%", "шанс 60%, взрывы цепляют друг друга"]},
-	Module.TWIN: {"name": "Сдвоенный ствол", "desc": "Больше снарядов за выстрел",
+	Module.TWIN: {"name": "Сдвоенный ствол", "big": ["+1", "снаряд"], "desc": "Больше снарядов за выстрел",
 		"ranks": ["+1 снаряд", "+2 снаряда", "+3 снаряда веером"]},
-	Module.CHAIN: {"name": "Цепь", "desc": "Убийство выпускает снаряд в соседа",
+	Module.CHAIN: {"name": "Цепь", "big": ["50%", "урона соседу"], "desc": "Убийство выпускает снаряд в соседа",
 		"ranks": ["50% урона", "65% урона", "80%, цепь до 3 звеньев"]},
 }
 
 const PASSIVES := {
-	Passive.DAMAGE: {"name": "Боевые стимуляторы", "per_level": 0.10, "text": "+10% урона"},
-	Passive.FIRE_RATE: {"name": "Облегчённый затвор", "per_level": 0.08, "text": "+8% скорострельности"},
-	Passive.RELOAD: {"name": "Быстрые руки", "per_level": 0.08, "text": "−8% времени перезарядки"},
-	Passive.SPEED: {"name": "Экзоскелет", "per_level": 0.06, "text": "+6% скорости"},
-	Passive.HP: {"name": "Бронежилет", "per_level": 20.0, "text": "+20 макс. HP"},
-	Passive.PICKUP: {"name": "Сборщик образцов", "per_level": 0.25, "text": "+25% радиуса подбора"},
+	Passive.DAMAGE: {"name": "Боевые стимуляторы", "big": ["+10%", "урон"], "per_level": 0.10, "text": "+10% урона"},
+	Passive.FIRE_RATE: {"name": "Облегчённый затвор", "big": ["+8%", "скорострельность"], "per_level": 0.08, "text": "+8% скорострельности"},
+	Passive.RELOAD: {"name": "Быстрые руки", "big": ["−8%", "перезарядка"], "per_level": 0.08, "text": "−8% времени перезарядки"},
+	Passive.SPEED: {"name": "Экзоскелет", "big": ["+6%", "скорость"], "per_level": 0.06, "text": "+6% скорости"},
+	Passive.HP: {"name": "Бронежилет", "big": ["+20", "здоровье"], "per_level": 20.0, "text": "+20 макс. HP"},
+	Passive.PICKUP: {"name": "Сборщик образцов", "big": ["+25%", "радиус подбора"], "per_level": 0.25, "text": "+25% радиуса подбора"},
 }
 
 ## Прототипы: основа на ур.5 + патроны + модуль.
@@ -295,6 +295,35 @@ static func level_info(model: String, level: int) -> Dictionary:
 	var m: Dictionary = MODELS[model]
 	var levels: Array = m.get("levels", BASES[m["base"]]["levels"])
 	return levels[level - 1]
+
+
+## Главный эффект уровня ствола одной крупной цифрой: [число, подпись]. Остальное — по наведению (текст уровня).
+static func level_big(step: Dictionary) -> Array[String]:
+	if step.has("damage"):
+		return ["+" + _fmt(step["damage"]), "урон"]
+	if step.has("proj"):
+		return ["+" + _fmt(step["proj"]), "снарядов за выстрел"]
+	if step.has("mag"):
+		return ["+" + _fmt(step["mag"]), "в магазине"]
+	if step.has("rate_mul"):
+		return ["+%d%%" % roundi((float(step["rate_mul"]) - 1.0) * 100.0), "скорострельность"]
+	if step.has("reload_mul"):
+		return ["−%d%%" % roundi((1.0 - float(step["reload_mul"])) * 100.0), "время перезарядки"]
+	if step.has("radius"):
+		return ["+" + _fmt(step["radius"]), "радиус взрыва"]
+	if step.has("width_mul"):
+		return ["×" + _fmt(step["width_mul"]), "ширина луча"]
+	if step.has("crit"):
+		return ["+%d%%" % roundi(float(step["crit"]) * 100.0), "крит"]
+	if step.has("knock_mul"):
+		return ["×" + _fmt(step["knock_mul"]), "отброс"]
+	if step.has("range"):
+		return ["+" + _fmt(step["range"]), "дальность"]
+	return ["", ""]
+
+
+static func _fmt(v: float) -> String:
+	return "%d" % roundi(v) if is_equal_approx(v, roundf(v)) else "%.1f" % v
 
 
 static func module_slots(level: int) -> int:

@@ -31,24 +31,30 @@ const SLOT_H := 36.0
 const SLOT_GAP := 4.0
 const MARGIN := 6.0
 const GUN_BOX := Vector2(32.0, 18.0)
-const PIP_MAX := 14 # магазин больше — вместо пипсов полоса
+const ROUNDS_Y := 14.0 # ряд патронов под названием ствола
+const ROUNDS_H := 20.0
+const POP_TIME := 0.22 # сколько летит выщелкнутый патрон
+const POP_MAX := 24
 const HP_PER_SEGMENT := 10.0
 const NUM_CACHE := 2000
 const LINE_CACHE_MAX := 900
 
-const AMMO_COLORS := [Color(0.85, 0.85, 0.8), Color(1.0, 0.85, 0.5), Color(1.0, 0.55, 0.2), Color(0.6, 0.9, 1.0)]
-const PASSIVE_CODES := {
-	WeaponDefs.Passive.DAMAGE: "УРОН", WeaponDefs.Passive.FIRE_RATE: "ТЕМП", WeaponDefs.Passive.RELOAD: "ПЕРЗ",
-	WeaponDefs.Passive.SPEED: "СКОР", WeaponDefs.Passive.HP: "БРОНЯ", WeaponDefs.Passive.PICKUP: "СБОР",
+# пассивки значком с цифрой: имя спрайта и цвет; полные названия — в паузе и на картах Level Up
+const PASSIVE_ICONS := {
+	WeaponDefs.Passive.DAMAGE: ["pas_damage", Color(1.0, 0.45, 0.3)], WeaponDefs.Passive.FIRE_RATE: ["pas_rate", Color(1.0, 0.85, 0.35)],
+	WeaponDefs.Passive.RELOAD: ["pas_reload", Color(0.55, 0.88, 1.0)], WeaponDefs.Passive.SPEED: ["pas_speed", Color(0.55, 0.95, 0.6)],
+	WeaponDefs.Passive.HP: ["vest", Color(0.62, 0.8, 1.0)], WeaponDefs.Passive.PICKUP: ["pas_pickup", Color(0.85, 0.65, 1.0)],
 }
-const PASSIVE_COLOR := Color(0.55, 0.95, 0.6)
-# цвет метки модификатора операции; красный — усложняет, зелёный — помогает. Текст — CampaignCatalog.MODIFIER_INFO.
+# значок и цвет модификатора операции; красный — усложняет, зелёный — помогает. Названия — CampaignCatalog.MODIFIER_INFO.
 const MODIFIER_TAGS := {
-	"runner_surge": Color(1.0, 0.5, 0.35), "elite_hunt": Color(1.0, 0.5, 0.35),
-	"acid_rain": Color(0.7, 0.9, 0.35), "blood_frenzy": Color(1.0, 0.35, 0.3),
-	"hardened_boss": Color(1.0, 0.5, 0.35), "resource_cache": Color(0.55, 0.95, 0.6),
+	"runner_surge": ["dash", Color(1.0, 0.5, 0.35)], "elite_hunt": ["skull", Color(1.0, 0.5, 0.35)],
+	"acid_rain": ["drop", Color(0.7, 0.9, 0.35)], "blood_frenzy": ["drop", Color(1.0, 0.35, 0.3)],
+	"hardened_boss": ["vest", Color(1.0, 0.5, 0.35)], "resource_cache": ["crate", Color(0.55, 0.95, 0.6)],
 }
-const ICON_NAMES := ["star", "dash", "vest", "dna", "arrow", "skull", "container", "crate", "part", "med", "coin", "bolt"]
+# событие у часов: значок и цвет вместо слов «ТОРГОВЕЦ», «ТРЕВОГА»
+const EVENT_ICONS := {"ТОРГОВЕЦ": ["crate", Color(1.0, 0.82, 0.35)], "ТРЕВОГА": ["alarm", Color(1.0, 0.45, 0.25)], "ОБЪЕКТ-7": ["skull", Color(1.0, 0.4, 0.25)]}
+const ICON_NAMES := ["star", "dash", "vest", "dna", "arrow", "skull", "container", "crate", "part", "med", "coin", "bolt", "drop", "alarm", "flame",
+	"pas_damage", "pas_rate", "pas_reload", "pas_speed", "pas_pickup"]
 const POINTER_ELITES := 4 # сколько ближайших элиток показываем у края
 const UNITS_PER_METER := 9.0
 const SCAN_PERIOD := 0.1 # как часто ищем элитки за краем
@@ -88,7 +94,6 @@ var _nums := PackedStringArray()
 var _meters := PackedStringArray()
 var _lines := {} # размер → {строка → Line}
 var _line_count := 0
-var _chip_cache := {}
 # пачка надписей слоя: строка, позиция в пикселях, цвет, обводка
 var _job_line: Array[Line] = []
 var _job_pos := PackedVector2Array()
@@ -117,7 +122,6 @@ var _clock_sec := -1
 var _clock_text := ""
 var _event_sec := -1
 var _event_count := ""
-var _event_at := ""
 var _cam := Transform2D.IDENTITY
 var _scan_t := 0.0
 # ближайшие элитки (дистанция², точка мира), обновляются раз в SCAN_PERIOD
@@ -126,9 +130,14 @@ var _elite_p := PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Ve
 var _elite_n := 0
 var _ptr_pos := PackedVector2Array()
 var _ptr_n := 0
-var _op_text := ""
+var _op_name := ""
 var _op_threat := 0
-var _op_chips: Array[Array] = []
+var _op_chips: Array[Array] = [] # [значок, цвет, короткое имя]
+var _vis_prev := PackedFloat32Array() # сколько патронов было вставлено в прошлом кадре, по стволам
+var _pop_slot := PackedInt32Array() # выщелкнутые патроны: ствол, номер в ряду, возраст
+var _pop_idx := PackedInt32Array()
+var _pop_age := PackedFloat32Array()
+var ammo_sheet := false # --hud-test: лист всех патронов вместо боя (U3)
 
 @onready var game = owner # скрипт game.gd корневой сцены
 
@@ -158,14 +167,13 @@ func set_operation(config: Dictionary) -> void:
 	operation = config
 	_op_chips.clear()
 	if config.is_empty():
-		_op_text = ""
+		_op_name = ""
 		return
-	_op_text = "ОП: " + str(config.get("name", config.get("region_name", "")))
+	_op_name = str(config.get("name", config.get("region_name", "")))
 	_op_threat = int(config.get("threat", 1))
 	for m: String in config.get("modifiers", []):
 		if MODIFIER_TAGS.has(m):
-			var tag: String = CampaignCatalog.MODIFIER_INFO[m]["short"]
-			_op_chips.append([tag, MODIFIER_TAGS[m], _font.get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, 6).x + 5.0])
+			_op_chips.append([MODIFIER_TAGS[m][0], MODIFIER_TAGS[m][1], CampaignCatalog.MODIFIER_INFO[m]["short"]])
 
 
 func _process(delta: float) -> void:
@@ -182,6 +190,7 @@ func _process(delta: float) -> void:
 		_hit_t = maxf(_hit_t - delta, 0.0)
 		_xp_flash = maxf(_xp_flash - delta, 0.0)
 		_credit_pop_t = maxf(_credit_pop_t - delta, 0.0)
+		_track_rounds(delta)
 		_ghost_hold = maxf(_ghost_hold - delta, 0.0)
 		if _ghost_hold <= 0.0:
 			_hp_ghost = maxf(_hp_ghost - delta * 45.0, player.hp)
@@ -208,6 +217,40 @@ func _process(delta: float) -> void:
 		_since_draw = 0.0
 		queue_redraw()
 	_over.queue_redraw()
+
+
+## Следим за магазинами: убыль вставленных патронов — это выщелкнутые патроны (выстрел, сброс магазина, выброс гильз барабана).
+func _track_rounds(delta: float) -> void:
+	var k := 0
+	while k < _pop_age.size():
+		_pop_age[k] += delta
+		if _pop_age[k] >= POP_TIME:
+			var last := _pop_age.size() - 1
+			_pop_age[k] = _pop_age[last]
+			_pop_slot[k] = _pop_slot[last]
+			_pop_idx[k] = _pop_idx[last]
+			_pop_age.resize(last)
+			_pop_slot.resize(last)
+			_pop_idx.resize(last)
+		else:
+			k += 1
+	var weapons: Weapons = game.weapons
+	for i in weapons.slots.size():
+		var s: Weapons.Slot = weapons.slots[i]
+		var mag_max := int(s.stats["mag"])
+		var live := HudRounds.visible(s.mag, mag_max, s.reloading, weapons.reload_progress(i), HudRounds.BASE_LOAD[s.base], s.reload_missing, float(s.stats["reload"]))
+		while _vis_prev.size() <= i:
+			_vis_prev.append(live)
+		var was := int(_vis_prev[i])
+		var now := int(live)
+		if now < was and was <= mag_max:
+			for r in range(now, mini(was, now + 8)):
+				if _pop_age.size() >= POP_MAX:
+					break
+				_pop_slot.append(i)
+				_pop_idx.append(r)
+				_pop_age.append(0.0)
+		_vis_prev[i] = live
 
 
 ## Дуга урона: источник — ближайший зомби в радиусе касания или босс; без источника только вспышка.
@@ -294,7 +337,6 @@ func _begin(ci: Control) -> void:
 		_line_count = 0
 		_gun_tex.clear()
 		_slots.clear()
-		_chip_cache.clear()
 	_job_line.clear()
 	_job_pos.clear()
 	_job_color.clear()
@@ -308,6 +350,10 @@ func _draw() -> void:
 	var weapons: Weapons = game.weapons
 	var prog: Progression = game.progression
 	_begin(self)
+	if ammo_sheet:
+		_draw_ammo_sheet()
+		_flush_text()
+		return
 	# Тот же мягкий край, что у тревоги; рисуем до HUD, центр остаётся прозрачным.
 	if _danger > 0.001:
 		var beat := pow(maxf(1.0 - absf(_heartbeat_phase - 0.1) / 0.1, 0.0), 2.0)
@@ -335,7 +381,7 @@ func _draw() -> void:
 		else:
 			ability_y = slots_top - 3.0
 	_draw_abilities(player, Vector2(MARGIN, ability_y))
-	_draw_boss_bar(slots_top - 30.0)
+	_draw_boss_bar(slots_top - 24.0)
 	for i in n:
 		_draw_slot(weapons, i, Vector2(x0 + i * (sw + SLOT_GAP), slots_top), sw)
 	_draw_hints(player, slots_top)
@@ -349,6 +395,8 @@ func _draw_overlay(layer: Control) -> void:
 	var started := Time.get_ticks_usec()
 	var player: Player = game.player
 	_begin(layer)
+	if ammo_sheet:
+		return
 	_draw_pointers(player)
 	_draw_hit_arc(player)
 	# крупное объявление (пороги серий, редкие события): без дрожания и скачка размера
@@ -560,23 +608,20 @@ func _draw_vitals(player: Player, prog: Progression) -> void:
 	_text(Vector2(x + 90, y + 36), "~" + _n(game.dna_forecast()), DNA_COLOR, 8)
 
 
-## Пассивки — компактными плашками под панелью.
+## Пассивки — значок с цифрой под панелью, без слов (полные названия — в паузе).
 func _draw_passives(prog: Progression) -> void:
 	var x := MARGIN
 	var y := MARGIN + 44.0
 	for p in prog.passives:
-		var text: String = PASSIVE_CODES[p] + " " + _n(prog.passives[p])
-		var w := _chip_w(text)
-		_ci.draw_rect(Rect2(x, y, w, 9), Color(0.03, 0.08, 0.04, 0.72))
-		_ci.draw_rect(Rect2(x, y, 1, 9), PASSIVE_COLOR)
-		_text(Vector2(x + 3, y + 7), text, PASSIVE_COLOR, 6)
+		var info: Array = PASSIVE_ICONS[p]
+		var col: Color = info[1]
+		var n := _n(prog.passives[p])
+		var w := 15.0 + _text_w(n, 7)
+		_ci.draw_rect(Rect2(x, y, w, 11), Color(0.03, 0.05, 0.05, 0.72))
+		_ci.draw_rect(Rect2(x, y, 1, 11), col)
+		_icon_c(info[0], Vector2(x + 7.5, y + 5.5), col)
+		_text(Vector2(x + 13, y + 8.5), n, TEXT, 7)
 		x += w + 2.0
-
-
-func _chip_w(text: String) -> float:
-	if not _chip_cache.has(text):
-		_chip_cache[text] = _text_w(text, 6) + 6.0
-	return _chip_cache[text]
 
 
 # --- вверху по центру: время и событие; справа: убийства -----------------------------------
@@ -597,32 +642,39 @@ func _draw_clock() -> void:
 		_clock_sec = t
 		_clock_text = "%02d:%02d" % [t / 60, t % 60]
 	_text_c(cx, r.position.y + 14.0, _clock_text, TEXT, 14)
+	# нижняя строка без слов: значок события, обратный отсчёт и полоска, которая заполняется к его началу
+	var by := r.position.y + 21.5
+	var bar := Rect2(r.position.x + 38.0, by - 2.0, r.size.x - 44.0, 4.0)
 	if not ev.is_empty():
 		var sec := maxi(ceili(remain), 0)
 		if sec != _event_sec:
 			_event_sec = sec
 			_event_count = "%d:%02d" % [sec / 60, sec % 60]
-			var at := int(ev["at"])
-			_event_at = "%s %d:%02d" % [ev["name"], at / 60, at % 60]
-		_text(Vector2(r.position.x + 5, r.position.y + 23.5), _event_at, DIM, 7)
-		_text_r(r.end.x - 5, r.position.y + 23.5, _event_count, ACCENT if not urgent else HOT, 8)
+		var info: Array = EVENT_ICONS.get(ev["name"], ["alarm", ACCENT])
+		var col: Color = HOT if urgent else info[1]
+		_icon_c(info[0], Vector2(r.position.x + 9.0, by), col)
+		_text(Vector2(r.position.x + 17.0, by + 3.0), _event_count, col, 8)
+		_bar(bar, clampf(1.0 - remain / 90.0, 0.0, 1.0), col)
 	elif game.boss.is_alive():
-		_text(Vector2(r.position.x + 5, r.position.y + 23.5), "ЦЕЛЬ: ОБЪЕКТ-7", Color(1.0, 0.4, 0.25), 7)
-		_text_r(r.end.x - 5, r.position.y + 23.5, _n(ceili(game.boss.hp / Boss.MAX_HP * 100.0)) + "%", Color(1.0, 0.4, 0.25), 8)
+		_icon_c("skull", Vector2(r.position.x + 9.0, by), Color(1.0, 0.4, 0.25))
+		_bar(Rect2(r.position.x + 18.0, by - 2.0, r.size.x - 24.0, 4.0), game.boss.hp / Boss.MAX_HP, Color(1.0, 0.4, 0.25))
 
 
 func _draw_kills() -> void:
 	var r := Rect2(_w - MARGIN - 84.0, MARGIN, 84.0, 17.0)
 	_panel(r, ACCENT_DIM)
-	_text(Vector2(r.position.x + 5, r.position.y + 12), "УБИТО", DIM, 6)
+	_icon_c("skull", Vector2(r.position.x + 10.0, r.position.y + 8.5), DIM)
 	_text_r(r.end.x - 5, r.position.y + 12, _n(game.kills), TEXT, 9)
-	# мультикилл: небольшая метка слева от счётчика убийств, затухает за 1.6 с
+	# мультикилл: короткий удар — метка вспыхивает крупной и за 0.15 с садится в размер, дальше затухает
 	if game.multikill_t > 0.0:
-		_text_r(r.position.x - 8.0, r.position.y + 12.0, game.multikill_text, Color(HOT, clampf(game.multikill_t * 2.0, 0.0, 1.0)), 9, true)
+		var age: float = 1.6 - game.multikill_t
+		var fs := 18 if age < 0.07 else (15 if age < 0.15 else 12)
+		var col := Color.WHITE.lerp(HOT, clampf(age / 0.25, 0.0, 1.0))
+		_text_r(r.position.x - 8.0, r.position.y + 13.0, game.multikill_text, Color(col, clampf(game.multikill_t * 2.0, 0.0, 1.0)), fs, true)
 	if game.combo >= 5:
 		var cr := Rect2(r.position.x, r.end.y + 2.0, r.size.x, 14.0)
 		_panel(cr, HOT, Color(0.1, 0.03, 0.02, 0.7))
-		_text(Vector2(cr.position.x + 5, cr.position.y + 11), "СЕРИЯ", Color(HOT, 0.8), 6)
+		_icon_c("flame", Vector2(cr.position.x + 10.0, cr.position.y + 7.0), HOT)
 		_text_r(cr.end.x - 5, cr.position.y + 11, "×" + _n(game.combo), HOT.lerp(Color.WHITE, 0.2), 10)
 		# окно серии: сколько ещё можно не прерываться
 		var k := clampf(game._combo_timer / game.COMBO_WINDOW, 0.0, 1.0)
@@ -632,36 +684,53 @@ func _draw_kills() -> void:
 # --- вверху справа: операция кампании -----------------------------------------------------
 
 
-## Баннер операции Диспетчера в начале боя из кампании (C2): 2.5 с, поверх поля, под часами.
+## Баннер операции в начале боя из кампании (C2): крупное имя, угроза и модификаторы значками с короткими именами.
+## Через MISSION_BANNER_TIME он гаснет, остаётся компактная строка справа (_draw_operation).
 func _draw_mission_banner() -> void:
 	if game.mission_config.is_empty() or game.mission_banner_t <= 0.0 or game.level_up.visible or game.trader_ui.visible:
 		return
+	var a := clampf(game.mission_banner_t / 0.5, 0.0, 1.0)
 	var width := minf(240.0, _w - 24.0)
-	var r := Rect2(roundf((_w - width) * 0.5), 96.0, width, 50.0) # ниже анонсов, не перекрывает их
-	_panel(r, ACCENT)
-	_text(r.position + Vector2(8, 9), "Диспетчер: операция", ACCENT_DIM, 6)
-	_text(r.position + Vector2(8, 22), str(game.mission_config.get("name", "")).to_upper(), TEXT, 10, true)
-	_text(r.position + Vector2(8, 33), game.mission_region, ACCENT, 7)
-	_text(r.position + Vector2(8, 44), game.mission_mod_names, DIM, 7)
+	var r := Rect2(roundf((_w - width) * 0.5), 96.0, width, 42.0)
+	_panel(r, Color(ACCENT, a), Color(PANEL_BG, PANEL_BG.a * a + 0.1 * a))
+	_text_c(r.get_center().x, r.position.y + 17.0, _op_name.to_upper(), Color(TEXT, a), 12, true)
+	# строка значков: слева угроза пипсами, дальше модификаторы «значок + короткое имя»
+	var chips_w := 0.0
+	for chip: Array in _op_chips:
+		chips_w += 13.0 + _text_w(chip[2], 7) + 6.0
+	var x := roundf(r.get_center().x - (24.0 + chips_w) * 0.5)
+	var y := r.position.y + 31.0
+	_threat_pips(Vector2(x, y), a)
+	x += 24.0
+	for chip: Array in _op_chips:
+		var col: Color = chip[1]
+		_icon_c(chip[0], Vector2(x + 5.5, y + 3.0), Color(col, a))
+		_text(Vector2(x + 13.0, y + 6.0), chip[2], Color(col, a), 7)
+		x += 13.0 + _text_w(chip[2], 7) + 6.0
 
+
+## Угроза I–V: пять делений, закрашены столько, какова угроза.
+func _threat_pips(at: Vector2, a := 1.0) -> void:
+	var col := HP_COLOR if _op_threat >= 4 else ACCENT
+	for k in 5:
+		_ci.draw_rect(Rect2(at.x + k * 4.0, at.y, 3.0, 6.0), Color(col, a) if k < _op_threat else Color(0.25, 0.25, 0.27, 0.8 * a))
+
+
+## Компактная строка операции: череп угрозы с делениями и значки модификаторов; имена — в баннере и паузе.
 func _draw_operation() -> void:
-	if _op_text.is_empty() and not game.mission_config.is_empty():
+	if _op_name.is_empty() and not game.mission_config.is_empty():
 		set_operation(game.mission_config) # профиль боя C2 (в т.ч. --campaign-op без pending)
-	if _op_text.is_empty():
+	if _op_name.is_empty():
 		return
-	var r := Rect2(_w - MARGIN - 150.0, OP_Y, 150.0, 25.0)
+	var w := 7.0 + 11.0 + 3.0 + 19.0 + 4.0 + _op_chips.size() * 12.0
+	var r := Rect2(_w - MARGIN - w, OP_Y, w, 15.0)
 	_panel(r, ACCENT_DIM)
-	_text(Vector2(r.position.x + 5, r.position.y + 10), _op_text, ACCENT, 8)
-	_text(Vector2(r.position.x + 5, r.position.y + 21), "УГРОЗА " + WeaponDefs.ROMAN[clampi(_op_threat, 1, 5)], HP_COLOR if _op_threat >= 4 else DIM, 7)
-	var x := r.end.x - 4.0
-	for k in range(_op_chips.size() - 1, -1, -1):
-		var chip: Array = _op_chips[k]
-		var w: float = chip[2]
-		x -= w
-		_ci.draw_rect(Rect2(x, r.position.y + 14, w, 8), Color(0.0, 0.0, 0.0, 0.5))
-		_ci.draw_rect(Rect2(x, r.position.y + 14, 1, 8), chip[1])
-		_text(Vector2(x + 3, r.position.y + 21), chip[0], chip[1], 6)
-		x -= 2.0
+	_icon_c("skull", Vector2(r.position.x + 11.0, r.position.y + 7.5), HP_COLOR if _op_threat >= 4 else ACCENT)
+	_threat_pips(Vector2(r.position.x + 20.0, r.position.y + 4.5))
+	var x := r.position.x + 44.0
+	for chip: Array in _op_chips:
+		_icon_c(chip[0], Vector2(x + 5.0, r.position.y + 7.5), chip[1])
+		x += 12.0
 
 
 # --- внизу слева: способности -------------------------------------------------------------
@@ -706,11 +775,9 @@ func _draw_abilities(player: Player, origin: Vector2) -> void:
 
 # --- внизу: стволы ------------------------------------------------------------------------
 
-## Подписи и ширины ствола пересчитываются только при смене состава, не каждый кадр.
+## Подписи, цвета и раскладка патронов ствола пересчитываются только при смене состава, не каждый кадр.
 func _slot_info(i: int, s: Weapons.Slot) -> Dictionary:
 	var sig := s.level | s.ammo << 4 | s.ammo_rank << 8 | int(s.ammo_rare) << 12 | (s.prototype + 1) << 13 | int(s.stats["mag"]) << 16
-	for m in s.modules:
-		sig = sig * 31 + int(m["id"]) * 8 + int(m["rank"]) * 2 + int(m["rare"])
 	while _slots.size() <= i:
 		_slots.append({})
 	var c := _slots[i]
@@ -721,17 +788,13 @@ func _slot_info(i: int, s: Weapons.Slot) -> Dictionary:
 	c["name"] = s.short_name()
 	c["name_col"] = Color(1.0, 0.7, 0.4) if proto else TEXT
 	c["name_fs"] = 8 if _text_w(c["name"], 8) <= 34.0 else 7
-	c["proto"] = WeaponDefs.PROTOTYPES[s.prototype]["name"] if proto else ""
 	var mag_max := int(s.stats["mag"])
 	c["mag_max"] = mag_max
-	c["max_text"] = "/" + str(mag_max)
-	c["max_w"] = _text_w(c["max_text"], 6) + 1.0
-	var trait_id := s.trait_id
-	c["trait"] = WeaponDefs.TRAITS[trait_id]["name"] if trait_id != "" else ""
-	var ammo_col: Color = AMMO_COLORS[s.ammo]
-	if s.ammo_rare:
-		ammo_col = ammo_col.lerp(Color(0.45, 0.72, 1.0), 0.4)
-	c["ammo_col"] = ammo_col
+	c["show_count"] = mag_max > 12 # ряд мелких патронов уже не пересчитать глазом: рядом число
+	c["kind"] = HudRounds.kind_of(s.base)
+	c["load"] = HudRounds.BASE_LOAD[s.base]
+	c["tip"] = HudRounds.tip_color(c["kind"], s.ammo, s.ammo_rare)
+	c["lay_w"] = -1.0 # раскладка зависит от ширины слота и считается при отрисовке
 	c["level_text"] = "ур. " + str(s.level)
 	_slots[i] = c
 	return c
@@ -761,7 +824,6 @@ func _draw_slot(weapons: Weapons, i: int, p: Vector2, sw: float) -> void:
 	var mag_max: int = c["mag_max"]
 	var frac := float(s.mag) / mag_max
 	var low := not s.reloading and frac <= 0.25
-	var blink := 0.5 + 0.5 * sin(_clock * 10.0)
 	var edge := ACCENT_DIM
 	if s.reloading:
 		edge = ACCENT
@@ -785,41 +847,43 @@ func _draw_slot(weapons: Weapons, i: int, p: Vector2, sw: float) -> void:
 		_ci.draw_texture_rect(tex, Rect2(pos, tsize / _ui), false, Color.WHITE)
 	# уровень ствола — текстом
 	_text(Vector2(p.x + 6.0, p.y + 31.0), c["level_text"], DIM, 6)
-	# правый блок: имя, патроны, магазин
+	# правый блок: имя, число (только для больших магазинов), ряд патронов
 	var x0 := p.x + 42.0
 	var rx := p.x + sw - 4.0
 	var rw := rx - x0
 	_text(Vector2(x0, p.y + 11), c["name"], c["name_col"], c["name_fs"])
-	if s.reloading:
-		_text_r(rx, p.y + 11, "—", DIM, 9)
-	else:
+	var right := rx
+	if s.charged:
+		_text_r(right, p.y + 11, "×1,5", ACCENT, 7)
+		right -= _text_w("×1,5", 7) + 3.0
+	if c["show_count"] and not s.reloading:
 		var count_col := TEXT
 		if frac <= 0.1:
-			count_col = HP_COLOR.lerp(Color.WHITE, blink * 0.4)
+			count_col = HP_COLOR.lerp(Color.WHITE, 0.2)
 		elif frac <= 0.25:
 			count_col = HOT
-		_text_r(rx, p.y + 11, c["max_text"], DIM, 6)
-		_text_r(rx - float(c["max_w"]), p.y + 11, _n(s.mag), count_col, 9)
-	var bar := Rect2(x0, p.y + 14.0, rw, 8.0)
-	var ammo_col: Color = c["ammo_col"]
-	if s.reloading:
-		_bar(bar, prog, ACCENT_DIM.lerp(ACCENT, 0.5))
-		_text_c(x0 + rw * 0.5, bar.position.y + 6.5, "Перезарядка", Color(1, 1, 1, 0.85), 6)
-	elif mag_max <= PIP_MAX:
-		_seg_bar(bar, frac, ammo_col, mag_max, 1.0)
-	else:
-		# большой магазин: сплошная полоса с засечками через 10 (20) патронов
-		var step := 10 if mag_max <= 60 else 20
-		_seg_bar(bar, frac, ammo_col, ceili(float(mag_max) / step), 1.0 / _ui)
-	# строка под полосой: прототип, заряд или черта модели; детали сборки — в меню паузы
-	var proto_text: String = c["proto"]
-	var trait_text: String = c["trait"]
-	if proto_text != "":
-		_text(Vector2(x0, p.y + 31), proto_text, Color(1.0, 0.6, 0.3), 6)
+		_text_r(right, p.y + 11, _n(s.mag), count_col, 9)
+	if not is_equal_approx(c["lay_w"], rw):
+		c["lay_w"] = rw
+		c["lay"] = HudRounds.layout(c["kind"], mag_max, rw, ROUNDS_H)
+	var lay: Dictionary = c["lay"]
+	var origin := Vector2(x0, p.y + ROUNDS_Y)
+	var live := HudRounds.visible(s.mag, mag_max, s.reloading, prog, c["load"], s.reload_missing, float(s.stats["reload"]))
+	var tip: Color = c["tip"]
+	var body := Color.WHITE
+	if low:
+		tip = tip.lerp(HudRounds.LOW_TIP, 0.75) # последние патроны краснеют
+		body = HudRounds.LOW_BODY
 	elif s.charged:
-		_text(Vector2(x0, p.y + 31), "След. выстрел ×1,5", ACCENT, 6)
-	elif trait_text != "":
-		_text(Vector2(x0, p.y + 31), trait_text, DIM, 6)
+		tip = ACCENT.lerp(Color.WHITE, 0.3) # заряд следующего выстрела
+	HudRounds.draw_row(_ci, lay, origin, live, tip, body)
+	for k in _pop_age.size():
+		if _pop_slot[k] == i:
+			var pi := _pop_idx[k]
+			HudRounds.draw_popped(_ci, lay, origin + HudRounds.round_at(lay, pi), _pop_age[k] / POP_TIME, float(pi * 37 % 7 - 3) / 3.0, tip, body, _ui)
+	# перезарядка: тонкая полоска по низу слота, без слов
+	if s.reloading:
+		_ci.draw_rect(Rect2(p.x + 1.0, p.y + SLOT_H - 2.0, (sw - 2.0) * prog, 1.0), ACCENT)
 
 
 # --- босс ---------------------------------------------------------------------------------
@@ -828,32 +892,94 @@ func _draw_boss_bar(y: float) -> void:
 	var boss: Boss = game.boss
 	if not boss.is_alive():
 		if game.time >= 570.0 and game.time < 600.0 and not game.game_over:
-			_text_c(_w * 0.5, y + 14, "ОБЪЕКТ-7 ПРИБЛИЖАЕТСЯ", Color(1.0, 0.38, 0.19, 0.7 + 0.3 * sin(game.time * 5.0)), 12, true)
+			# Объект-7 на подходе: череп и имя, без пояснений (радио уже сказало)
+			var col := Color(1.0, 0.38, 0.19, 0.7 + 0.3 * sin(game.time * 5.0))
+			_icon_c("skull", Vector2(_w * 0.5 - 38.0, y + 8.0), col, 1.5)
+			_text(Vector2(_w * 0.5 - 28.0, y + 12.0), "ОБЪЕКТ-7", col, 12, true)
 		return
 	var width := minf(300.0, _w - 40.0)
 	var x := roundf((_w - width) * 0.5)
 	var color := Color(0.75, 0.15, 0.09) if boss.phase == 1 else Color(1.0, 0.28, 0.12)
 	if game.boss_phase_flash > 0.0:
 		color = color.lerp(Color.WHITE, game.boss_phase_flash / 0.7)
-	var r := Rect2(x - 6.0, y - 3.0, width + 12.0, 27.0)
+	var r := Rect2(x - 6.0, y - 3.0, width + 12.0, 17.0)
 	_panel(r, color, Color(0.035, 0.022, 0.022, 0.86))
-	_icon_c("skull", Vector2(x + 5, y + 6), color)
-	_text(Vector2(x + 14, y + 9), "ОБЪЕКТ-7 · " + ("БРОНЯ" if boss.phase == 1 else "БРОНЯ СОРВАНА"), color, 9)
-	_text_r(x + width, y + 9, _n(ceili(boss.hp)) + " / " + _n(int(Boss.MAX_HP)), DIM, 7)
-	_seg_bar(Rect2(x, y + 13.0, width, 7.0), boss.hp / Boss.MAX_HP, color, 10, 1.0 / _ui, Color(0.0, 0.0, 0.0, 0.6))
+	_icon_c("skull", Vector2(x + 5, y + 5.5), color)
+	if boss.phase == 1:
+		_icon_c("vest", Vector2(x + 17, y + 5.5), Color(0.62, 0.8, 1.0)) # броня цела: значок вместо слова
+	_seg_bar(Rect2(x + 25.0, y + 2.0, width - 25.0, 7.0), boss.hp / Boss.MAX_HP, color, 10, 1.0 / _ui, Color(0.0, 0.0, 0.0, 0.6))
 
 
 # --- подсказки и отладка ------------------------------------------------------------------
 
 func _draw_hints(player: Player, slots_top: float) -> void:
 	# управление показываем в начале забега и убираем, чтобы не мозолило глаза
-	var k := clampf((28.0 - float(game.time)) / 3.0, 0.0, 1.0)
+	var k := clampf((12.0 - float(game.time)) / 2.0, 0.0, 1.0)
 	if k <= 0.0:
 		return
-	var aim_hint := "АВТО · ПКМ — свой прицел" if Meta.settings["auto_fire"] else "РУЧНОЙ · ЛКМ — огонь"
+	var aim_hint := "ПКМ — свой прицел" if Meta.settings["auto_fire"] else "ЛКМ — огонь"
 	if player.aim_gamepad:
-		aim_hint = "АВТО · правый стик — свой прицел" if Meta.settings["auto_fire"] else "РУЧНОЙ · RT — огонь"
-	_text_c(_w * 0.5, slots_top - 5.0, aim_hint + "   ·   " + ("RB" if player.aim_gamepad else "G / СКМ") + " — граната", Color(DIM, k), 7, true)
+		aim_hint = "правый стик — прицел" if Meta.settings["auto_fire"] else "RT — огонь"
+	_text_c(_w * 0.5, slots_top - 5.0, aim_hint + "   ·   " + ("RB" if player.aim_gamepad else "G") + " — граната", Color(DIM, k), 7, true)
+
+
+## Лист патронов для проверки (--hud-test): виды ствола × состояния магазина, затем типы патронов и редкость.
+func _draw_ammo_sheet() -> void:
+	_ci.draw_rect(Rect2(0, 0, _w, _h), Color(0.09, 0.09, 0.10))
+	var pack := HudRounds.Load.PACK
+	# подпись, вид, магазин, способ заряжания, сколько уже в стволе к началу перезарядки
+	var rows := [
+		["АК-С 30", HudRounds.Kind.RIFLE, 30, pack, 0], ["М4 45", HudRounds.Kind.RIFLE, 45, pack, 0],
+		["Кольт 7", HudRounds.Kind.PISTOL, 7, pack, 0], ["Страж 17", HudRounds.Kind.PISTOL, 17, pack, 0],
+		["ППШ 71", HudRounds.Kind.PISTOL, 71, pack, 0], ["Мясник 6", HudRounds.Kind.SHELL, 6, HudRounds.Load.SHELLS, 1],
+		["Шквал 12", HudRounds.Kind.SHELL, 12, HudRounds.Load.SHELLS, 2], ["Бульдог 6", HudRounds.Kind.REVOLVER, 6, HudRounds.Load.REVOLVER, 2],
+		["Мосинка 5", HudRounds.Kind.SNIPER, 5, pack, 0], ["Игла 4", HudRounds.Kind.RAIL, 4, pack, 0],
+		["Гром 6", HudRounds.Kind.GRENADE, 6, HudRounds.Load.GRENADES, 1],
+	]
+	var heads := ["полный", "пустеет", "мало", "заряд. 45%", "заряд. 85%"]
+	for j in heads.size():
+		_text(Vector2(52.0 + j * 76.0, 10.0), heads[j], DIM, 7)
+	for i in rows.size():
+		var row: Array = rows[i]
+		var kind: int = row[1]
+		var mag: int = row[2]
+		var y := 16.0 + i * 24.0
+		_text(Vector2(4.0, y + 12.0), row[0], TEXT, 7)
+		for j in 5:
+			var at := Vector2(50.0 + j * 76.0, y)
+			var lay := HudRounds.layout(kind, mag, 72.0, ROUNDS_H)
+			_ci.draw_rect(Rect2(at - Vector2(2, 1), Vector2(76, 21)), Color(0.16, 0.17, 0.19))
+			var live := float(mag)
+			var low := false
+			match j:
+				1:
+					live = float(int(mag * 0.6))
+				2:
+					live = float(maxi(1, int(mag * 0.2)))
+					low = true
+				3:
+					live = HudRounds.visible(row[4], mag, true, 0.45, row[3], mag - row[4], 2.0)
+				4:
+					live = HudRounds.visible(row[4], mag, true, 0.85, row[3], mag - row[4], 2.0)
+			var tip := HudRounds.tip_color(kind, 0, false)
+			if low:
+				tip = tip.lerp(HudRounds.LOW_TIP, 0.75)
+			HudRounds.draw_row(_ci, lay, at, live, tip, HudRounds.LOW_BODY if low else Color.WHITE)
+			if j == 1: # два только что выщелкнутых патрона
+				for k in 2:
+					HudRounds.draw_popped(_ci, lay, at + HudRounds.round_at(lay, int(live) + k), 0.25 + 0.3 * k, 1.0 - k * 2.0, tip, Color.WHITE, _ui)
+	# типы патронов: обычные, экспансивные, зажигательные, крио, редкие крио
+	_text(Vector2(434.0, 10.0), "тип патронов", DIM, 7)
+	var kinds := [[HudRounds.Kind.RIFLE, 30], [HudRounds.Kind.SHELL, 6], [HudRounds.Kind.RAIL, 4]]
+	var names := ["обычные", "экспансивн.", "зажигат.", "крио", "крио редк."]
+	for a in 5:
+		var y := 16.0 + a * 24.0
+		for k in kinds.size():
+			var at := Vector2(486.0 + k * 52.0, y)
+			var lay := HudRounds.layout(kinds[k][0], kinds[k][1], 48.0, ROUNDS_H)
+			_ci.draw_rect(Rect2(at - Vector2(2, 1), Vector2(52, 21)), Color(0.16, 0.17, 0.19))
+			HudRounds.draw_row(_ci, lay, at, float(kinds[k][1]), HudRounds.tip_color(kinds[k][0], mini(a, 3), a == 4), Color.WHITE)
+		_text(Vector2(434.0, y + 12.0), names[a], DIM, 6)
 
 
 func _draw_debug(player: Player, weapons: Weapons) -> void:
@@ -871,7 +997,7 @@ func _draw_debug(player: Player, weapons: Weapons) -> void:
 		"HUD %.2f мс" % draw_ms,
 		"бессмертие" if player.god_mode else "",
 	]
-	var y := (OP_Y + 38.0) if not _op_text.is_empty() else (MARGIN + 44.0)
+	var y := (OP_Y + 22.0) if not _op_name.is_empty() else (MARGIN + 44.0)
 	for i in lines.size():
 		_text_r(_w - MARGIN, y + i * 10, lines[i], DIM, 8, true)
 	y += lines.size() * 10 + 4.0
@@ -883,8 +1009,8 @@ func _draw_debug(player: Player, weapons: Weapons) -> void:
 # --- указатели и дуга урона ---------------------------------------------------------------
 
 func _draw_pointers(player: Player) -> void:
-	var bottom := _h - MARGIN - SLOT_H - 14.0 - (32.0 if game.boss.is_alive() else 0.0) # над полосой босса
-	var top := 74.0 if not _op_text.is_empty() else 56.0 # ниже панелей справа
+	var bottom := _h - MARGIN - SLOT_H - 14.0 - (26.0 if game.boss.is_alive() else 0.0) # над полосой босса
+	var top := 62.0 if not _op_name.is_empty() else 56.0 # ниже панелей справа
 	if game.alarm_overlay.visible:
 		top = maxf(top, 80.0) # и ниже надписей тревоги
 	var area := Rect2(16.0, top, _w - 32.0, bottom - top)

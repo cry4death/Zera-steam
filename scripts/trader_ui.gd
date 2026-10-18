@@ -99,12 +99,12 @@ func _describe_offer(index: int) -> Dictionary:
 	# Экран может впервые открыться уже после покупки максимального уровня.
 	if offer["sold"] and card["type"] == "level":
 		var slot: Weapons.Slot = _weapons.slots[int(card["slot"])]
-		return {"kind": "УЛУЧШЕНИЕ СТВОЛА", "title": "%s · ур. %d" % [slot.short_name(), slot.level], "lines": ["Улучшение приобретено"], "color": WHITE,
-	"icon": "gun_" + slot.model, "icon_gun": true, "sub": "", "front": ["Улучшение приобретено"], "more": []}
+		return {"kind": "УЛУЧШЕНИЕ СТВОЛА", "title": "%s · ур. %d" % [slot.short_name(), slot.level], "color": WHITE,
+			"icon": "gun_" + slot.model, "icon_gun": true, "big": "", "unit": "", "details": []}
 	if offer["sold"] and card["type"] == "passive":
 		var passive: Dictionary = WeaponDefs.PASSIVES[int(card["id"])]
-		return {"kind": "ПАССИВКА", "title": passive["name"], "lines": [passive["text"]], "color": GREEN,
-	"icon": "card_pas_%d" % int(card["id"]), "sub": "", "front": [passive["text"]], "more": []}
+		return {"kind": "ПАССИВКА", "title": passive["name"], "color": GREEN,
+			"icon": "card_pas_%d" % int(card["id"]), "big": passive["big"][0], "unit": passive["big"][1], "details": []}
 	return _progression.describe(card)
 
 
@@ -305,7 +305,7 @@ func _draw() -> void:
 	_actions.clear()
 	draw_rect(Rect2(0.0, 0.0, w, h), Color(0.03, 0.0, 0.0, 0.86))
 	_text_c(font, Vector2(w * 0.5, 29.0), "ПОЛЕВОЕ СНАБЖЕНИЕ", GOLD, 18)
-	_text_c(font, Vector2(w * 0.5, 48.0), "КРЕДИТЫ: %d" % _trader.credits(), GOLD, 13)
+	_text_c(font, Vector2(w * 0.5, 48.0), "%d кр." % _trader.credits(), GOLD, 15)
 	if _step == Step.SHOP:
 		_draw_offers(font, w, h)
 	else:
@@ -348,33 +348,31 @@ func _draw_offers(font: Font, w: float, h: float) -> void:
 		var plate := Rect2(rect.position + Vector2(7.0, 24.0), Vector2(card_w - 14.0, 44.0))
 		draw_rect(plate, Color(0.03, 0.03, 0.03, 0.9 * alpha))
 		_draw_icon(description, plate, alpha)
-		var y := 84.0
+		# название и ОДНА крупная цифра эффекта; описание и ранги — по наведению
+		var y := 86.0
 		for title_line in _wrap(font, str(description["title"]), card_w - 14.0, 11):
 			_text(font, rect.position + Vector2(7.0, y), title_line, Color(color, alpha), 11)
 			y += 13.0
-		y += 1.0
-		if description["sub"] != "":
-			for line in _wrap(font, str(description["sub"]), card_w - 14.0, 8):
-				_text(font, rect.position + Vector2(7.0, y), line, Color(MUTED, alpha), 8)
-				y += 9.5
-			y += 2.0
-		for line: String in description["front"]:
-			for part in _wrap(font, line, card_w - 14.0, 8):
-				_text(font, rect.position + Vector2(7.0, y), part, Color(WHITE, alpha * 0.92), 8)
-				y += 10.0
-		# подробности (ранги II–III, черта): по наведению или выбору стрелками
-		var more: Array = description["more"]
-		if not more.is_empty():
-			var dy := maxf(card_h - 66.0, y + 10.0)
+		var big := str(description["big"])
+		if big != "":
+			y += 14.0
+			_text(font, rect.position + Vector2(7.0, y), big, Color(color, alpha), 22)
+			y += 11.0
+			_text(font, rect.position + Vector2(7.0, y), str(description["unit"]), Color(MUTED, alpha), 8)
+		if description.has("round"):
+			var round_info: Array = description["round"]
+			var lay := HudRounds.layout(round_info[0], round_info[1], card_w - 14.0, 20.0)
+			HudRounds.draw_row(self, lay, rect.position + Vector2(7.0, y + 6.0), float(round_info[1]), HudRounds.tip_color(round_info[0], 0, false), Color(1, 1, 1, alpha))
+			y += 26.0
+		var details: Array = description["details"]
+		if _hover == i and not details.is_empty():
+			var dy := maxf(y + 16.0, card_h - 74.0)
 			draw_line(rect.position + Vector2(7.0, dy - 8.0), rect.position + Vector2(card_w - 7.0, dy - 8.0), Color(WHITE, alpha * 0.12))
-			if _hover == i:
-				for line: String in more:
-					for part in _wrap(font, line, card_w - 14.0, 8):
-						if dy < card_h - 30.0:
-							_text(font, rect.position + Vector2(7.0, dy + 2.0), part, Color(MUTED, alpha), 8)
-						dy += 9.5
-			else:
-				_text(font, rect.position + Vector2(7.0, dy + 2.0), "подробнее: наведи / ← →", Color(MUTED, alpha * 0.65), 7)
+			for line: String in details:
+				for part in _wrap(font, line, card_w - 14.0, 8):
+					if dy < card_h - 30.0:
+						_text(font, rect.position + Vector2(7.0, dy + 2.0), part, Color(MUTED, alpha), 8)
+					dy += 9.5
 		draw_line(rect.position + Vector2(7.0, card_h - 28.0), rect.position + Vector2(card_w - 7.0, card_h - 28.0), Color(WHITE, alpha * 0.12))
 		var price := "ПРОДАНО" if sold else "%d кр." % int(offer["price"])
 		_text_c(font, rect.position + Vector2(card_w * 0.5, card_h - 12.0), price, Color(GOLD if enabled else (MUTED if sold else RED), alpha), 11)
@@ -492,12 +490,12 @@ func _draw_actions(font: Font, w: float, h: float) -> void:
 	var enabled: Array[bool] = []
 	if _step == Step.SHOP:
 		labels = ["H · Лечение", "Q · Реролл", "M · Переставить модуль", "В бой"]
-		details = ["+50 HP · %d кр." % _trader.heal_price(), "%d кр." % _trader.reroll_price, _move_cost(), "Space / Enter"]
+		details = ["+50 HP · %d кр." % _trader.heal_price(), "%d кр." % _trader.reroll_price, _move_cost(), "Space"]
 		ids = [Action.HEAL, Action.REROLL, Action.MOVE, Action.CLOSE]
 		enabled = [_trader.can_heal(), _trader.can_afford(_trader.reroll_price), _any_moves(), true]
 	else:
 		labels = ["Назад", "В бой"]
-		details = ["Esc", "Space / Enter"]
+		details = ["Esc", "Space"]
 		ids = [Action.BACK, Action.CLOSE]
 		enabled = [true, true]
 	var total_w := minf(w - 24.0, 620.0 if _step == Step.SHOP else 300.0)
@@ -508,9 +506,9 @@ func _draw_actions(font: Font, w: float, h: float) -> void:
 		_panel(rect, ids[i], color, enabled[i])
 		_text_c(font, rect.position + Vector2(button_w * 0.5, 14.0), _fit(font, labels[i], button_w - 10.0, 9), color, 9)
 		_text_c(font, rect.position + Vector2(button_w * 0.5, 27.0), _fit(font, details[i], button_w - 10.0, 8), GOLD if enabled[i] else MUTED, 8)
-	var hint := "1–5 / клик — купить · ← → — подробности · Esc — в бой"
+	var hint := "1–5 / клик · ← → подробности"
 	if _step != Step.SHOP:
-		hint = "1–4 / клик — выбрать · Esc — назад · Space / Enter — в бой"
+		hint = "1–4 / клик · Esc — назад"
 	_text_c(font, Vector2(w * 0.5, h - 8.0), _fit(font, hint, w - 16.0, 8), MUTED, 8)
 
 

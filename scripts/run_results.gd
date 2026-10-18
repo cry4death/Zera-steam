@@ -9,9 +9,21 @@ const GOLD := Color(1.0, 0.82, 0.35)
 const WHITE := Color(0.92, 0.90, 0.85)
 const MUTED := Color(0.65, 0.65, 0.62)
 const RED := Color(0.68, 0.23, 0.21)
-const LINE_DELAY := 0.25
-const COUNT_TIME := 0.3
 const INPUT_DELAY := 0.25
+# Хронометраж чека: крупные числа считаются с щелчками, затем по очереди появляются значки, ДНК и итог (U3).
+const HERO_TIME := 0.8 # «убито» и «время»
+const CHIP_AT := 0.9 # плашки: элитки, серия, кровь, ящики
+const CHIP_STEP := 0.14
+const GUN_AT := 1.5 # стволы
+const DNA_AT := 1.9 # строки ДНК по 0.2 с, затем множители и итог
+const DNA_STEP := 0.2
+const TOTAL_TIME := 0.7
+const BLOOD := Color(0.85, 0.22, 0.2)
+const GREEN := Color(0.6, 0.9, 0.6)
+const HP_RED := Color(0.9, 0.3, 0.25)
+const RED_UP := Color(1.0, 0.5, 0.4) # заражение выросло
+const ICON_BG := Color(0.04, 0.035, 0.035, 0.9)
+const GUN_K := 2.0 / 3.0 # масштаб иконки ствола: 2 пикселя экрана на пиксель арта на 1080p
 
 var _stats: Dictionary = {}
 var _report: Dictionary = {}
@@ -25,9 +37,12 @@ var _hover := -1
 var _selected := 0 # основная кнопка — на базу, R всегда повторяет забег
 var _button := Rect2()
 var _base_button := Rect2()
-var _body := Rect2()
-var _scroll := 0.0
+var _scroll := 0.0 # прокрутка журнала в панели последствий
 var _scroll_max := 0.0
+var _journal := false # панель последствий показывает полный журнал
+var _journal_button := Rect2()
+var _icons := {}
+var _tick_seen := {} # счётчик → сколько щелчков уже сыграно
 
 
 func _ready() -> void:
@@ -65,13 +80,22 @@ func open(stats: Dictionary) -> void:
 	_selected = 0
 	_scroll = 0.0
 	_scroll_max = 0.0
+	_journal = false
+	_tick_seen.clear()
 	visible = true
 	queue_redraw()
 
 
+func _dna_lines() -> Array:
+	return _stats.get("dna_lines", [])
+
+
+func _total_at() -> float:
+	return DNA_AT + _dna_lines().size() * DNA_STEP + 0.2
+
+
 func _duration() -> float:
-	var lines: Array = _stats.get("dna_lines", [])
-	return lines.size() * LINE_DELAY + COUNT_TIME * 2.0
+	return _total_at() + TOTAL_TIME
 
 
 func _process(delta: float) -> void:
@@ -79,7 +103,25 @@ func _process(delta: float) -> void:
 		return
 	_t += delta
 	_finished = _t >= _duration()
+	_tick_sounds()
 	queue_redraw()
+
+
+## Щелчок на каждом шаге счёта: у каждого числа до 10 шагов, по одному щелчку на шаг.
+func _tick_sounds() -> void:
+	if sfx == null:
+		return
+	var counters: Array = [["kills", 0.0, HERO_TIME, int(_stats.get("kills", 0))], ["time", 0.0, HERO_TIME, int(_stats.get("time", 0.0))],
+		["total", _total_at(), TOTAL_TIME, int(_stats.get("dna_total", 0))]]
+	var clicked := false
+	for c: Array in counters:
+		var steps := mini(int(c[3]), 10)
+		var step := int(clampf((_t - float(c[1])) / float(c[2]), 0.0, 1.0) * steps)
+		if step > int(_tick_seen.get(c[0], 0)):
+			_tick_seen[c[0]] = step
+			clicked = true
+	if clicked and not _finished:
+		sfx.play("ui/click", Vector2.INF, -6.0, 0.12)
 
 
 func _activate(restart := false) -> void:
@@ -117,6 +159,8 @@ func _gui_input(event: InputEvent) -> void:
 		if button.button_index == MOUSE_BUTTON_LEFT:
 			if not _report.is_empty() and _retry_button.has_point(button.position / _ui):
 				_retry_save()
+			elif not _report.is_empty() and _journal_button.has_point(button.position / _ui):
+				_toggle_journal()
 			elif _base_button.has_point(button.position / _ui):
 				_activate()
 			elif _button.has_point(button.position / _ui):
@@ -148,7 +192,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	var code := key.keycode
 	if key.physical_keycode in [KEY_R, KEY_S]:
 		code = key.physical_keycode
-	if code not in [KEY_R, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE, KEY_LEFT, KEY_RIGHT, KEY_DOWN, KEY_UP, KEY_PAGEDOWN, KEY_PAGEUP, KEY_S]:
+	if key.physical_keycode == KEY_J:
+		code = KEY_J
+	if code not in [KEY_R, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE, KEY_LEFT, KEY_RIGHT, KEY_DOWN, KEY_UP, KEY_PAGEDOWN, KEY_PAGEUP, KEY_S, KEY_J]:
 		return
 	get_viewport().set_input_as_handled()
 	if key.echo:
@@ -156,6 +202,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	_hover = -1
 	match code:
 		KEY_S: if not _report.is_empty(): _retry_save()
+		KEY_J: if not _report.is_empty(): _toggle_journal()
 		KEY_R: _activate(true)
 		KEY_LEFT: _selected = 0
 		KEY_RIGHT: _selected = 1
@@ -163,6 +210,31 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_UP, KEY_PAGEUP: _scroll = maxf(_scroll - 33.0, 0.0)
 		_: _activate(_selected == 1)
 	queue_redraw()
+
+
+func _toggle_journal() -> void:
+	_journal = not _journal
+	_scroll = 0.0
+	if sfx != null:
+		sfx.play("ui/click")
+
+
+func _icon(icon_name: String) -> Texture2D:
+	if not _icons.has(icon_name):
+		_icons[icon_name] = PixelArt.tex(icon_name)
+	return _icons[icon_name]
+
+
+## Значок HUD по центру точки (единицы экрана), масштаб — целое число пикселей арта на пиксель игры.
+func _icon_at(icon_name: String, center: Vector2, color: Color, scale := 1.0) -> void:
+	var tex := _icon("hud_" + icon_name)
+	var size := tex.get_size() * scale
+	draw_texture_rect(tex, Rect2((center - size * 0.5).round(), size), false, color)
+
+
+## Сколько показать у числа, которое считается от start за span секунд.
+func _counted(value: int, start: float, span: float) -> int:
+	return roundi(value * clampf((_t - start) / span, 0.0, 1.0))
 
 
 func _draw() -> void:
@@ -183,17 +255,8 @@ func _draw() -> void:
 	draw_rect(panel, Color(0.08, 0.07, 0.07, 0.97))
 	draw_rect(panel, Color(accent, 0.55), false, 1.0)
 	draw_rect(Rect2(p, Vector2(260, 3)), accent)
-	_text_c(font, p + Vector2(130, 15), "РАПОРТ ОБ ОПЕРАЦИИ", MUTED, 9)
-	var title := "ОПЕРАЦИЯ ВЫПОЛНЕНА" if victory else "ОПЕРАТИВНИК ЭВАКУИРОВАН"
-	_text_c(font, p + Vector2(130, 29), title, accent, 11)
-	_body = Rect2(p + Vector2(12, 34), Vector2(236, 205))
-	_draw_receipt(font)
-	draw_line(p + Vector2(12, 244), p + Vector2(248, 244), Color(GOLD, 0.4))
-	var lines: Array = _stats.get("dna_lines", [])
-	var total_progress := clampf((_t - lines.size() * LINE_DELAY - COUNT_TIME) / COUNT_TIME, 0.0, 1.0)
-	_pair(font, p + Vector2(12, 258), 236.0, "ОБРАЗЦЫ (ДНК)", str(roundi(int(_stats.get("dna_total", 0)) * total_progress)), GOLD, 13)
-	if total_progress >= 1.0:
-		_text_c(font, p + Vector2(130, 268), "Образцов на форпосте: %d" % int(_stats.get("dna_bank", 0)), MUTED, 8)
+	_text_c(font, p + Vector2(130, 24), "ОПЕРАЦИЯ ВЫПОЛНЕНА" if victory else "ОПЕРАТИВНИК ЭВАКУИРОВАН", accent, 12)
+	_draw_receipt(font, p)
 	_base_button = Rect2(p + Vector2(12, 274), Vector2(116, 24))
 	_button = Rect2(p + Vector2(134, 274), Vector2(114, 24))
 	for i in 2:
@@ -206,12 +269,8 @@ func _draw() -> void:
 		if not _report.is_empty():
 			label = "К КАРТЕ ОПЕРАЦИЙ" if i == 0 else "БАЗА"
 		_text_c(font, r.get_center() + Vector2(0, 4), label, c, 8 if not _report.is_empty() else 10)
-	var hint := "Enter · допечатать" if not _finished else "←→ / A / Enter · R — ещё раз"
-	if _scroll_max > 0.0:
-		hint += " · ↑↓ / колесо — рапорт"
-	if not _report.is_empty():
-		hint = "←→ / A / Enter · ↑↓ / колесо — рапорт"
-	_text_c(font, p + Vector2(130, 309), hint, MUTED, 8)
+	if not _finished:
+		_text_c(font, p + Vector2(130, 309), "Enter — пропустить", MUTED, 8)
 	if not _report.is_empty():
 		_draw_consequences(font, Rect2(p + Vector2(272, 0), Vector2(264, 316)))
 
@@ -222,30 +281,77 @@ func _retry_save() -> void:
 	queue_redraw()
 
 
+## Последствия для карты: 2–3 главных изменения регионов крупными числами, ульи и критические регионы значками;
+## полный журнал — по кнопке «Журнал [J]».
 func _draw_consequences(font: Font, panel: Rect2) -> void:
 	var p := panel.position
 	draw_rect(panel, Color("0e1514"))
 	draw_rect(panel, Color(GOLD, 0.45), false)
 	draw_rect(Rect2(p, Vector2(panel.size.x, 3)), GOLD)
 	_text(font, p + Vector2(14, 24), "ПОСЛЕДСТВИЯ", GOLD, 14)
-	_text(font, p + Vector2(14, 40), "Диспетчер: обстановка обновлена", MUTED, 8)
-	var y := 63.0
-	for event: String in _report.get("events", []):
-		for line in _wrap_words(font, event, 234, 10):
-			_text(font, p + Vector2(14, y), line, WHITE, 10)
-			y += 13
-		y += 12
-	draw_line(p + Vector2(14, 201), p + Vector2(250, 201), Color(GOLD, 0.3))
-	_text(font, p + Vector2(14, 220), "Активных ульев: %d" % int(_report.get("nests_alive", 0)), GOLD, 11)
-	_text(font, p + Vector2(14, 237), "Критических регионов: %d" % int(_report.get("critical", 0)), MUTED, 9)
-	_text(font, p + Vector2(14, 256), "Причины изменений — в журнале региона", MUTED, 8)
-	_text(font, p + Vector2(14, 268), "на оперативной карте.", MUTED, 8)
+	_journal_button = Rect2(p + Vector2(14, 246), Vector2(236, 18))
+	if _journal:
+		_draw_journal(font, Rect2(p + Vector2(14, 34), Vector2(236, 206)))
+	else:
+		var y := 40.0
+		for event: String in _report.get("events", []):
+			y = _draw_event(font, p + Vector2(14, y), event)
+		# ульи и критические регионы — значок и число
+		draw_line(p + Vector2(14, 201), p + Vector2(250, 201), Color(GOLD, 0.3))
+		_icon_at("skull", p + Vector2(24, 217), GOLD, 1.0)
+		_text(font, p + Vector2(36, 224), str(int(_report.get("nests_alive", 0))), GOLD, 15)
+		_icon_at("alarm", p + Vector2(132, 217), HP_RED, 1.0)
+		_text(font, p + Vector2(146, 224), str(int(_report.get("critical", 0))), WHITE, 15)
+	draw_rect(_journal_button, Color(0.10, 0.09, 0.07))
+	draw_rect(_journal_button, Color(MUTED, 0.5), false, 1.0)
+	_text_c(font, _journal_button.get_center() + Vector2(0, 3), "К ИТОГАМ [J]" if _journal else "ЖУРНАЛ [J]", MUTED, 8)
 	_retry_button = Rect2()
 	if not str(_report.get("save_error", "")).is_empty():
 		_text(font, p + Vector2(14, 285), "НЕТ ЗАПИСИ НА ДИСК. Прогресс в памяти.", Color("ef7770"), 8)
 		_retry_button = Rect2(p + Vector2(14, 291), Vector2(236, 18))
 		draw_rect(_retry_button, Color("412824"))
 		_text_c(font, _retry_button.get_center() + Vector2(0, 3), "ПОВТОРИТЬ СОХРАНЕНИЕ [S]", GOLD, 8)
+
+
+## Событие «Регион: 62 → 48 · Стадия»: название, крупная динамика (падение заражения — зелёным), стадия справа.
+## Строки другого вида выводятся как есть. Возвращает следующую y.
+func _draw_event(font: Font, at: Vector2, event: String) -> float:
+	var parts := event.split(": ", true, 1)
+	var numbers: RegExMatch = null
+	if parts.size() == 2:
+		numbers = RegEx.create_from_string("^(\\d+) → (\\d+)(?: · (.+))?$").search(parts[1])
+	if numbers == null:
+		var y := at.y
+		for line in _wrap_words(font, event, 234, 10):
+			_text(font, Vector2(at.x, y + 10), line, WHITE, 10)
+			y += 13
+		return y + 8
+	var before := int(numbers.get_string(1))
+	var after := int(numbers.get_string(2))
+	var col := GREEN if after < before else (RED_UP if after > before else MUTED)
+	_text(font, at + Vector2(0, 10), parts[0], WHITE, 10)
+	_text(font, at + Vector2(0, 31), "%d → %d" % [before, after], col, 16)
+	if numbers.get_string(3) != "":
+		_text_r(font, at + Vector2(236, 31), numbers.get_string(3), MUTED, 8)
+	return at.y + 48.0
+
+
+## Полный журнал: все изменения регионов с причинами, колесо и стрелки листают.
+func _draw_journal(font: Font, area: Rect2) -> void:
+	var lines: Array = []
+	for change: Dictionary in _report.get("changes", []):
+		lines.append([str(change["name"]) + ": %d → %d" % [int(change["from"]), int(change["to"])], WHITE, 9])
+		for cause: String in change["causes"]:
+			for part in _wrap_words(font, cause, 226, 8):
+				lines.append(["  " + part, MUTED, 8])
+	var row := 10.0
+	_scroll_max = maxf(0.0, lines.size() * row - area.size.y)
+	_scroll = minf(_scroll, _scroll_max)
+	var y := area.position.y + 9.0 - _scroll
+	for line: Array in lines:
+		if y - 8.0 >= area.position.y and y + 2.0 <= area.end.y:
+			_text(font, Vector2(area.position.x, y), str(line[0]), line[1], int(line[2]))
+		y += row
 
 
 func _wrap_words(font: Font, value: String, width: float, fs: int) -> Array[String]:
@@ -263,62 +369,78 @@ func _wrap_words(font: Font, value: String, width: float, fs: int) -> Array[Stri
 	return lines
 
 
-func _draw_receipt(font: Font) -> void:
-	var x := _body.position.x
-	var y := _body.position.y + 9.0 - _scroll
+## Чек без слов: крупные «убито» и «время», плашки значок+число, стволы иконками, ДНК значками и итог.
+func _draw_receipt(font: Font, p: Vector2) -> void:
 	var seconds := maxi(0, int(_stats.get("time", 0.0)))
-	var rows: Array = [
-		["Время", "%d:%02d" % [seconds / 60, seconds % 60]],
-		["Убито", str(_stats.get("kills", 0))],
-		["Элиток", str(_stats.get("elites", 0))],
-		["Лучшая серия", str(_stats.get("best_combo", 0))],
-		["Литров крови", "%.1f л" % float(_stats.get("blood_liters", 0.0))],
-		["Ящики / военные", "%d / %d" % [int(_stats.get("crates", 0)), int(_stats.get("military_crates", 0))]],
+	var kills := _counted(int(_stats.get("kills", 0)), 0.0, HERO_TIME)
+	var shown := _counted(seconds, 0.0, HERO_TIME)
+	for k in 2:
+		var tile := Rect2(p + Vector2(12 + k * 122, 36), Vector2(114, 42))
+		draw_rect(tile, ICON_BG)
+		draw_rect(tile, Color(MUTED, 0.2), false, 1.0)
+		_icon_at("skull" if k == 0 else "clock", tile.position + Vector2(18, 21), GOLD if k == 0 else WHITE, 2.0)
+		var value := str(kills) if k == 0 else "%d:%02d" % [shown / 60, shown % 60]
+		_text_r(font, tile.position + Vector2(108, 31), value, WHITE, 22)
+	# плашки: элитки, лучшая серия, кровь, ящики и военные ящики
+	var chips: Array = [
+		["skull", Color(1.0, 0.55, 0.2), str(_stats.get("elites", 0))], ["flame", Color(1.0, 0.45, 0.25), str(_stats.get("best_combo", 0))],
+		["drop", BLOOD, "%.1f" % float(_stats.get("blood_liters", 0.0))], ["crate", GOLD, str(_stats.get("crates", 0))],
+		["crate", GREEN, str(_stats.get("military_crates", 0))],
 	]
-	for row: Array in rows:
-		_body_pair(font, Vector2(x, y), _body.size.x, str(row[0]), str(row[1]), WHITE)
-		y += 10.0
-	y += 2.0
-	_body_text(font, Vector2(x, y), "СОБРАННЫЕ СТВОЛЫ", MUTED, 8)
-	y += 10.0
-	var weapons: Array = _stats.get("weapons", [])
-	var columns := 2 if weapons.size() > 4 else 1
-	var width := (_body.size.x - (columns - 1) * 10.0) / columns
-	for i in range(0, weapons.size(), columns):
-		var wrapped: Array = []
-		var height := 1
-		for column in mini(columns, weapons.size() - i):
-			var parts := _wrap(font, str(weapons[i + column]), width, 8)
-			wrapped.append(parts)
-			height = maxi(height, parts.size())
-		for column in wrapped.size():
-			var parts: Array = wrapped[column]
-			for j in parts.size():
-				_body_text(font, Vector2(x + column * (width + 10.0), y + j * 9.0), str(parts[j]), WHITE, 8)
-		y += height * 9.0
-	if weapons.is_empty():
-		_body_text(font, Vector2(x, y), "—", MUTED, 8)
-		y += 10.0
-	y += 2.0
-	_body_text(font, Vector2(x + _body.size.x * 0.5 - _width(font, "ОБРАЗЦЫ (ДНК)", 9) * 0.5, y), "ОБРАЗЦЫ (ДНК)", GOLD, 9)
-	y += 13.0
-	var lines: Array = _stats.get("dna_lines", [])
-	columns = 2 if lines.size() > 8 else 1
-	width = (_body.size.x - (columns - 1) * 10.0) / columns
+	for i in chips.size():
+		if _t < CHIP_AT + i * CHIP_STEP:
+			break
+		var chip: Array = chips[i]
+		var r := Rect2(p + Vector2(12 + i * 48, 86), Vector2(44, 18))
+		draw_rect(r, ICON_BG)
+		_icon_at(chip[0], r.position + Vector2(10, 9), chip[1])
+		_text_r(font, r.position + Vector2(41, 13), str(chip[2]), WHITE, 10)
+	_draw_guns(font, p + Vector2(12, 112))
+	draw_line(p + Vector2(12, 188), p + Vector2(248, 188), Color(GOLD, 0.25))
+	# ДНК: слагаемые значками, множители, итог
+	var lines := _dna_lines()
+	var x := 12.0
 	for i in lines.size():
-		var progress := clampf((_t - i * LINE_DELAY) / COUNT_TIME, 0.0, 1.0)
-		if _t >= i * LINE_DELAY:
-			var line: Array = lines[i]
-			var at := Vector2(x + (i % columns) * (width + 10.0), y + floorf(float(i) / columns) * 10.0)
-			_body_pair(font, at, width, str(line[0]), str(roundi(int(line[1]) * progress)), WHITE, 8)
-	y += ceili(float(lines.size()) / columns) * 10.0
+		if _t < DNA_AT + i * DNA_STEP:
+			break
+		var label := str(lines[i][0])
+		var icon_name := "clock" if label.begins_with("Время") else ("skull" if label.begins_with("Убийства") else ("star" if label.begins_with("Элитки") else "dna"))
+		var value := "+" + str(int(lines[i][1]))
+		_icon_at(icon_name, p + Vector2(x + 5, 202), MUTED)
+		_text(font, p + Vector2(x + 13, 206), value, WHITE, 9)
+		x += 18.0 + _width(font, value, 9)
 	var factors := multiplier_text()
-	if not factors.is_empty():
-		if _t >= lines.size() * LINE_DELAY:
-			_body_text(font, Vector2(x, y), factors, GOLD, 9)
-		y += 12.0
-	_scroll_max = maxf(0.0, y + _scroll - _body.end.y + 3.0)
-	_scroll = minf(_scroll, _scroll_max)
+	if not factors.is_empty() and _t >= DNA_AT + lines.size() * DNA_STEP:
+		var pop := clampf((_t - DNA_AT - lines.size() * DNA_STEP) / 0.12, 0.0, 1.0)
+		_text_r(font, p + Vector2(248, 207), factors, Color(GOLD, pop), 12)
+		_icon_at("star", p + Vector2(240 - _width(font, factors, 12), 203), Color(GOLD, pop), 1.0)
+	_icon_at("dna", p + Vector2(28, 232), GOLD, 2.0)
+	var total := _counted(int(_stats.get("dna_total", 0)), _total_at(), TOTAL_TIME)
+	_text(font, p + Vector2(48, 244), str(total), GOLD, 26)
+	if _t >= _duration():
+		_text_r(font, p + Vector2(248, 240), "всего %d" % int(_stats.get("dna_bank", 0)), MUTED, 8)
+
+
+## Стволы забега иконками: ствол, уровень и значок патронов с рангом; до четырёх, сеткой 2×2.
+func _draw_guns(font: Font, origin: Vector2) -> void:
+	var guns: Array = _stats.get("guns", [])
+	for i in mini(guns.size(), 4):
+		if _t < GUN_AT + i * 0.1:
+			break
+		var gun: Array = guns[i] # [модель, уровень, патроны, ранг патронов]
+		var at := origin + Vector2((i % 2) * 120, (i / 2) * 34)
+		draw_rect(Rect2(at, Vector2(116, 32)), ICON_BG)
+		var tex := Progression.card_icon("gun_" + str(gun[0]))
+		var k := GUN_K
+		while tex.get_width() * k > 66.0:
+			k -= 1.0 / 3.0
+		var size := tex.get_size() * k
+		draw_texture_rect(tex, Rect2((at + Vector2(3, 16) - Vector2(0, size.y * 0.5)).round(), size), false, Color.WHITE)
+		_text(font, at + Vector2(73, 13), "ур. %d" % int(gun[1]), WHITE, 9)
+		var ammo := Progression.card_icon("card_ammo_%d" % int(gun[2]))
+		draw_texture_rect(ammo, Rect2(at + Vector2(73, 17), ammo.get_size() * 0.5), false, Color.WHITE)
+		for r in int(gun[3]):
+			draw_rect(Rect2(at + Vector2(89 + r * 4, 25), Vector2(3, 3)), GOLD)
 
 
 ## Итоговый коэффициент уже включает операцию; награды не пересчитываем.
@@ -328,39 +450,10 @@ func multiplier_text() -> String:
 	var base := float(_stats.get("dna_mult", 1.0)) / operation
 	var parts: Array[String] = []
 	if base > 1.0:
-		parts.append("× %.1f победа" % base)
+		parts.append("×" + String.num(base, 2).replace(".", ","))
 	if operation > 1.0:
-		parts.append("× %s операция" % String.num(operation, 2))
+		parts.append("×" + String.num(operation, 2).replace(".", ","))
 	return " · ".join(parts)
-
-
-func _body_text(font: Font, p: Vector2, value: String, color: Color, fs: int) -> void:
-	# Полные строки не пересекают заголовок, итог и кнопку при прокрутке.
-	if p.y - fs >= _body.position.y and p.y + 3.0 <= _body.end.y:
-		_text(font, p, value, color, fs)
-
-
-func _body_pair(font: Font, p: Vector2, width: float, label: String, value: String, color: Color, fs: int = 9) -> void:
-	if p.y - fs >= _body.position.y and p.y + 3.0 <= _body.end.y:
-		_pair(font, p, width, label, value, color, fs)
-
-
-func _pair(font: Font, p: Vector2, width: float, label: String, value: String, color: Color, fs: int) -> void:
-	var value_w := _width(font, value, fs)
-	var label_size := fs
-	while label_size > 6 and _width(font, label, label_size) > width - value_w - 10.0:
-		label_size -= 1
-	var fitted := label
-	while not fitted.is_empty() and _width(font, fitted, label_size) > width - value_w - 10.0:
-		fitted = fitted.left(fitted.length() - 1)
-	if fitted != label:
-		fitted = fitted.left(maxi(0, fitted.length() - 1)) + "…"
-	_text(font, p, fitted, color, label_size)
-	var start := _width(font, fitted, label_size) + 4.0
-	var end := width - value_w - 4.0
-	for dot in maxi(0, int((end - start) / 4.0)):
-		draw_rect(Rect2(p + Vector2(start + dot * 4.0, -2), Vector2.ONE), Color(MUTED, 0.35))
-	_text(font, p + Vector2(width - value_w, 0), value, color, fs)
 
 
 func _wrap(font: Font, value: String, width: float, fs: int) -> Array[String]:
@@ -385,6 +478,10 @@ func _text(font: Font, p: Vector2, value: String, color: Color, fs: int) -> void
 	draw_string_outline(font, p * _ui, value, HORIZONTAL_ALIGNMENT_LEFT, -1, fs * k, 2 * k, Color(0, 0, 0, 0.8 * color.a))
 	draw_string(font, p * _ui, value, HORIZONTAL_ALIGNMENT_LEFT, -1, fs * k, color)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(_ui, _ui))
+
+
+func _text_r(font: Font, p: Vector2, value: String, color: Color, fs: int) -> void:
+	_text(font, p - Vector2(_width(font, value, fs), 0), value, color, fs)
 
 
 func _text_c(font: Font, p: Vector2, value: String, color: Color, fs: int) -> void:

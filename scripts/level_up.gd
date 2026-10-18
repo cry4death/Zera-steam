@@ -7,7 +7,7 @@ signal chosen(card: Dictionary, slot: int)
 signal reroll_requested
 
 const CARD_W := 150.0
-const CARD_H := 184.0
+const CARD_H := 190.0
 const GAP := 12.0
 const FONT := 10
 
@@ -155,10 +155,10 @@ func _draw() -> void:
 func _draw_cards(font: Font, w: float, h: float) -> void:
 	if _title == "":
 		_text_c(font, Vector2(w * 0.5, 60), "УРОВЕНЬ %d" % (progression.level - progression.pending + 1), Color(0.95, 0.85, 0.5), 18)
-		_text_c(font, Vector2(w * 0.5, 76), "выбери улучшение", Color(0.7, 0.7, 0.66))
 	else:
 		_text_c(font, Vector2(w * 0.5, 60), _title, Color(0.9, 0.2, 0.15), 18)
-		_text_c(font, Vector2(w * 0.5, 76), _subtitle, Color(0.7, 0.7, 0.66))
+		if _subtitle != "":
+			_text_c(font, Vector2(w * 0.5, 76), _subtitle, Color(0.7, 0.7, 0.66))
 	var total := cards.size() * CARD_W + (cards.size() - 1) * GAP
 	var x0 := (w - total) * 0.5
 	var y0 := h * 0.5 - CARD_H * 0.5 + 6.0
@@ -177,35 +177,35 @@ func _draw_cards(font: Font, w: float, h: float) -> void:
 		var plate := Rect2(r.position + Vector2(8, 24), Vector2(CARD_W - 16, 44))
 		draw_rect(plate, Color(0.03, 0.03, 0.03, 0.9 * pop))
 		_draw_icon(d, plate, pop)
-		var y := 84.0
+		# пиктограмма, название и ОДНА крупная цифра эффекта; описание и ранги — по наведению
+		var y := 86.0
 		for part in _wrap(font, str(d["title"]), CARD_W - 16.0, 11):
 			_text(font, r.position + Vector2(8, y), part, Color(col, pop), 11)
 			y += 13.0
-		y += 1.0
-		if d["sub"] != "":
-			for part in _wrap(font, str(d["sub"]), CARD_W - 16.0, 8):
-				_text(font, r.position + Vector2(8, y), part, Color(0.62, 0.62, 0.58, pop), 8)
-				y += 9.5
-			y += 2.0
-		for line: String in d["front"]:
-			for part in _wrap(font, line, CARD_W - 16.0, 9):
-				_text(font, r.position + Vector2(8, y), part, Color(0.9, 0.88, 0.82, pop), 9)
-				y += 11.0
+		var big := str(d["big"])
+		if big != "":
+			y += 14.0
+			_text(font, r.position + Vector2(8, y), big, Color(col, pop), 22)
+			y += 11.0
+			_text(font, r.position + Vector2(8, y), str(d["unit"]), Color(0.7, 0.7, 0.66, pop), 8)
+		if d.has("round"): # у нового ствола — настоящие патроны его магазина
+			var rd: Array = d["round"]
+			var lay := HudRounds.layout(rd[0], rd[1], CARD_W - 16.0, 20.0)
+			HudRounds.draw_row(self, lay, r.position + Vector2(8, y + 6.0), float(rd[1]), HudRounds.tip_color(rd[0], 0, false), Color(1, 1, 1, pop))
+			y += 26.0
 		# подробности: по наведению или выбору стрелками
-		var more: Array = d["more"]
-		if not more.is_empty():
-			var dy := maxf(CARD_H - 40.0, y + 10.0)
+		var details: Array = d["details"]
+		if not details.is_empty() and hover:
+			var dy := maxf(y + 16.0, CARD_H - 52.0)
 			draw_rect(Rect2(r.position + Vector2(8, dy - 8), Vector2(CARD_W - 16, 1)), Color(1, 1, 1, 0.12 * pop))
-			if hover:
-				for line: String in more:
-					for part in _wrap(font, line, CARD_W - 16.0, 8):
-						_text(font, r.position + Vector2(8, dy + 2), part, Color(0.72, 0.74, 0.78, pop), 8)
-						dy += 9.5
-			else:
-				_text(font, r.position + Vector2(8, dy + 2), "подробнее: наведи / ← →", Color(0.5, 0.5, 0.47, pop), 7)
-	var hint := "1–%d / клик — выбрать" % cards.size()
+			for line: String in details:
+				for part in _wrap(font, line, CARD_W - 16.0, 8):
+					_text(font, r.position + Vector2(8, dy + 2), part, Color(0.72, 0.74, 0.78, pop), 8)
+					dy += 9.5
+	var hint := "1–%d / клик" % cards.size()
 	if progression.rerolls > 0 and _title == "":
 		hint += " · Q — реролл (%d)" % progression.rerolls
+	hint += " · ← → подробности"
 	_text_c(font, Vector2(w * 0.5, y0 + CARD_H + 22.0), hint, Color(0.6, 0.6, 0.56), 9)
 
 
@@ -229,7 +229,7 @@ func _draw_icon(d: Dictionary, plate: Rect2, alpha: float) -> void:
 
 func _draw_slots(font: Font, w: float, h: float) -> void:
 	var d := progression.describe(_card)
-	_text_c(font, Vector2(w * 0.5, 70), "КУДА ПОСТАВИТЬ: %s" % d["title"], d["color"], 14)
+	_text_c(font, Vector2(w * 0.5, 70), "%s: куда?" % d["title"], d["color"], 14)
 	var row_w := 300.0
 	var row_h := 30.0
 	var x0 := (w - row_w) * 0.5
@@ -252,7 +252,7 @@ func _draw_slots(font: Font, w: float, h: float) -> void:
 		if proto != "" and ok:
 			var pw := font.get_string_size(proto, HORIZONTAL_ALIGNMENT_LEFT, -1, 8).x
 			_text(font, r.position + Vector2(row_w - 8 - pw, 25), proto, Color(1.0, 0.55, 0.3), 8)
-	_text_c(font, Vector2(w * 0.5, y0 + weapons.slots.size() * (row_h + 6.0) + 16.0), "1–4 / клик — выбрать ствол · Esc — назад", Color(0.6, 0.6, 0.56), 9)
+	_text_c(font, Vector2(w * 0.5, y0 + weapons.slots.size() * (row_h + 6.0) + 16.0), "1–4 / клик · Esc — назад", Color(0.6, 0.6, 0.56), 9)
 
 
 ## Короткая сводка ствола: патроны и модули.
