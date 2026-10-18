@@ -28,8 +28,6 @@ var _ui := 1.0
 var _t := 0.0
 var _anim := 0.0
 var _hover := -1
-var _scroll := 0.0
-var _scroll_max := 0.0
 var _rects: Array[Rect2] = []
 var _actions: Array[int] = []
 var _offer_cache: Array[Dictionary] = []
@@ -39,6 +37,7 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	visible = false
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	Progression.preload_icons()
 	mouse_exited.connect(_mouse_left)
 
 
@@ -100,10 +99,12 @@ func _describe_offer(index: int) -> Dictionary:
 	# Экран может впервые открыться уже после покупки максимального уровня.
 	if offer["sold"] and card["type"] == "level":
 		var slot: Weapons.Slot = _weapons.slots[int(card["slot"])]
-		return {"kind": "УЛУЧШЕНИЕ СТВОЛА", "title": "%s · ур. %d" % [slot.short_name(), slot.level], "lines": ["Улучшение приобретено"], "color": WHITE}
+		return {"kind": "УЛУЧШЕНИЕ СТВОЛА", "title": "%s · ур. %d" % [slot.short_name(), slot.level], "lines": ["Улучшение приобретено"], "color": WHITE,
+	"icon": "gun_" + slot.model, "icon_gun": true, "sub": "", "front": ["Улучшение приобретено"], "more": []}
 	if offer["sold"] and card["type"] == "passive":
 		var passive: Dictionary = WeaponDefs.PASSIVES[int(card["id"])]
-		return {"kind": "ПАССИВКА", "title": passive["name"], "lines": [passive["text"]], "color": GREEN}
+		return {"kind": "ПАССИВКА", "title": passive["name"], "lines": [passive["text"]], "color": GREEN,
+	"icon": "card_pas_%d" % int(card["id"]), "sub": "", "front": [passive["text"]], "more": []}
 	return _progression.describe(card)
 
 
@@ -123,8 +124,6 @@ func _set_step(value: Step) -> void:
 	_sound("click")
 	_step = value
 	_hover = -1
-	_scroll = 0.0
-	_scroll_max = 0.0
 	_anim = 0.0
 	_rects.clear()
 	_actions.clear()
@@ -158,10 +157,6 @@ func _gui_input(event: InputEvent) -> void:
 	elif button.pressed:
 		if button.button_index == MOUSE_BUTTON_LEFT:
 			_activate(_rect_at(button.position / _ui))
-		elif button.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			_scroll = minf(_scroll + 20.0, _scroll_max)
-		elif button.button_index == MOUSE_BUTTON_WHEEL_UP:
-			_scroll = maxf(_scroll - 20.0, 0.0)
 	queue_redraw()
 
 
@@ -187,16 +182,16 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_M: action = Action.MOVE
 		KEY_ESCAPE: action = Action.BACK
 		KEY_SPACE, KEY_ENTER, KEY_KP_ENTER: action = Action.CLOSE
-		KEY_DOWN, KEY_PAGEDOWN: action = 200
-		KEY_UP, KEY_PAGEUP: action = 201
+		KEY_LEFT: action = 202
+		KEY_RIGHT: action = 203
 		_: return
 	get_viewport().set_input_as_handled()
 	if key.echo or _t < INPUT_DELAY:
 		return
-	if action == 200:
-		_scroll = minf(_scroll + 30.0, _scroll_max)
-	elif action == 201:
-		_scroll = maxf(_scroll - 30.0, 0.0)
+	if action == 202 or action == 203:
+		# стрелки выделяют карту: её подробности видны так же, как при наведении мыши
+		if _step == Step.SHOP and not _trader.offers.is_empty():
+			_hover = 0 if _hover < 0 or _hover >= _trader.offers.size() else clampi(_hover + (1 if action == 203 else -1), 0, _trader.offers.size() - 1)
 	else:
 		_activate(action)
 	queue_redraw()
@@ -308,7 +303,6 @@ func _draw() -> void:
 	var font := ThemeDB.fallback_font
 	_rects.clear()
 	_actions.clear()
-	_scroll_max = 0.0
 	draw_rect(Rect2(0.0, 0.0, w, h), Color(0.03, 0.0, 0.0, 0.86))
 	_text_c(font, Vector2(w * 0.5, 29.0), "ПОЛЕВОЕ СНАБЖЕНИЕ", GOLD, 18)
 	_text_c(font, Vector2(w * 0.5, 48.0), "КРЕДИТЫ: %d" % _trader.credits(), GOLD, 13)
@@ -319,13 +313,14 @@ func _draw() -> void:
 	_draw_actions(font, w, h)
 
 
-func _panel(rect: Rect2, action: int, color: Color, enabled: bool, alpha: float = 1.0) -> void:
+func _panel(rect: Rect2, action: int, color: Color, enabled: bool, alpha: float = 1.0, strip := true) -> void:
 	_rects.append(rect)
 	_actions.append(action)
 	var hover := _hover == action and enabled
 	draw_rect(rect, Color(0.13 if hover else 0.08, 0.10 if hover else 0.07, 0.07, 0.96 * alpha))
 	draw_rect(rect, Color(color, (0.95 if hover else 0.45) * alpha), false, 1.0)
-	draw_rect(Rect2(rect.position, Vector2(rect.size.x, 2.0)), Color(color, 0.8 * alpha))
+	if strip:
+		draw_rect(Rect2(rect.position, Vector2(rect.size.x, 2.0)), Color(color, 0.8 * alpha))
 
 
 func _draw_offers(font: Font, w: float, h: float) -> void:
@@ -342,37 +337,65 @@ func _draw_offers(font: Font, w: float, h: float) -> void:
 		var sold: bool = offer["sold"]
 		var enabled := _trader.can_buy(i)
 		var color: Color = description["color"]
-		var pop := clampf(_anim * 7.0 - i * 0.35, 0.0, 1.0)
+		var pop := clampf(_anim * 8.0, 0.0, 1.0) # короткое общее появление, без каскада
 		var alpha := pop * (0.38 if sold else 1.0)
-		var rect := Rect2(x0 + i * (card_w + GAP), 76.0 + (1.0 - pop) * 14.0, card_w, card_h)
-		_panel(rect, i, color, enabled, alpha)
+		var rect := Rect2(x0 + i * (card_w + GAP), 76.0 + (1.0 - pop) * 8.0, card_w, card_h)
+		_panel(rect, i, color, enabled, alpha, false)
 		var p := rect.position + Vector2(7.0, 16.0)
 		_text(font, p, _fit(font, str(description["kind"]), card_w - 28.0, 8), Color(color, alpha), 8)
 		_text(font, rect.position + Vector2(card_w - 13.0, 16.0), str(i + 1), Color(WHITE, alpha), 9)
-		var y := 33.0
+		# пиктограмма на тёмной плите
+		var plate := Rect2(rect.position + Vector2(7.0, 24.0), Vector2(card_w - 14.0, 44.0))
+		draw_rect(plate, Color(0.03, 0.03, 0.03, 0.9 * alpha))
+		_draw_icon(description, plate, alpha)
+		var y := 84.0
 		for title_line in _wrap(font, str(description["title"]), card_w - 14.0, 11):
 			_text(font, rect.position + Vector2(7.0, y), title_line, Color(color, alpha), 11)
 			y += 13.0
-		var body: Array[String] = []
-		for line: String in description["lines"]:
-			body.append_array(_wrap(font, line, card_w - 14.0, 8))
-		if description.has("ranks"):
-			body.append("")
-			var ranks: Array = description["ranks"]
-			for rank_index in mini(3, ranks.size()):
-				body.append_array(_wrap(font, "%s: %s" % [WeaponDefs.ROMAN[rank_index + 1], ranks[rank_index]], card_w - 14.0, 8))
-		var bottom := card_h - 34.0
-		_scroll_max = maxf(_scroll_max, body.size() * 10.0 - (bottom - y))
-		for line_index in body.size():
-			var line_y := y + line_index * 10.0 - _scroll
-			if line_y >= y and line_y <= bottom:
-				_text(font, rect.position + Vector2(7.0, line_y), body[line_index], Color(WHITE, alpha * 0.9), 8)
-		draw_line(rect.position + Vector2(7.0, card_h - 28.0), rect.position + Vector2(card_w - 7.0, card_h - 28.0), Color(color, alpha * 0.3))
+		y += 1.0
+		if description["sub"] != "":
+			for line in _wrap(font, str(description["sub"]), card_w - 14.0, 8):
+				_text(font, rect.position + Vector2(7.0, y), line, Color(MUTED, alpha), 8)
+				y += 9.5
+			y += 2.0
+		for line: String in description["front"]:
+			for part in _wrap(font, line, card_w - 14.0, 8):
+				_text(font, rect.position + Vector2(7.0, y), part, Color(WHITE, alpha * 0.92), 8)
+				y += 10.0
+		# подробности (ранги II–III, черта): по наведению или выбору стрелками
+		var more: Array = description["more"]
+		if not more.is_empty():
+			var dy := maxf(card_h - 66.0, y + 10.0)
+			draw_line(rect.position + Vector2(7.0, dy - 8.0), rect.position + Vector2(card_w - 7.0, dy - 8.0), Color(WHITE, alpha * 0.12))
+			if _hover == i:
+				for line: String in more:
+					for part in _wrap(font, line, card_w - 14.0, 8):
+						if dy < card_h - 30.0:
+							_text(font, rect.position + Vector2(7.0, dy + 2.0), part, Color(MUTED, alpha), 8)
+						dy += 9.5
+			else:
+				_text(font, rect.position + Vector2(7.0, dy + 2.0), "подробнее: наведи / ← →", Color(MUTED, alpha * 0.65), 7)
+		draw_line(rect.position + Vector2(7.0, card_h - 28.0), rect.position + Vector2(card_w - 7.0, card_h - 28.0), Color(WHITE, alpha * 0.12))
 		var price := "ПРОДАНО" if sold else "%d кр." % int(offer["price"])
 		_text_c(font, rect.position + Vector2(card_w * 0.5, card_h - 12.0), price, Color(GOLD if enabled else (MUTED if sold else RED), alpha), 11)
-	if _scroll_max > 0.0:
-		_text_c(font, Vector2(w * 0.5, h - 67.0), "Колесо / ↑↓ — описание", MUTED, 8)
-	_scroll = minf(_scroll, _scroll_max)
+
+
+## Пиктограмма карты по центру плиты: спрайт ствола вписывается в плиту, иконка детали крупнее в 4/3.
+func _draw_icon(description: Dictionary, plate: Rect2, alpha: float) -> void:
+	var icon_name: String = description["icon"]
+	if icon_name == "":
+		return
+	var tex := Progression.card_icon(icon_name)
+	if tex == null:
+		return
+	var k := 4.0 / 3.0
+	if description.get("icon_gun", false):
+		k = 1.0
+		while k > 0.34 and (tex.get_width() * k > plate.size.x - 8.0 or tex.get_height() * k > plate.size.y - 4.0):
+			k -= 1.0 / 3.0
+	var tex_size := tex.get_size() * k
+	var pos := ((plate.get_center() - tex_size * 0.5) * _ui).round() / _ui
+	draw_texture_rect(tex, Rect2(pos, tex_size), false, Color(1, 1, 1, alpha))
 
 
 func _draw_selection(font: Font, w: float, h: float) -> void:
@@ -485,7 +508,7 @@ func _draw_actions(font: Font, w: float, h: float) -> void:
 		_panel(rect, ids[i], color, enabled[i])
 		_text_c(font, rect.position + Vector2(button_w * 0.5, 14.0), _fit(font, labels[i], button_w - 10.0, 9), color, 9)
 		_text_c(font, rect.position + Vector2(button_w * 0.5, 27.0), _fit(font, details[i], button_w - 10.0, 8), GOLD if enabled[i] else MUTED, 8)
-	var hint := "1–5 / клик — купить · H — лечение · Q — реролл · M — перестановка · Esc — в бой"
+	var hint := "1–5 / клик — купить · ← → — подробности · H — лечение · Q — реролл · M — перестановка · Esc — в бой"
 	if _step != Step.SHOP:
 		hint = "1–4 / клик — выбрать · Esc — назад · Space / Enter — в бой"
 	_text_c(font, Vector2(w * 0.5, h - 8.0), _fit(font, hint, w - 16.0, 8), MUTED, 8)

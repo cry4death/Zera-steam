@@ -382,16 +382,21 @@ func _draw_overlay(layer: Control) -> void:
 	_begin(layer)
 	_draw_pointers(player)
 	_draw_hit_arc(player)
-	# надписи
-	if game.announce_t > 0.0 and not game.level_up.visible:
+	# крупное объявление (пороги серий, редкие события): без дрожания и скачка размера
+	var covered: bool = game.level_up.visible or game.results.visible
+	if game.announce_t > 0.0 and not covered:
 		var k: float = game.announce_t / 1.4
-		var fs := int(lerpf(18.0, 26.0, clampf((k - 0.85) / 0.15, 0.0, 1.0))) # «удар» при появлении
 		var col: Color = game.announce_color
 		col.a = clampf(k * 2.0, 0.0, 1.0)
-		var jitter := Vector2(randf_range(-1, 1), randf_range(-1, 1)) * (k * 2.0)
 		# пока на экране тревога (заголовок, полоса, «ТРЕВОГА ОТБИТА»), анонсы идут ниже неё
 		var ay := 112.0 if game.alarm_overlay.visible else 78.0
-		_text_c(_w * 0.5 + jitter.x, ay + jitter.y, game.announce_text, col, fs, true)
+		_text_c(_w * 0.5, ay, game.announce_text, col, 20, true)
+	# радио Диспетчера: стабильная строка под часами, короткое появление и затухание
+	if game.radio_t > 0.0 and not covered and not game.trader_ui.visible:
+		var fade := clampf((game.RADIO_TIME - game.radio_t) / 0.25, 0.0, 1.0) * clampf(game.radio_t / 0.6, 0.0, 1.0)
+		var rc: Color = game.radio_color
+		rc.a = fade
+		_text_c(_w * 0.5, 66.0 if game.alarm_overlay.visible else 46.0, game.radio_text, rc, 9, true)
 	if combat_cursor_visible():
 		_draw_crosshair(player)
 	_flush_text()
@@ -663,6 +668,9 @@ func _draw_kills() -> void:
 	_panel(r, ACCENT_DIM)
 	_text(Vector2(r.position.x + 5, r.position.y + 12), "УБИТО", DIM, 6)
 	_text_r(r.end.x - 5, r.position.y + 12, _n(game.kills), TEXT, 9)
+	# мультикилл: небольшая метка слева от счётчика убийств, затухает за 1.6 с
+	if game.multikill_t > 0.0:
+		_text_r(r.position.x - 8.0, r.position.y + 12.0, game.multikill_text, Color(HOT, clampf(game.multikill_t * 2.0, 0.0, 1.0)), 9, true)
 	if game.combo >= 5:
 		var pulse := 1.0 + 0.08 * sin(_clock * 12.0)
 		var cr := Rect2(r.position.x, r.end.y + 2.0, r.size.x, 14.0)

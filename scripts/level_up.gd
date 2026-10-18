@@ -7,7 +7,7 @@ signal chosen(card: Dictionary, slot: int)
 signal reroll_requested
 
 const CARD_W := 150.0
-const CARD_H := 138.0
+const CARD_H := 184.0
 const GAP := 12.0
 const FONT := 10
 
@@ -18,7 +18,7 @@ var cards: Array = []
 var _card: Dictionary = {} # выбранная карта на шаге выбора ствола
 var _ui := 3.0
 var _rects: Array[Rect2] = []
-var _hover := -1
+var _hover := -1 # карта под мышью или выбранная стрелками: для неё видны подробности
 var _t := 0.0
 var _title := "" # режим награды (контейнер, деталь): свой заголовок вместо «УРОВЕНЬ N»
 var _subtitle := ""
@@ -28,6 +28,7 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	visible = false
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	Progression.preload_icons()
 
 
 ## title != "" — режим награды: свой заголовок, реролла нет (выбор не из Level Up).
@@ -79,6 +80,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			_pick(2)
 		KEY_4, KEY_KP_4:
 			_pick(3)
+		KEY_LEFT, KEY_A:
+			_focus(-1)
+		KEY_RIGHT, KEY_D:
+			_focus(1)
 		KEY_Q:
 			if _card.is_empty() and progression.rerolls > 0 and _title == "":
 				_sound("confirm")
@@ -89,6 +94,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			_sound("click")
 			_card = {}
 	get_viewport().set_input_as_handled()
+
+
+## Стрелки двигают выделение карты (подробности ранга), выбор остаётся на клавишах 1–4 и мыши.
+func _focus(step: int) -> void:
+	if not _card.is_empty() or cards.is_empty():
+		return
+	_hover = 0 if _hover < 0 else clampi(_hover + step, 0, cards.size() - 1)
 
 
 func _rect_at(p: Vector2) -> int:
@@ -149,36 +161,70 @@ func _draw_cards(font: Font, w: float, h: float) -> void:
 		_text_c(font, Vector2(w * 0.5, 76), _subtitle, Color(0.7, 0.7, 0.66))
 	var total := cards.size() * CARD_W + (cards.size() - 1) * GAP
 	var x0 := (w - total) * 0.5
-	var y0 := h * 0.5 - CARD_H * 0.5 + 10.0
+	var y0 := h * 0.5 - CARD_H * 0.5 + 6.0
+	var pop := clampf(_t * 8.0, 0.0, 1.0) # короткое общее появление, без выезда по очереди
 	for i in cards.size():
 		var d := progression.describe(cards[i])
-		var pop := clampf(_t * 6.0 - i * 0.6, 0.0, 1.0) # карты выезжают по очереди
-		var r := Rect2(x0 + i * (CARD_W + GAP), y0 + (1.0 - pop) * 30.0, CARD_W, CARD_H)
+		var r := Rect2(x0 + i * (CARD_W + GAP), y0 + (1.0 - pop) * 8.0, CARD_W, CARD_H)
 		_rects.append(r)
 		var col: Color = d["color"]
 		var hover := _hover == i
-		draw_rect(r, Color(0.08, 0.07, 0.07, 0.95 * pop))
-		draw_rect(r, Color(col, (0.9 if hover else 0.5) * pop), false, 1.0)
-		draw_rect(Rect2(r.position, Vector2(r.size.x, 3)), Color(col, 0.8 * pop))
-		_text(font, r.position + Vector2(8, 16), d["kind"], Color(col, 0.75 * pop), 8)
-		_text(font, r.position + Vector2(8, 32), d["title"], Color(col, pop), 12)
-		var y := 50.0
-		for line: String in d["lines"]:
-			for part in _wrap(font, line, CARD_W - 16.0, 9):
-				_text(font, r.position + Vector2(8, y), part, Color(0.8, 0.8, 0.76, pop), 9)
-				y += 11.0
-		if d.has("ranks"):
-			y += 3.0
-			for k in 3:
-				var rank_line := "%s: %s" % [WeaponDefs.ROMAN[k + 1], d["ranks"][k]]
-				for part in _wrap(font, rank_line, CARD_W - 16.0, 8):
-					_text(font, r.position + Vector2(8, y), part, Color(0.65, 0.68, 0.72, pop), 8)
-					y += 9.5
+		draw_rect(r, Color(0.07, 0.065, 0.065, 0.96 * pop))
+		draw_rect(r, Color(col if hover else Color(0.6, 0.6, 0.58), (0.9 if hover else 0.25) * pop), false, 1.0)
+		_text(font, r.position + Vector2(8, 16), d["kind"], Color(col, 0.8 * pop), 8)
 		_text(font, r.position + Vector2(CARD_W - 14, 16), str(i + 1), Color(1, 1, 1, 0.5 * pop), 10)
+		# пиктограмма на тёмной плите
+		var plate := Rect2(r.position + Vector2(8, 24), Vector2(CARD_W - 16, 44))
+		draw_rect(plate, Color(0.03, 0.03, 0.03, 0.9 * pop))
+		_draw_icon(d, plate, pop)
+		var y := 84.0
+		for part in _wrap(font, str(d["title"]), CARD_W - 16.0, 11):
+			_text(font, r.position + Vector2(8, y), part, Color(col, pop), 11)
+			y += 13.0
+		y += 1.0
+		if d["sub"] != "":
+			for part in _wrap(font, str(d["sub"]), CARD_W - 16.0, 8):
+				_text(font, r.position + Vector2(8, y), part, Color(0.62, 0.62, 0.58, pop), 8)
+				y += 9.5
+			y += 2.0
+		for line: String in d["front"]:
+			for part in _wrap(font, line, CARD_W - 16.0, 9):
+				_text(font, r.position + Vector2(8, y), part, Color(0.9, 0.88, 0.82, pop), 9)
+				y += 11.0
+		# подробности: по наведению или выбору стрелками
+		var more: Array = d["more"]
+		if not more.is_empty():
+			var dy := maxf(CARD_H - 40.0, y + 10.0)
+			draw_rect(Rect2(r.position + Vector2(8, dy - 8), Vector2(CARD_W - 16, 1)), Color(1, 1, 1, 0.12 * pop))
+			if hover:
+				for line: String in more:
+					for part in _wrap(font, line, CARD_W - 16.0, 8):
+						_text(font, r.position + Vector2(8, dy + 2), part, Color(0.72, 0.74, 0.78, pop), 8)
+						dy += 9.5
+			else:
+				_text(font, r.position + Vector2(8, dy + 2), "подробнее: наведи / ← →", Color(0.5, 0.5, 0.47, pop), 7)
 	var hint := "1–%d / клик — выбрать" % cards.size()
 	if progression.rerolls > 0 and _title == "":
 		hint += " · Q — реролл (%d)" % progression.rerolls
-	_text_c(font, Vector2(w * 0.5, y0 + CARD_H + 26.0), hint, Color(0.6, 0.6, 0.56), 9)
+	_text_c(font, Vector2(w * 0.5, y0 + CARD_H + 22.0), hint, Color(0.6, 0.6, 0.56), 9)
+
+
+## Пиктограмма карты по центру плиты: спрайт ствола вписывается, иконка детали — крупнее в 4/3.
+func _draw_icon(d: Dictionary, plate: Rect2, alpha: float) -> void:
+	var icon_name: String = d["icon"]
+	if icon_name == "":
+		return
+	var tex := Progression.card_icon(icon_name)
+	if tex == null:
+		return
+	var k := 4.0 / 3.0
+	if d.get("icon_gun", false):
+		k = 1.0
+		while k > 0.34 and (tex.get_width() * k > plate.size.x - 8.0 or tex.get_height() * k > plate.size.y - 4.0):
+			k -= 1.0 / 3.0
+	var sz := tex.get_size() * k
+	var pos := ((plate.get_center() - sz * 0.5) * _ui).round() / _ui
+	draw_texture_rect(tex, Rect2(pos, sz), false, Color(1, 1, 1, alpha))
 
 
 func _draw_slots(font: Font, w: float, h: float) -> void:

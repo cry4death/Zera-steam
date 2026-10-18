@@ -97,7 +97,10 @@ static func _operation(state: Dictionary, region: String, type: String, threat: 
 	if modifiers.has("resource_cache"):
 		mul += float(CampaignCatalog.BALANCE["cache_dna_bonus"])
 		chance += float(CampaignCatalog.BALANCE["cache_crate_bonus"])
-	var name := "%s %s" % [CampaignCatalog.NAMES_FIRST[rng.randi_range(0, CampaignCatalog.NAMES_FIRST.size() - 1)], CampaignCatalog.NAMES_LAST[rng.randi_range(0, CampaignCatalog.NAMES_LAST.size() - 1)]]
+	# Два пустых броска прежнего генератора имён: без них сдвинется seed операции.
+	rng.randi_range(0, CampaignCatalog.LEGACY_NAME_DRAWS - 1)
+	rng.randi_range(0, CampaignCatalog.LEGACY_NAME_DRAWS - 1)
+	var name: String = CampaignCatalog.OP_NAMES[type]
 	return {"id": "%s-%s-%d-%d" % [type, region, state["turn"], slot], "region_id": region,
 		"type": type, "seed": int(rng.randi() & 0x7fffffff), "offered_turn": int(state["turn"]),
 		"name": name, "briefing": "Диспетчер: объект подтверждён. Уничтожьте источник заражения." if type == "nest" else "Диспетчер: зачистите периметр. Уничтожьте носителя сигнала.",

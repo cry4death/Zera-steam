@@ -141,9 +141,9 @@ var _xdmg := PackedFloat32Array()
 var _xrad := PackedFloat32Array()
 var _xflag := PackedByteArray()
 
-# эффекты для отрисовки: лучи [от, до, ширина, время, цвет], взрывы [центр, радиус, время]
+# эффекты для отрисовки: лучи [от, до, ширина, время, цвет]
 var _beams: Array = []
-var _blasts: Array = []
+var last_explosion := Vector2.INF # точка последнего взрыва (проверки --aim-test)
 # Вспышек мало (до четырёх стволов); один общий аддитивный слой.
 const FLASH_KINDS := ["rifle", "shotgun", "rifle", "launcher", "small", "small", "small", "sniper"]
 var _flashes: Array = [] # [позиция, угол, время, основа, тинт, масштаб, поворот, вариант, жизнь]
@@ -834,7 +834,7 @@ func _on_kill(slot: int, e: int, dir: Vector2, depth: int) -> void:
 ## slot >= 0 — взрыв ствола (патроны, детонатор), slot = -1 — «ничей» (граната игрока):
 ## урон без эффектов патронов, любая смерть — гибы.
 func explode(at: Vector2, dmg: float, radius: float, slot := -1, depth := 0, gibs := false) -> void:
-	_blasts.append([at, radius, 0.0])
+	last_explosion = at
 	if sfx:
 		sfx.play("explosions/grenade", at, -2.0)
 	if effects:
@@ -1087,12 +1087,6 @@ func _age_fx(delta: float) -> void:
 		if _beams[k][3] > 0.14:
 			_beams.remove_at(k)
 		k -= 1
-	k = _blasts.size() - 1
-	while k >= 0:
-		_blasts[k][2] += delta
-		if _blasts[k][2] > 0.22:
-			_blasts.remove_at(k)
-		k -= 1
 	var f := _flashes.size() - 1
 	while f >= 0:
 		_flashes[f][2] -= delta
@@ -1121,11 +1115,6 @@ func _draw() -> void:
 		var c: Color = beam[4]
 		draw_line(beam[0], beam[1], Color(c, 0.35 * k), beam[2] * 1.8 * k + 1.0)
 		draw_line(beam[0], beam[1], Color(1, 1, 1, 0.9 * k), maxf(beam[2] * 0.35 * k, 0.6))
-	for bl: Array in _blasts:
-		var k: float = bl[2] / 0.22
-		var r: float = bl[1] * (0.4 + 0.6 * k)
-		draw_arc(bl[0], r, 0.0, TAU, 24, Color(1.0, 0.8, 0.4, 0.8 * (1.0 - k)), 2.0)
-		PixelArt.draw_dot(self, bl[0], r * 0.6 * (1.0 - k), Color(1.0, 0.85, 0.5, 0.6 * (1.0 - k)))
 	# Дым остаётся в обычном смешивании, огонь — в общем аддитивном слое.
 	for fl: Array in _flashes:
 		if fl[3] != WeaponDefs.Base.SNIPER and fl[3] != WeaponDefs.Base.LAUNCHER:

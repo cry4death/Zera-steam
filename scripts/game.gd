@@ -94,6 +94,14 @@ var best_combo := 0
 var announce_text := ""
 var announce_t := 0.0
 var announce_color := Color(0.9, 0.15, 0.1)
+# Радио Диспетчера — отдельная стабильная строка под часами, не крупное объявление.
+const RADIO_TIME := 3.2
+var radio_text := ""
+var radio_t := 0.0
+var radio_color := Color(0.75, 0.85, 0.8)
+# Мультикилл — небольшая метка у счётчика убийств.
+var multikill_text := ""
+var multikill_t := 0.0
 var _combo_timer := 0.0
 var _burst_count := 0
 var _burst_t := -1.0
@@ -860,12 +868,12 @@ func _physics_process(delta: float) -> void:
 func _process(delta: float) -> void:
 	if blood_alarm.phase != _dispatch_alarm_phase:
 		if blood_alarm.phase == BloodAlarm.Phase.WARN or (blood_alarm.phase == BloodAlarm.Phase.ACTIVE and _dispatch_alarm_phase != BloodAlarm.Phase.WARN):
-			_announce(_dispatch_line("alarm"))
+			_radio("alarm", Color(1.0, 0.45, 0.35), true)
 		_dispatch_alarm_phase = blood_alarm.phase
 	mission_banner_t = maxf(0.0, mission_banner_t - delta)
 	if not _dispatch_started and mission_banner_t <= 0.0:
 		_dispatch_started = true
-		_announce(_dispatch_line("start"), Color(0.75, 0.85, 0.8))
+		_radio("start", Color(0.75, 0.85, 0.8))
 	boss_phase_flash = maxf(0.0, boss_phase_flash - delta)
 	if _boss_reward_pos != Vector2.INF:
 		_boss_reward_age += delta
@@ -880,6 +888,8 @@ func _process(delta: float) -> void:
 	if _combo_timer <= 0.0:
 		combo = 0
 	announce_t = maxf(announce_t - delta, 0.0)
+	radio_t = maxf(radio_t - delta, 0.0)
+	multikill_t = maxf(multikill_t - delta, 0.0)
 	screen_blood.low_hp = 0.0 # мягкая виньетка теперь рисуется под HUD
 
 
@@ -967,7 +977,8 @@ func _on_enemy_killed(pos: Vector2, _dir: Vector2, _death: int, _facing: float, 
 	if time - _burst_t < MULTIKILL_WINDOW:
 		_burst_count += 1
 		if _burst_count in [4, 6, 10, 15]:
-			_announce("МУЛЬТИКИЛЛ ×%d" % _burst_count)
+			multikill_text = "МУЛЬТИКИЛЛ ×%d" % _burst_count
+			multikill_t = 1.6
 	else:
 		_burst_count = 1
 	_burst_t = time
@@ -1013,7 +1024,7 @@ func _on_grenade_landed(at: Vector2) -> void:
 
 ## Контейнер тревоги упал: он лежит до подбора (см. Pickups).
 func _on_container_dropped(pos: Vector2) -> void:
-	_announce(_dispatch_line("supply"), Color(1.0, 0.82, 0.35))
+	_radio("supply", Color(1.0, 0.82, 0.35))
 	_alarm_end_t = time
 	pickups.spawn(pos, Pickups.Kind.CONTAINER)
 	if _alarm and _shot_path != "":
@@ -1210,7 +1221,7 @@ func _open_trader() -> void:
 
 
 func _on_trader_closed() -> void:
-	_announce(_dispatch_line("trader"), Color(1.0, 0.82, 0.35))
+	_radio("trader", Color(1.0, 0.82, 0.35))
 	# Space закрывает лавку и он же рывок: ждём физический кадр, чтобы нажатие не стало рывком
 	await get_tree().physics_frame
 	await get_tree().physics_frame
@@ -1260,14 +1271,23 @@ func _dispatch_line(event: String) -> String:
 	var count := int(_dispatch_counts.get(event, 0))
 	_dispatch_counts[event] = count + 1
 	var variants: Array = DISPATCH[event]
-	return "ДИСПЕТЧЕР: " + str(variants[posmod(Meta.runs + count, variants.size())])
+	return "Диспетчер: " + str(variants[posmod(Meta.runs + count, variants.size())])
 
 
+## Крупное объявление: пороги серий, редкие события. Без тряски камеры — она у срочных предупреждений.
 func _announce(text: String, color := Color(0.9, 0.15, 0.1)) -> void:
 	announce_text = text
 	announce_color = color
 	announce_t = 1.4
-	camera.shake(2.0)
+
+
+## Реплика Диспетчера: стабильная строка под часами. Срочные (тревога, босс на подходе) ещё и трясут камеру.
+func _radio(event: String, color := Color(0.75, 0.85, 0.8), urgent := false) -> void:
+	radio_text = _dispatch_line(event)
+	radio_color = color
+	radio_t = RADIO_TIME
+	if urgent:
+		camera.shake(2.0)
 
 
 func _on_splatter(pos: Vector2, strength: float) -> void:
@@ -1291,7 +1311,7 @@ func _on_player_died() -> void:
 		return
 	game_over = true
 	spawner.enabled = false
-	_announce(_dispatch_line("evac"))
+	_radio("evac", Color(1.0, 0.45, 0.35))
 	camera.shake(6.0)
 	for i in 4:
 		effects.blood_hit(player.global_position, Vector2.from_angle(randf() * TAU), true)
@@ -1390,7 +1410,8 @@ func _alarm_step(delta: float) -> void:
 	if not _alarm_shot_done and t_rel >= BloodAlarm.WARN_TIME + 15.0:
 		_alarm_shot_done = true
 		if _shot_path != "":
-			_announce("МУЛЬТИКИЛЛ ×15") # проверка: анонс не перекрывает заголовок тревоги
+			_announce("МЯСОРУБКА!") # проверка: анонс не перекрывает заголовок тревоги
+			_radio("alarm", Color(1.0, 0.45, 0.35), true)
 			await RenderingServer.frame_post_draw
 			get_viewport().get_texture().get_image().save_png(_shot_path)
 			print("ALARM screenshot: ", _shot_path)
@@ -1788,7 +1809,7 @@ func _hud_shot(suffix: String) -> void:
 func _boss_timeline() -> void:
 	if time >= 570.0 and not _boss_warned:
 		_boss_warned = true
-		_announce(_dispatch_line("approach"), Color(1.0, 0.34, 0.16))
+		_radio("approach", Color(1.0, 0.34, 0.16), true)
 		camera.shake(6.0)
 	if time < 600.0 or _boss_spawned:
 		return
@@ -1831,6 +1852,7 @@ func _on_boss_phase(_phase: int) -> void:
 	sfx.play("zombies/boss_roar", boss.position, 1.0, 0.02)
 	boss_phase_flash = 0.7
 	_announce("БРОНЯ СОРВАНА", Color(1.0, 0.36, 0.18))
+	camera.shake(2.0)
 
 
 ## Реальные секунды: хит-стоп и замедление не растягивают задержку до итогов.
@@ -1863,7 +1885,7 @@ func _on_boss_died(at: Vector2) -> void:
 	horde.death_override = previous
 	if _boss_test:
 		print("BOSS death cpu: burst=%.2f ms, total handler=%.2f ms" % [_boss_dbg_burst_ms, (Time.get_ticks_usec() - _boss_death_usec) / 1000.0])
-	_announce(_dispatch_line("boss"), Color(1.0, 0.82, 0.35))
+	_radio("boss", Color(1.0, 0.82, 0.35))
 	if _boss_test or _sim:
 		print("BOSS killed fight_s=%.2f military_crates=%d" % [time - _boss_started, military_crates])
 		print("MISSION_RESULT outcome=victory time=%.2f kills=%d peak=%d level=%d damage=%.2f" % [time, kills, _run_peak, progression.level, player.damage_taken])
@@ -2352,8 +2374,8 @@ func _run_aim_test() -> void:
 	while not weapons._gpos.is_empty():
 		await get_tree().physics_frame
 	await get_tree().process_frame
-	var explosion_ok := not weapons._blasts.is_empty() and Vector2(weapons._blasts.back()[0]).distance_to(expected) < 5.0
-	var explosion_error := Vector2(weapons._blasts.back()[0]).distance_to(expected) if not weapons._blasts.is_empty() else INF
+	var explosion_ok := weapons.last_explosion != Vector2.INF and weapons.last_explosion.distance_to(expected) < 5.0
+	var explosion_error := weapons.last_explosion.distance_to(expected) if weapons.last_explosion != Vector2.INF else INF
 	print("AIMTEST launcher explosion_error_px=%.3f" % explosion_error)
 	_aim_check(explosion_ok, "launcher_explosion_at_cursor")
 	await _aim_move(Vector2(260, -35))
