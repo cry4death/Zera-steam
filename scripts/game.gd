@@ -2410,14 +2410,17 @@ func _run_base_test() -> void:
 		await _boss_screenshot("base_defeat")
 		BaseScreen._check("defeat rewards once+paused", Meta.runs == 1 and get_tree().paused)
 		BaseScreen._test_stage = 2
-		var again := InputEventKey.new()
-		again.keycode = KEY_R
-		again.physical_keycode = KEY_R
-		again.pressed = true
-		Input.parse_input_event(again)
-		again = again.duplicate()
-		again.pressed = false
-		Input.parse_input_event(again)
+		# первое R пропускает отсчёт итогов, второе — перезапуск
+		for n in 2:
+			var again := InputEventKey.new()
+			again.keycode = KEY_R
+			again.physical_keycode = KEY_R
+			again.pressed = true
+			Input.parse_input_event(again)
+			again = again.duplicate()
+			again.pressed = false
+			Input.parse_input_event(again)
+			await get_tree().create_timer(0.1, true).timeout
 	else:
 		BaseScreen._check("restart main scene+meta kept", Meta.runs == 1 and not game_over and not get_tree().paused)
 		time = 120.0
@@ -2428,14 +2431,17 @@ func _run_base_test() -> void:
 		await get_tree().create_timer(1.8, true).timeout
 		await _boss_screenshot("base_results")
 		BaseScreen._check("victory rewards once+paused", Meta.runs == 2 and get_tree().paused)
-		var home := InputEventMouseButton.new()
-		home.position = results._base_button.get_center() * results._ui
-		home.button_index = MOUSE_BUTTON_LEFT
-		home.pressed = true
-		Input.parse_input_event(home)
-		home = home.duplicate()
-		home.pressed = false
-		Input.parse_input_event(home)
+		# первый клик пропускает отсчёт итогов, второй — «База»
+		for n in 2:
+			var home := InputEventMouseButton.new()
+			home.position = results._base_button.get_center() * results._ui
+			home.button_index = MOUSE_BUTTON_LEFT
+			home.pressed = true
+			Input.parse_input_event(home)
+			home = home.duplicate()
+			home.pressed = false
+			Input.parse_input_event(home)
+			await get_tree().create_timer(0.1, true).timeout
 
 
 func _draw_boss_reward() -> void:
