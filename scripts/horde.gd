@@ -13,6 +13,8 @@ signal enemy_hit(pos: Vector2, dir: Vector2, variant: int)
 signal player_touched(damage: float)
 
 enum Kind { SHAMBLER, RUNNER, FAT, SPITTER }
+## Что зомби сейчас делает (чувства, задачи Z1–Z2): преследует игрока, бродит, идёт на звук.
+enum Mind { CHASE, WANDER, INVESTIGATE }
 
 const KINDS := [
 	{"hp": 10.0, "speed": 28.0, "damage": 6.0, "xp": 1, "credit_chance": 0.06, "credits": 1},
@@ -49,6 +51,22 @@ const LUNGE_SPEED := 1.35
 const TURN_RATE := 7.0 # плавность поворота (1/с): нет «поворотов под прямым углом»
 const RUNNER_TURN_RATE := 11.0
 const FRONT_PUSH := 0.3 # доля расталкивания, которую получает тот, кто ближе к игроку
+# Чувства (BALANCE.md §13): зрение со стенами, слух, память, стая.
+const VISION_RANGE := 320.0
+const VISION_COS := 0.34 # конус ±70° по направлению взгляда
+const VISION_NEAR := 90.0 # ближе — видит во все стороны
+const SMELL_RANGE := 70.0 # вплотную чует всегда
+const ROOF_VISION := 1.3 # с крыши машины видно дальше
+const SEE_FRESH := 0.5 # столько секунд после взгляда идёт прямо на игрока
+const MEMORY := 5.0 # потерял из виду — столько ищет у последней точки
+const WANDER_SPEED := 0.5
+const INVESTIGATE_SPEED := 0.9
+const PACK_RADIUS := 220.0 # крик заметившего слышат соседи
+const SCREAM_COOLDOWN := 0.4
+const HIDE_LIMIT := 12.0 # игрока никто не видел и не слышал — орда идёт «по запаху»
+const SCENT_RADIUS := 700.0
+const RAYS_PER_TICK := 48
+const ARRIVE := 28.0
 
 @export var hp_growth_per_min := 0.12
 @export var damage_growth_per_min := 0.05
@@ -72,6 +90,29 @@ var knock := PackedVector2Array()
 var steer := PackedVector2Array() # кэш направления обхода (O1), ZERO — прямо
 var heading := PackedVector2Array() # куда зомби сейчас идёт (поворачивает плавно)
 var climb := PackedByteArray() # 1 — лезет через машину или блок
+var mind := PackedByteArray() # Mind
+var goal := PackedVector2Array() # куда идёт: точка шума, последняя точка игрока, точка брожения
+var goal_t := PackedFloat32Array() # <0 — идёт к цели; >=0 — стоит у цели (осталось, с)
+var seen_at := PackedFloat32Array() # когда последний раз видел игрока (время орды)
+var noise_lvl := PackedFloat32Array() # сила звука, за которым идёт (громче — перебивает)
+var prev := PackedVector2Array() # позиция на прошлом «обдумывании» — для «застрял»
+var stuck := PackedByteArray()
+var senses := true # false (--no-senses) — все всегда знают, где игрок (старое поведение)
+var global_alert := false # тревога, босс: все преследуют
+var poi := PackedVector2Array() # точки брожения (сценки, входы, круги карты)
+var known_t := 0.0 # сколько секунд игрока никто не видел и не слышал
+var player_known_at := Vector2.INF
+var sfx: Sfx
+var debug_senses := false
+var spotted_total := 0 # для теста и отчёта
+var _rays := 0
+var _scream_cd := 0.0
+var _noise_at := PackedVector2Array()
+var _noise_to := PackedVector2Array()
+var _noise_r := PackedFloat32Array()
+var _noise_s := PackedFloat32Array()
+var _rings: Array[Vector3] = [] # отладка: кольца шума (x, y, радиус) и их возраст
+var _ring_age := PackedFloat32Array()
 var hp := PackedFloat32Array()
 var max_hp := PackedFloat32Array()
 var speed := PackedFloat32Array()
@@ -126,6 +167,13 @@ func _ready() -> void:
 	steer.resize(MAX_ENEMIES)
 	heading.resize(MAX_ENEMIES)
 	climb.resize(MAX_ENEMIES)
+	mind.resize(MAX_ENEMIES)
+	goal.resize(MAX_ENEMIES)
+	goal_t.resize(MAX_ENEMIES)
+	seen_at.resize(MAX_ENEMIES)
+	noise_lvl.resize(MAX_ENEMIES)
+	prev.resize(MAX_ENEMIES)
+	stuck.resize(MAX_ENEMIES)
 	hp.resize(MAX_ENEMIES)
 	max_hp.resize(MAX_ENEMIES)
 	speed.resize(MAX_ENEMIES)
@@ -209,6 +257,14 @@ func spawn(p: Vector2, k := Kind.SHAMBLER, is_elite := false) -> int:
 	steer[i] = Vector2.ZERO
 	heading[i] = (player.global_position - pos[i]).normalized() if player else Vector2.ZERO
 	climb[i] = 0
+	# По умолчанию новый зомби знает, где игрок (группы спавнера потом решает arrive()).
+	mind[i] = Mind.CHASE
+	goal[i] = player.global_position if player else pos[i]
+	goal_t[i] = -1.0
+	seen_at[i] = _time
+	noise_lvl[i] = 0.0
+	prev[i] = pos[i]
+	stuck[i] = 0
 	hp[i] = KINDS[k]["hp"] * (1.0 + hp_growth_per_min * minutes) * (ELITE_HP if is_elite else 1.0)
 	max_hp[i] = hp[i]
 	# Даже самый медленный бегун быстрее базовых 80 px/с игрока.
@@ -468,6 +524,21 @@ func _physics_process(delta: float) -> void:
 	_time += delta
 	_run_shatter()
 	_compact()
+	_rays = 0
+	_scream_cd = maxf(_scream_cd - delta, 0.0)
+	if senses:
+		known_t += delta
+		if known_t > HIDE_LIMIT and not global_alert:
+			# Спрятался и молчит: ближние идут «по запаху» туда, где он сейчас, — но должны ещё увидеть.
+			noise(player.global_position, SCENT_RADIUS, 1.5)
+			known_t = HIDE_LIMIT - 4.0
+		_hear()
+	if debug_senses:
+		for n in range(_ring_age.size() - 1, -1, -1):
+			_ring_age[n] += delta
+			if _ring_age[n] > 0.6:
+				_ring_age.remove_at(n)
+				_rings.remove_at(n)
 	_move(delta)
 	_rebuild_grid()
 	_separate()
@@ -539,14 +610,35 @@ func _move(delta: float) -> void:
 				damage(i, burn_dps[i] * delta, Vector2.ZERO, 0.0, WeaponDefs.Ammo.INCENDIARY)
 		if dead[i] == 1: # огонь мог убить в этом кадре
 			continue
-		var move_dir := dir
-		if obstacles and (d > 90.0 or near[clampi(int(p.x / CELL), 0, gw1) + clampi(int(p.y / CELL), 0, gh1) * ogw] != 0):
+		# Чувства: зомби думает раз в 8 тиков, вразбивку.
+		if senses and (i + _frame) & 7 == 0:
+			_think(i, p, ppos, d)
+		var m := mind[i] if senses else Mind.CHASE
+		var chasing := m == Mind.CHASE
+		var target := ppos
+		var mul := 1.0
+		if chasing:
+			if senses and _time - seen_at[i] > SEE_FRESH:
+				target = goal[i] # потерял из виду — к последней точке
+		else:
+			target = goal[i]
+			mul = INVESTIGATE_SPEED if m == Mind.INVESTIGATE else WANDER_SPEED
+		var tto := target - p
+		var td := tto.length()
+		var tdir := tto / td if td > 0.001 else Vector2.ZERO
+		var move_dir := tdir
+		if not chasing and goal_t[i] >= 0.0:
+			move_dir = Vector2.ZERO # стоит у цели и оглядывается
+			heading[i] = heading[i].rotated(sin(_time * 0.7 + seed_value[i] * 30.0) * 1.2 * delta)
+		elif chasing and target != ppos and td < ARRIVE:
+			move_dir = Vector2.ZERO
+		if move_dir != Vector2.ZERO and obstacles and (td > 90.0 or near[clampi(int(p.x / CELL), 0, gw1) + clampi(int(p.y / CELL), 0, gh1) * ogw] != 0):
 			# Направление поля обходов обновляется раз в 4 тика на зомби: ZERO — идти прямо.
 			if (i + _frame) & 3 == 0:
-				steer[i] = obstacles.steering(p, dir)
+				steer[i] = obstacles.steering(p, tdir) if target == ppos else obstacles.steer_to(p, tdir, target)
 			if steer[i] != Vector2.ZERO:
 				move_dir = steer[i]
-		if kind[i] == Kind.SPITTER:
+		if kind[i] == Kind.SPITTER and chasing:
 			spit_cd[i] = maxf(spit_cd[i] - delta, 0.0)
 			if not frozen:
 				if spit_windup[i] > 0.0:
@@ -562,21 +654,24 @@ func _move(delta: float) -> void:
 		# Поворот с запаздыванием: дуги вместо ступенек поля обхода и рывков за игроком.
 		var h := heading[i]
 		if move_dir != Vector2.ZERO:
-			if d > 70.0 and steer[i] == Vector2.ZERO:
+			if td > 70.0 and steer[i] == Vector2.ZERO:
 				# издалека бредут неровно, вблизи цель захвачена
-				var wob := sin(_time * (0.9 + seed_value[i]) + seed_value[i] * 40.0) * 0.22 * clampf((d - 70.0) / 150.0, 0.0, 1.0)
+				var wob := sin(_time * (0.9 + seed_value[i]) + seed_value[i] * 40.0) * (0.22 if chasing else 0.45) * clampf((td - 70.0) / 150.0, 0.0, 1.0)
 				move_dir = move_dir.rotated(wob)
 			var rate := RUNNER_TURN_RATE if kind[i] == Kind.RUNNER else TURN_RATE
-			h = h.lerp(move_dir, 1.0 - exp(-rate * delta))
-			var hl := h.length()
-			h = h / hl if hl > 0.001 else move_dir
+			# Вращение по углу, а не смешивание векторов: разворот на 180° тоже срабатывает.
+			if h == Vector2.ZERO:
+				h = move_dir
+			else:
+				h = h.rotated(h.angle_to(move_dir) * (1.0 - exp(-rate * delta)))
 			heading[i] = h
 			# Походка рывками: шаг — толчок, между шагами медленнее. В среднем скорость прежняя.
 			if kind[i] == Kind.RUNNER:
 				spd *= 0.95 + 0.1 * sin(_time * 14.0 + seed_value[i] * TAU)
 			else:
 				spd *= 0.89 + 0.35 * maxf(sin(_time * (7.0 + seed_value[i] * 3.0) + seed_value[i] * TAU), 0.0)
-			if d < LUNGE_DIST and kind[i] != Kind.SPITTER:
+			spd *= mul
+			if chasing and d < LUNGE_DIST and kind[i] != Kind.SPITTER:
 				spd *= LUNGE_SPEED # последний бросок на игрока
 			if climb[i] == 1:
 				spd *= CLIMB_SPEED
@@ -608,7 +703,7 @@ func _move(delta: float) -> void:
 		# Смотрит туда, куда идёт; вблизи — на игрока.
 		var a := angle[i]
 		if freeze_t[i] <= 0.0:
-			a = dir.angle() if d < 60.0 or heading[i] == Vector2.ZERO else heading[i].angle()
+			a = dir.angle() if (chasing and d < 60.0) or heading[i] == Vector2.ZERO else heading[i].angle()
 		if stage[i] == 3 and freeze_t[i] <= 0.0:
 			a += sin(_time * 7.0 + seed_value[i] * 20.0) * 0.35 # еле живые шатаются
 		angle[i] = a
@@ -623,6 +718,218 @@ func _move(delta: float) -> void:
 				step_acc[i] = sa
 	if touch_damage > 0.0:
 		player_touched.emit(touch_damage)
+
+
+## Шум: всех в радиусе, кто не преследует, тянет к target (по умолчанию — к источнику).
+## strength: 1 — крик стаи, 1.5 — «запах», 2 — выстрел, 3 — взрыв, граната, сигнализация.
+## Шумы одного тика с близкой целью склеиваются (автострельба не создаёт сотни событий).
+func noise(at: Vector2, radius_px: float, strength: float, target := Vector2.INF) -> void:
+	if not senses or radius_px <= 0.0:
+		return
+	if target == Vector2.INF:
+		target = at
+	for n in _noise_to.size():
+		if _noise_to[n].distance_squared_to(target) < 2304.0 and _noise_at[n].distance_squared_to(at) < 2304.0:
+			_noise_r[n] = maxf(_noise_r[n], radius_px)
+			_noise_s[n] = maxf(_noise_s[n], strength)
+			return
+	_noise_at.append(at)
+	_noise_to.append(target)
+	_noise_r.append(radius_px)
+	_noise_s.append(strength)
+
+
+## Все сразу знают, где игрок (рёв босса, тревога).
+func alert_all() -> void:
+	if player == null:
+		return
+	for i in count:
+		if dead[i] == 0:
+			mind[i] = Mind.CHASE
+			seen_at[i] = _time
+			goal[i] = player.global_position
+	known_t = 0.0
+
+
+## Новая группа спавнера: бегуны сразу преследуют; остальные идут на последний шум игрока или бродят.
+func arrive(i: int) -> void:
+	if i < 0 or not senses or global_alert or kind[i] == Kind.RUNNER:
+		return
+	if known_t < 6.0 and player_known_at != Vector2.INF:
+		mind[i] = Mind.INVESTIGATE
+		goal[i] = player_known_at + _jitter(i, 50.0)
+		goal_t[i] = -1.0
+		noise_lvl[i] = 2.0
+	else:
+		mind[i] = Mind.WANDER
+		_pick_poi(i)
+
+
+## Группы на карте с самого старта: стоят и бродят у сценок, подальше от игрока.
+func spawn_idle_groups(start: Vector2, groups: int, size: Vector2i, min_dist := 520.0) -> int:
+	var places := PackedVector2Array()
+	for q in poi:
+		if q.distance_to(start) >= min_dist:
+			places.append(q)
+	var spawned := 0
+	for g in mini(groups, places.size()):
+		var pick := randi() % places.size()
+		var center := places[pick]
+		places.remove_at(pick)
+		var linger := randf_range(3.0, 20.0)
+		for j in randi_range(size.x, size.y):
+			var e := spawn(center + Vector2.from_angle(randf() * TAU) * randf_range(4.0, 26.0), Kind.FAT if randf() < 0.08 else Kind.SHAMBLER)
+			if e < 0:
+				return spawned
+			mind[e] = Mind.WANDER
+			goal[e] = center
+			goal_t[e] = linger + randf_range(0.0, 3.0)
+			heading[e] = Vector2.from_angle(randf() * TAU)
+			angle[e] = heading[e].angle()
+			seen_at[e] = -100.0
+			spawned += 1
+	known_t = 0.0
+	return spawned
+
+
+func _jitter(i: int, r: float) -> Vector2:
+	return Vector2.from_angle(seed_value[i] * TAU * 7.0) * r * seed_value[i]
+
+
+## Слух: шумы этого тика будят всех в радиусе, кто не видит игрока прямо сейчас.
+func _hear() -> void:
+	if _noise_at.is_empty() or player == null:
+		return
+	var ppos := player.global_position
+	for n in _noise_at.size():
+		var at := _noise_at[n]
+		var to := _noise_to[n]
+		var r2 := _noise_r[n] * _noise_r[n]
+		var st := _noise_s[n]
+		var from_player := to.distance_squared_to(ppos) < 9216.0
+		if from_player and st >= 2.0:
+			known_t = 0.0
+			player_known_at = ppos
+		if obstacles and st >= 2.5 and not from_player:
+			obstacles.request_noise_field(to)
+		if debug_senses:
+			_rings.append(Vector3(at.x, at.y, _noise_r[n]))
+			_ring_age.append(0.0)
+		for i in count:
+			if dead[i] == 1 or pos[i].distance_squared_to(at) > r2:
+				continue
+			if mind[i] == Mind.CHASE and _time - seen_at[i] < MEMORY:
+				continue
+			if mind[i] == Mind.INVESTIGATE and goal_t[i] < 0.0 and st < noise_lvl[i]:
+				continue
+			mind[i] = Mind.INVESTIGATE
+			goal[i] = to + _jitter(i, 40.0)
+			goal_t[i] = -1.0
+			noise_lvl[i] = st
+			stuck[i] = 0
+	_noise_at.clear()
+	_noise_to.clear()
+	_noise_r.clear()
+	_noise_s.clear()
+
+
+## Зрение и решения одного зомби. Дешёвые проверки первыми, луч — последним и с бюджетом на тик.
+func _think(i: int, p: Vector2, ppos: Vector2, d: float) -> void:
+	var dt := 8.0 / 60.0
+	if global_alert:
+		mind[i] = Mind.CHASE
+		seen_at[i] = _time
+		goal[i] = ppos
+		return
+	var sees := d < SMELL_RANGE
+	if not sees:
+		var on_roof := climb[i] == 1
+		var vr := VISION_RANGE * (ROOF_VISION if on_roof else 1.0)
+		if d < vr and d > 0.001:
+			var look := (ppos - p) / d
+			if d < VISION_NEAR or mind[i] == Mind.CHASE or heading[i].dot(look) > VISION_COS:
+				if obstacles == null:
+					sees = true
+				elif _rays < RAYS_PER_TICK:
+					_rays += 1
+					sees = obstacles.sight_clear(p, ppos, on_roof)
+				elif mind[i] == Mind.CHASE and _time - seen_at[i] < 1.0:
+					sees = true # лучи этого тика кончились: недавно видевший продолжает преследовать
+				else:
+					return # проверит в следующий раз
+	if sees:
+		if mind[i] != Mind.CHASE or _time - seen_at[i] > MEMORY:
+			_spotted(i, p, ppos)
+		mind[i] = Mind.CHASE
+		seen_at[i] = _time
+		goal[i] = ppos
+		known_t = 0.0
+		player_known_at = ppos
+		return
+	noise_lvl[i] = maxf(noise_lvl[i] - 0.5 * dt, 0.0)
+	var m := mind[i]
+	if m == Mind.CHASE:
+		if _time - seen_at[i] > MEMORY or p.distance_squared_to(goal[i]) < ARRIVE * ARRIVE:
+			# дошёл до места, где видел, — стоит и оглядывается
+			mind[i] = Mind.INVESTIGATE
+			goal_t[i] = randf_range(1.5, 3.5)
+			noise_lvl[i] = 0.5
+		prev[i] = p
+		return
+	if goal_t[i] >= 0.0:
+		goal_t[i] -= dt
+		if goal_t[i] < 0.0:
+			mind[i] = Mind.WANDER
+			_pick_poi(i)
+	elif p.distance_squared_to(goal[i]) < ARRIVE * ARRIVE:
+		goal_t[i] = randf_range(2.0, 4.0) if m == Mind.INVESTIGATE else randf_range(2.0, 7.0)
+	elif steer[i] == Vector2.ZERO and p.distance_squared_to(prev[i]) < 0.25 and knock[i].length_squared() < 1.0:
+		# Сдаётся, только если шёл напрямик без маршрута и упёрся; с маршрутом — давит дальше, как толпа.
+		stuck[i] += 1
+		if stuck[i] >= 6: # упёрся в стену — ищет другое место
+			mind[i] = Mind.WANDER
+			_pick_poi(i)
+	else:
+		stuck[i] = 0
+	prev[i] = p
+
+
+## Заметил: рывок головой и телом к игроку, крик для стаи.
+func _spotted(i: int, p: Vector2, ppos: Vector2) -> void:
+	spotted_total += 1
+	var look := (ppos - p).normalized()
+	heading[i] = look
+	knock[i] += look * 45.0
+	if _scream_cd <= 0.0:
+		_scream_cd = SCREAM_COOLDOWN
+		noise(p, PACK_RADIUS, 1.0, ppos)
+		if sfx:
+			sfx.play("zombies/runner", p, -6.0, 0.08)
+
+
+## Новая точка брожения: чаще за соседом-бродягой (держатся кучками), иначе ближайшая из трёх случайных.
+func _pick_poi(i: int) -> void:
+	var p := pos[i]
+	goal_t[i] = -1.0
+	stuck[i] = 0
+	noise_lvl[i] = 0.0
+	if randf() < 0.5 and _grid_w > 0:
+		var c := clampi(int(p.x / CELL), 0, _grid_w - 1) + 1 + (clampi(int(p.y / CELL), 0, _grid_h - 1) + 1) * _stride
+		var j := _head[c]
+		while j != -1:
+			if j != i and j < count and dead[j] == 0 and mind[j] == Mind.WANDER and goal_t[j] < 0.0:
+				goal[i] = goal[j] + _jitter(i, 30.0)
+				return
+			j = _next[j]
+	if poi.is_empty():
+		goal[i] = Vector2(randf_range(arena.position.x + 40.0, arena.end.x - 40.0), randf_range(arena.position.y + 40.0, arena.end.y - 40.0))
+		return
+	var best := poi[randi() % poi.size()]
+	for t in 2:
+		var q := poi[randi() % poi.size()]
+		if q.distance_squared_to(p) < best.distance_squared_to(p) and q.distance_squared_to(p) > 4096.0:
+			best = q
+	goal[i] = best + _jitter(i, 40.0)
 
 
 ## Кровавые следы, если зомби прошёл по луже, и капли с раненых.
@@ -702,6 +1009,13 @@ func _compact() -> void:
 				steer[i] = steer[count]
 				heading[i] = heading[count]
 				climb[i] = climb[count]
+				mind[i] = mind[count]
+				goal[i] = goal[count]
+				goal_t[i] = goal_t[count]
+				seen_at[i] = seen_at[count]
+				noise_lvl[i] = noise_lvl[count]
+				prev[i] = prev[count]
+				stuck[i] = stuck[count]
 				hp[i] = hp[count]
 				max_hp[i] = max_hp[count]
 				speed[i] = speed[count]
@@ -771,6 +1085,8 @@ func _render() -> void:
 
 ## Кишки у еле живых волочатся за спиной (рисуются под спрайтами орды).
 func _draw() -> void:
+	if debug_senses:
+		_draw_senses()
 	for i in count:
 		if stage[i] < 3:
 			continue
@@ -784,6 +1100,25 @@ func _draw() -> void:
 			pts.append(p + back * (k * 2.5) + side * wobble)
 		draw_polyline(pts, Color(0.62, 0.32, 0.34), 1.0)
 		PixelArt.draw_dot(self, pts[4], 0.9, Color(0.45, 0.06, 0.06))
+
+
+## Отладка (F3): цвет состояния, конус взгляда у ближних, кольца шума.
+func _draw_senses() -> void:
+	var view := PixelArt.view_rect(self, 40.0)
+	for n in _rings.size():
+		var r := _rings[n]
+		draw_arc(Vector2(r.x, r.y), r.z, 0.0, TAU, 48, Color(1.0, 0.9, 0.3, 0.5 * (1.0 - _ring_age[n] / 0.6)), 1.0)
+	for i in count:
+		var p := pos[i]
+		if not view.has_point(p):
+			continue
+		var c := Color(1.0, 0.25, 0.2) if mind[i] == Mind.CHASE else (Color(1.0, 0.8, 0.2) if mind[i] == Mind.INVESTIGATE else Color(0.4, 0.8, 1.0))
+		draw_circle(p + Vector2(0, -9), 1.5, c)
+		if mind[i] != Mind.CHASE and player and p.distance_squared_to(player.global_position) < 250000.0:
+			var h := heading[i]
+			var vr := VISION_RANGE * (ROOF_VISION if climb[i] == 1 else 1.0)
+			draw_line(p, p + h.rotated(acos(VISION_COS)) * vr, Color(c, 0.25), 1.0)
+			draw_line(p, p + h.rotated(-acos(VISION_COS)) * vr, Color(c, 0.25), 1.0)
 
 
 static func _make_quad(size: float) -> ArrayMesh:

@@ -66,6 +66,8 @@ var military_crates := 0
 var elites_killed := 0
 var boss_phase_flash := 0.0
 var _boss_test := false
+const IDLE_GROUPS := 7 # групп зомби на карте при старте (Z2)
+const IDLE_GROUP_SIZE := Vector2i(3, 6)
 var _boss_hp := -1.0
 var _boss_warned := false
 var _boss_spawned := false
@@ -167,6 +169,7 @@ var pause_menu: PauseMenu
 var obstacles: Obstacles
 var _layout_seed := 81073
 var _obstacles_test := false
+var _senses_test := false
 var _map_id := ""
 var _map_data: Dictionary = {}
 var _map_test := false
@@ -531,6 +534,180 @@ func _run_map_shots() -> void:
 	get_tree().quit()
 
 
+## Z1–Z2: чувства орды. Сценарии на ровной арене со своими препятствиями, шаг симуляции вручную.
+func _run_senses_test() -> void:
+	set_physics_process(false)
+	set_process(false)
+	horde.set_physics_process(false)
+	hazards.set_physics_process(false)
+	obstacles.set_physics_process(false)
+	horde.senses = true
+	horde.global_alert = false
+	var ok := true
+	var wall: Array[Dictionary] = []
+	for j in 9:
+		wall.append({"kind": Obstacles.Kind.FENCE, "pos": Vector2(1088 + j * 44, 720), "angle": 0.0})
+	wall.append({"kind": Obstacles.Kind.SEDAN, "pos": Vector2(700, 400), "angle": 0.0})
+	obstacles.setup(ARENA, wall)
+	var car := wall.size() - 1
+	var M := Horde.Mind
+	player.position = Vector2(1280, 900)
+	while obstacles.nav_completed == 0:
+		obstacles.navigation_step(0.0, player.position)
+
+	# 1. Стена закрывает обзор: смотрят на игрока через забор 3 с — не замечают.
+	_senses_reset()
+	var hidden: Array[int] = []
+	for j in 8:
+		hidden.append(_senses_spawn(Vector2(1160 + j * 30, 620), M.WANDER, Vector2.DOWN))
+	_senses_run(180)
+	ok = _senses_check(_senses_count(M.CHASE) == 0, "wall_blocks_sight") and ok
+
+	# 2. Открытое место: смотрящие на игрока замечают, отвернувшиеся — нет.
+	_senses_reset()
+	var facing := _senses_spawn(Vector2(1280, 1120), M.WANDER, Vector2.UP)
+	var away := _senses_spawn(Vector2(1520, 1100), M.WANDER, Vector2.RIGHT)
+	_senses_run(60)
+	ok = _senses_check(horde.mind[_senses_find(facing)] == M.CHASE, "sees_in_cone") and ok
+	ok = _senses_check(horde.mind[_senses_find(away)] != M.CHASE, "blind_behind") and ok
+
+	# 3. Стая: заметивший кричит — отвернувшиеся соседи идут к игроку.
+	_senses_reset()
+	var pack: Array[int] = []
+	for j in 6:
+		pack.append(_senses_spawn(Vector2(1500, 1060) + Vector2.from_angle(TAU * j / 6.0) * 30.0, M.WANDER, Vector2.RIGHT))
+	_senses_spawn(Vector2(1500, 1060), M.WANDER, (player.position - Vector2(1500, 1060)).normalized())
+	_senses_run(30)
+	var roused := 0
+	for u in pack:
+		var e := _senses_find(u)
+		if e >= 0 and horde.mind[e] != M.WANDER:
+			roused += 1
+	ok = _senses_check(roused >= 5, "pack_scream") and ok
+
+	# 4. Выстрел за стеной: группа идёт на звук в обход забора и находит игрока.
+	_senses_reset()
+	hidden.clear()
+	for j in 12:
+		hidden.append(_senses_spawn(Vector2(1180 + (j % 6) * 24, 560 + (j / 6) * 24), M.WANDER, Vector2.UP))
+	horde.noise(player.position, 450.0, 2.0)
+	_senses_run(60 * 40) # шаркающий идёт ~25 px/с, обход забора ~600 px
+	var found := 0
+	for u in hidden:
+		var e := _senses_find(u)
+		if e >= 0 and (horde.mind[e] == M.CHASE or horde.pos[e].distance_to(player.position) < 120.0):
+			found += 1
+	ok = _senses_check(found >= 11, "noise_detour_found") and ok
+
+	# 5. Память: потерял из виду — стоит у последней точки, потом снова бродит.
+	_senses_reset()
+	var lost := _senses_spawn(Vector2(1280, 560), M.CHASE, Vector2.UP)
+	var e5 := _senses_find(lost)
+	horde.seen_at[e5] = horde._time - Horde.MEMORY - 1.0
+	horde.goal[e5] = Vector2(1280, 560)
+	_senses_run(16)
+	var searched := horde.mind[_senses_find(lost)] == M.INVESTIGATE
+	_senses_run(60 * 6)
+	ok = _senses_check(searched and horde.mind[_senses_find(lost)] == M.WANDER, "memory_then_wander") and ok
+
+	# 6. Сигнализация: попадание в машину тянет бродячих к ней.
+	_senses_reset()
+	horde.poi = PackedVector2Array([Vector2(1200, 300)])
+	var lured: Array[int] = []
+	for j in 10:
+		lured.append(_senses_spawn(Vector2(1000 + j * 12, 300), M.WANDER, Vector2.UP))
+	obstacles.damage(car, 1.0)
+	ok = _senses_check(obstacles.alarm[car] > 0.0, "car_alarm_on") and ok
+	_senses_run(60 * 14)
+	var near_car := 0
+	for u in lured:
+		var e := _senses_find(u)
+		if e >= 0 and horde.pos[e].distance_to(obstacles.pos[car]) < 200.0:
+			near_car += 1
+	ok = _senses_check(near_car >= 8, "car_alarm_lure") and ok
+
+	# 7. Пряток нет: тихий игрок за стеной — бродячих тянет к нему «по запаху».
+	_senses_reset()
+	horde.poi = PackedVector2Array([Vector2(1280, 300)])
+	var sniffers: Array[int] = []
+	for j in 6:
+		sniffers.append(_senses_spawn(Vector2(1220 + j * 20, 400), M.WANDER, Vector2.UP))
+	horde.known_t = 0.0
+	_senses_run(60 * 15)
+	var sniffed := 0
+	for u in sniffers:
+		var e := _senses_find(u)
+		if e >= 0 and horde.mind[e] != M.WANDER:
+			sniffed += 1
+	ok = _senses_check(sniffed >= 5, "no_hiding") and ok
+
+	# 8. 500 бродячих 30 с: никто в стенах, никто за краем арены; цена обновления орды.
+	_senses_reset()
+	horde.poi = PackedVector2Array([Vector2(400, 300), Vector2(2100, 300), Vector2(400, 1200), Vector2(2100, 1200), Vector2(1280, 600)])
+	for j in 500:
+		_senses_spawn(Vector2(200 + (j % 50) * 44, 150 + (j / 50) * 110), M.WANDER, Vector2.from_angle(j * 1.7))
+	var inside := 0
+	var update_ms := 0.0
+	for frame in 1800:
+		obstacles._physics_process(1.0 / 60.0)
+		horde._physics_process(1.0 / 60.0)
+		update_ms += horde.update_ms
+		if frame % 6 == 0:
+			for i in horde.count:
+				if obstacles.contains_wall(horde.pos[i], horde.radius[i] - 0.04) or not ARENA.has_point(horde.pos[i]):
+					inside += 1
+	ok = _senses_check(inside == 0, "wander_no_penetration") and ok
+	print("SENSESTEST wander500 inside=%d chase=%d investigate=%d wander=%d horde_ms=%.3f" % [inside, _senses_count(M.CHASE), _senses_count(M.INVESTIGATE), _senses_count(M.WANDER), update_ms / 1800.0])
+	print("SENSESTEST ok=%s roused=%d found=%d near_car=%d sniffed=%d spotted=%d" % [ok, roused, found, near_car, sniffed, horde.spotted_total])
+	get_tree().quit(0 if ok else 1)
+
+
+func _senses_reset() -> void:
+	horde.count = 0
+	horde.known_t = 0.0
+	horde.player_known_at = player.position
+
+
+func _senses_spawn(at: Vector2, m: int, face: Vector2) -> int:
+	var e := horde.spawn(at, Horde.Kind.SHAMBLER)
+	horde.hp[e] = 100000.0
+	horde.max_hp[e] = 100000.0
+	horde.mind[e] = m
+	horde.goal[e] = at
+	horde.goal_t[e] = 30.0
+	horde.heading[e] = face
+	horde.seen_at[e] = -100.0 if m != Horde.Mind.CHASE else horde._time
+	return horde.uid[e]
+
+
+func _senses_find(u: int) -> int:
+	for i in horde.count:
+		if horde.uid[i] == u:
+			return i
+	return -1
+
+
+func _senses_count(m: int) -> int:
+	var n := 0
+	for i in horde.count:
+		if horde.mind[i] == m:
+			n += 1
+	return n
+
+
+func _senses_run(frames: int) -> void:
+	for frame in frames:
+		obstacles._physics_process(1.0 / 60.0)
+		horde._physics_process(1.0 / 60.0)
+
+
+func _senses_check(ok: bool, label: String) -> bool:
+	print("SENSESTEST %s=%s" % [label, ok])
+	if not ok:
+		push_error("SENSESTEST FAILED " + label)
+	return ok
+
+
 func _obstacle_check(ok: bool, label: String) -> bool:
 	if not ok:
 		push_error("OBSTEST FAILED " + label)
@@ -699,6 +876,8 @@ func _ready() -> void:
 			_map_id = arg.trim_prefix("--map=")
 		elif arg == "--obstacles-test":
 			_obstacles_test = true
+		elif arg == "--senses-test":
+			_senses_test = true
 		elif arg.begins_with("--layout-seed="):
 			_layout_seed = arg.trim_prefix("--layout-seed=").to_int()
 		elif arg == "--aim-test":
@@ -781,6 +960,10 @@ func _ready() -> void:
 	horde.setup(ARENA, player, floor_decals)
 	horde.map_entries = _map_data["spawn_points"]
 	horde.benchmark_spawn = _bench
+	horde.senses = not OS.get_cmdline_user_args().has("--no-senses")
+	horde.sfx = sfx
+	horde.player_known_at = player.position # место высадки орда «слышала»
+	explosions.horde = horde
 	weapons.player = player
 	weapons.horde = horde
 	weapons.boss = boss
@@ -861,6 +1044,7 @@ func _ready() -> void:
 	blood_alarm.tint = alarm_tint
 	blood_alarm.verbose = _sim or _alarm
 	_apply_mission()
+	_setup_senses()
 	camera.setup(ARENA, player)
 	get_viewport().size_changed.connect(_update_view)
 	_update_view()
@@ -946,6 +1130,14 @@ func _ready() -> void:
 			_run_map_test.call_deferred()
 		else:
 			_run_map_shots.call_deferred()
+	if _senses_test:
+		spawner.enabled = false
+		weapons.firing_enabled = false
+		weapons.set_physics_process(false)
+		player.god_mode = true
+		player.set_physics_process(false)
+		gems.collected.disconnect(progression.add_xp)
+		_run_senses_test.call_deferred()
 	if _obstacles_test:
 		spawner.enabled = false
 		weapons.firing_enabled = false
@@ -1206,6 +1398,8 @@ func _physics_process(delta: float) -> void:
 	if game_over:
 		return
 	time += delta
+	horde.global_alert = spawner.alarm or boss.is_alive()
+	horde.debug_senses = $HUD/Hud.show_debug
 	_run_peak = maxi(_run_peak, horde.count)
 	if _audio_lowhp:
 		player.hp = player.max_hp * 0.2
@@ -2266,10 +2460,32 @@ func _boss_timeline() -> void:
 
 
 func _on_boss_roar(count: int) -> void:
+	horde.alert_all()
 	sfx.play("zombies/boss_roar", boss.position, 1.0, 0.02)
 	for i in count:
 		var at := boss.global_position + Vector2.from_angle(TAU * i / count) * randf_range(42.0, 70.0)
 		horde.spawn(at.clamp(ARENA.position + Vector2.ONE * 12.0, ARENA.end - Vector2.ONE * 12.0), Horde.Kind.RUNNER)
+
+
+## Чувства орды (Z1–Z2): точки брожения с карты и группы зомби на карте с самого старта.
+func _setup_senses() -> void:
+	var points := PackedVector2Array()
+	for piece: Dictionary in _map_data.get("set_pieces", []):
+		points.append(MapLoader.point(piece["at"]))
+	for at: Vector2 in _map_data.get("spawn_points", PackedVector2Array()):
+		points.append(at)
+	for loop: Array in _map_data.get("loops", []):
+		for corner: Array in loop:
+			points.append(MapLoader.point(corner))
+	horde.poi.clear()
+	for at in points:
+		at = at.clamp(ARENA.position + Vector2.ONE * 40.0, ARENA.end - Vector2.ONE * 40.0)
+		horde.poi.append(obstacles.free_point(at, 10.0) if obstacles else at)
+	# Группы при старте — в обычном забеге и в симуляции, не в остальных проверках.
+	if horde.senses and (_sim or not Meta.is_test_run()) and not _boss_test:
+		var n := horde.spawn_idle_groups(player.position, IDLE_GROUPS, IDLE_GROUP_SIZE)
+		if _sim:
+			print("SENSES idle_groups zombies=%d poi=%d" % [n, horde.poi.size()])
 
 
 func _on_boss_crushed(at: Vector2, dir: Vector2) -> void:

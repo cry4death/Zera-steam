@@ -14,6 +14,9 @@ var floor_decals: FloorDecals
 var effects: Effects
 var camera: GameCamera
 var player: Player
+var horde: Horde
+# Громкость взрыва для орды по виду (граната, гранатомёт, толстяк, детонатор, босс, машина), px.
+const NOISE := [900.0, 800.0, 400.0, 500.0, 0.0, 1100.0]
 var spawned := 0
 var last_at := Vector2.INF
 var replaced := 0
@@ -88,6 +91,8 @@ func spawn(at: Vector2, radius: float, kind: int) -> void:
 	kind = clampi(kind, Kind.GRENADE, Kind.CAR)
 	last_at = at
 	spawned += 1
+	if horde and NOISE[kind] > 0.0:
+		horde.noise(at, NOISE[kind], 3.0 if kind != Kind.FAT else 1.5)
 	var r := radius * (0.80 if kind == Kind.DETONATOR else 1.0)
 	var primary := _burst(at, r, kind, 0.0)
 	_scorch_pending[primary] = 1

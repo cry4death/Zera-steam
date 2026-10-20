@@ -100,6 +100,8 @@ var obstacles: Obstacles
 var horde: Horde
 var boss: Boss
 var firing_enabled := true
+var _noise_r := 0.0
+var _noise_cd := 0.0
 const BOSS_TARGET := -2 # отдельный uid, индексы орды остаются прежними
 const MANUAL_TARGET := -3 # точка игрока, поиск врага не нужен
 var _boss_active := false
@@ -113,6 +115,10 @@ var floor_decals: FloorDecals
 var sfx: Sfx
 const GUN_IDS := ["rifle", "shotgun", "rail", "launcher", "pistol", "revolver", "smg", "sniper"]
 const RECOIL := [0.8, 1.8, 1.4, 1.5, 0.55, 1.25, 0.25, 2.5]
+# Громкость выстрела для орды, радиус в px (BALANCE.md §13): винтовка, дробовик, рельса, гранатомёт,
+# пистолет, револьвер, ППШ, снайперка.
+const NOISE := [450.0, 500.0, 600.0, 550.0, 300.0, 400.0, 400.0, 700.0]
+const NOISE_PERIOD := 0.25 # автострельба шумит не чаще 4 раз в секунду
 var shots := PackedInt32Array([0, 0, 0, 0, 0, 0, 0, 0])
 var damage_dealt := 0.0
 var passives := {} # WeaponDefs.Passive → уровень (заполняет прогрессия)
@@ -420,6 +426,11 @@ func any_reloading() -> bool:
 
 func _physics_process(delta: float) -> void:
 	_boss_active = boss != null and boss.is_alive()
+	_noise_cd -= delta
+	if _noise_r > 0.0 and _noise_cd <= 0.0 and horde and player:
+		horde.noise(player.global_position, _noise_r, 2.0)
+		_noise_r = 0.0
+		_noise_cd = NOISE_PERIOD
 	_update_boss_fire(delta)
 	_update_bullets(delta)
 	_update_grenades(delta)
@@ -555,6 +566,7 @@ func _fire_shot(i: int, s: Slot, target: int) -> void:
 		s.shot_mult *= LAST_ROUND_MULT
 		s.shot_gibs = true
 	s.last_damage = float(s.stats["damage"]) * s.shot_mult
+	_noise_r = maxf(_noise_r, NOISE[s.base])
 	player.kick(RECOIL[s.base])
 	if camera:
 		camera.kick(dir, RECOIL[s.base])

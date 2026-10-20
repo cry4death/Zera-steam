@@ -327,7 +327,7 @@ func reset() -> void                            # тесты; флаг --fresh-s
 
 `run/main_scene` → `scenes/base.tscn` (экран базы). «В БОЙ» → `scenes/main.tscn`. Экран итогов:
 «НА БАЗУ» (основная) и «ЕЩЁ РАЗ» (сразу новый забег). Если в командной строке есть любой тест-флаг
-игры (`--sim`, `--bench`, `--boss`, `--alarm`, `--ui-test`, `--weapons-test`, `--loadout*`, `--s3-test`, `--meta-test`; список — `Meta.is_test_run()`; флаги меты `--meta*`, `--save-file`, `--fresh-save` передаются дальше) —
+игры (`--sim`, `--bench`, `--boss`, `--alarm`, `--ui-test`, `--weapons-test`, `--loadout*`, `--s3-test`, `--meta-test`, `--obstacles-test`, `--map-test`, `--map-shots`, `--senses-test`; список — `Meta.is_test_run()`; флаги меты `--meta*`, `--save-file`, `--fresh-save` передаются дальше) —
 база сразу переходит в `main.tscn`, чтобы все старые команды проверки работали без изменений.
 
 ---

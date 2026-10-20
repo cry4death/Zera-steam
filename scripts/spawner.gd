@@ -218,7 +218,7 @@ func _spawn_group(n: int, shares: Array) -> void:
 		var off := Vector2(randf_range(-20.0, 20.0), randf_range(-20.0, 20.0))
 		if directional:
 			off = tangent * randf_range(-WAVE_WIDTH * 0.5, WAVE_WIDTH * 0.5) + Vector2.from_angle(_wave_angle) * randf_range(0.0, 20.0)
-		horde.spawn(origin + off, k)
+		horde.arrive(horde.spawn(origin + off, k))
 
 
 ## Тип по долям; для общих групп бегунов исключаем (они идут пачками).

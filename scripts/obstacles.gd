@@ -13,6 +13,76 @@ const BARREL_RADIUS := 65.0
 const BARREL_DAMAGE := 40.0
 const FLOW_BUDGET := 400
 const NO_PATH := 2147483647
+const ALARM_TIME := 8.0 # сигнализация машины после первого попадания, с
+const ALARM_PULSE := 1.0 # раз в столько секунд — гудок и шум
+const ALARM_NOISE := 800.0 # радиус шума сигнализации (BALANCE.md §13)
+
+
+## Второе поле потока: путь орды к громкому шуму в стороне от игрока (граната, сигнализация).
+## Тот же BFS, что у поля игрока, размазанный по тикам.
+class NoiseField:
+	const NONE := 2147483647
+	const DIRS: Array[Vector2] = [Vector2.RIGHT, Vector2.LEFT, Vector2.DOWN, Vector2.UP]
+	var target_cell := -1
+	var target_pos := Vector2.INF
+	var ready := false
+	var building := false
+	var distance := PackedInt32Array()
+	var flow := PackedVector2Array()
+	var _dist_b := PackedInt32Array()
+	var _flow_b := PackedVector2Array()
+	var _queue := PackedInt32Array()
+	var _qr := 0
+	var _qw := 0
+	var _pending := -1
+	var _pending_pos := Vector2.INF
+
+	func resize(n: int) -> void:
+		distance.resize(n)
+		flow.resize(n)
+		_dist_b.resize(n)
+		_flow_b.resize(n)
+		_queue.resize(n)
+		ready = false
+		building = false
+		target_cell = -1
+		target_pos = Vector2.INF
+
+	func start(c: int, at: Vector2) -> void:
+		_pending = c
+		_pending_pos = at
+		_dist_b.fill(NONE)
+		_flow_b.fill(Vector2.ZERO)
+		_dist_b[c] = 0
+		_queue[0] = c
+		_qr = 0
+		_qw = 1
+		building = true
+
+	func step(adjacency: PackedInt32Array, budget: int) -> void:
+		var end := _qr + budget
+		while _qr < _qw and _qr < end:
+			var at := _queue[_qr]
+			_qr += 1
+			var nd := _dist_b[at] + 1
+			for k in 4:
+				var next := adjacency[at * 4 + k]
+				if next >= 0 and _dist_b[next] == NONE:
+					_dist_b[next] = nd
+					_flow_b[next] = DIRS[k]
+					_queue[_qw] = next
+					_qw += 1
+		if _qr == _qw:
+			building = false
+			ready = true
+			target_cell = _pending
+			target_pos = _pending_pos
+			var d := distance
+			distance = _dist_b
+			_dist_b = d
+			var fl := flow
+			flow = _flow_b
+			_flow_b = fl
 
 var player: Player
 var horde: Horde
@@ -34,6 +104,12 @@ var high := PackedByteArray()
 ## Орда лезет напролом: машины, бетонные блоки, мешки и доски перелезает, а не обходит.
 ## Обходит только то, через что не перелезть: здания, заборы, бочки.
 var climbable := PackedByteArray()
+var alarm := PackedFloat32Array() # >0 — воет сигнализация (осталось, с); <0 — уже отвыла
+var _alarming := PackedInt32Array()
+var _alarm_pulse := 0.0
+var noise_field := NoiseField.new()
+var _noise_next := -1
+var _noise_next_pos := Vector2.INF
 var round_shape := PackedByteArray()
 var grid_w := 0
 var grid_h := 0
@@ -152,6 +228,9 @@ func setup(rect: Rect2, layout: Array[Dictionary]) -> void:
 	blood.resize(count)
 	high.resize(count)
 	climbable.resize(count)
+	alarm.resize(count)
+	alarm.fill(0.0)
+	_alarming.clear()
 	round_shape.resize(count)
 	_burning.clear()
 	_smoking.clear()
@@ -220,6 +299,8 @@ func setup(rect: Rect2, layout: Array[Dictionary]) -> void:
 	_distance_build.resize(n)
 	_queue.resize(n)
 	_adjacency.resize(n * 4)
+	noise_field.resize(n)
+	_noise_next = -1
 	_flow_ready = false
 	_building = false
 	_target_cell = -1
@@ -485,22 +566,72 @@ func line_clear(from: Vector2, to: Vector2) -> bool:
 func steering(p: Vector2, direct: Vector2) -> Vector2:
 	if not _flow_ready:
 		return Vector2.ZERO
+	return _field_steer(p, direct, distance, flow, _target_cell)
+
+
+## Направление к произвольной цели орды: поле игрока, поле шума или ZERO (идти прямо со скольжением).
+func steer_to(p: Vector2, direct: Vector2, target: Vector2) -> Vector2:
+	if _flow_ready and target.distance_squared_to(_flow_target) < 4096.0:
+		return _field_steer(p, direct, distance, flow, _target_cell)
+	if noise_field.ready and target.distance_squared_to(noise_field.target_pos) < 9216.0:
+		return _field_steer(p, direct, noise_field.distance, noise_field.flow, noise_field.target_cell)
+	return Vector2.ZERO
+
+
+## Поле шума строится, только если цель далеко от уже построенной; новая цель ждёт конца стройки.
+func request_noise_field(at: Vector2) -> void:
+	var c := cell_at(free_point(at, 19.0))
+	if noise_field.building:
+		_noise_next = c
+		_noise_next_pos = at
+		return
+	if noise_field.ready and absi(c % grid_w - noise_field.target_cell % grid_w) <= 2 and absi(c / grid_w - noise_field.target_cell / grid_w) <= 2:
+		return
+	noise_field.start(c, at)
+
+
+func _field_steer(p: Vector2, direct: Vector2, dist: PackedInt32Array, fl: PackedVector2Array, target_cell: int) -> Vector2:
 	var c := cell_at(p)
-	var d := distance[c]
+	var d := dist[c]
 	if d != NO_PATH:
-		if d == absi(c % grid_w - _target_cell % grid_w) + absi(c / grid_w - _target_cell / grid_w):
+		if d == absi(c % grid_w - target_cell % grid_w) + absi(c / grid_w - target_cell / grid_w):
 			if near_head[c] == -1 or (wall[cell_at(p + direct * 20.0)] == 0 and wall[cell_at(p + direct * 40.0)] == 0):
 				return Vector2.ZERO
-		return flow[c]
+		return fl[c]
 	# Агент мог быть растолкнут в запас сетки: берёт ближайшую свободную клетку.
 	var best := NO_PATH
 	var direction := Vector2.ZERO
 	for offset: int in [-1, 1, -grid_w, grid_w]:
 		var next := c + offset
-		if next >= 0 and next < wall.size() and wall[next] == 0 and distance[next] < best:
-			best = distance[next]
+		if next >= 0 and next < wall.size() and wall[next] == 0 and dist[next] < best:
+			best = dist[next]
 			direction = (cell_center(next) - p).normalized()
 	return direction
+
+
+## Видит ли зомби точку: здания, заборы и машины закрывают обзор; с крыши машины машины не мешают.
+## Бетонные блоки ниже роста — не закрывают.
+func sight_clear(from: Vector2, to: Vector2, over_cars: bool) -> bool:
+	_ray_stamp += 1
+	var steps := maxi(1, ceili(from.distance_to(to) / CELL))
+	var previous := -1
+	for step_index in steps + 1:
+		var c := cell_at(from.lerp(to, float(step_index) / float(steps)))
+		if c == previous:
+			continue
+		previous = c
+		var link := near_head[c]
+		while link != -1:
+			var i := _link_obj[link]
+			link = _link_next[link]
+			if _ray_seen[i] == _ray_stamp:
+				continue
+			_ray_seen[i] = _ray_stamp
+			if state[i] == State.GONE or high[i] == 0 or kind[i] == Kind.JERSEY or (over_cars and climbable[i] == 1):
+				continue
+			if _segment(i, from, to, 0.0) < INF:
+				return false
+	return true
 
 
 ## Поле пересчитывается, когда игрок ушёл от цели поля больше чем на 3 клетки; BFS размазан по тикам.
@@ -595,6 +726,11 @@ func unreachable_cell() -> int:
 func damage(i: int, amount: float, fire := false) -> void:
 	if i < 0 or i >= count or kind[i] > Kind.ACID or state[i] >= State.BURNING:
 		return
+	# Первое попадание в целую легковушку — сигнализация: приманка для орды.
+	if kind[i] < Kind.TRUCK and state[i] == State.INTACT and alarm[i] == 0.0:
+		alarm[i] = ALARM_TIME
+		_alarming.append(i)
+		_alarm_pulse = 0.0
 	hp[i] -= amount
 	if hp[i] <= 60.0:
 		if state[i] == State.INTACT and kind[i] <= Kind.TRUCK:
@@ -678,6 +814,12 @@ func splatter(at: Vector2, _dir := Vector2.ZERO, _death := 0, _facing := 0.0, _v
 func _physics_process(delta: float) -> void:
 	if player:
 		navigation_step(delta, player.global_position)
+	if noise_field.building:
+		noise_field.step(_adjacency, FLOW_BUDGET)
+		if not noise_field.building and _noise_next >= 0:
+			noise_field.start(_noise_next, _noise_next_pos)
+			_noise_next = -1
+	_update_alarms(delta)
 	_fire_tick -= delta
 	var fire_tick := _fire_tick <= 0.0
 	if fire_tick:
@@ -698,6 +840,29 @@ func _physics_process(delta: float) -> void:
 		var i := _blast_queue[0]
 		_blast_queue.remove_at(0)
 		_detonate(i)
+
+
+func _update_alarms(delta: float) -> void:
+	if _alarming.is_empty():
+		return
+	_alarm_pulse -= delta
+	var pulse := _alarm_pulse <= 0.0
+	if pulse:
+		_alarm_pulse = ALARM_PULSE
+	for n in range(_alarming.size() - 1, -1, -1):
+		var i := _alarming[n]
+		alarm[i] -= delta
+		if alarm[i] <= 0.0 or state[i] >= State.BURNING:
+			alarm[i] = -1.0
+			_alarming.remove_at(n)
+			continue
+		if pulse:
+			if horde:
+				horde.noise(pos[i], ALARM_NOISE, 3.0)
+			if sfx:
+				sfx.play("world/car_alarm", pos[i], -3.0, 0.0)
+	if _fx:
+		_fx.queue_redraw()
 
 
 func _detonate(i: int) -> void:
@@ -808,6 +973,17 @@ func _sync_art() -> void:
 
 func _draw_fx() -> void:
 	var view := PixelArt.view_rect(self, 130.0)
+	# Сигнализация: фары и поворотники мигают оранжевым.
+	var blink := int(Time.get_ticks_msec() / 250) % 2 == 0
+	for i in _alarming:
+		if not blink or not view.has_point(pos[i]):
+			continue
+		var side := axis[i].orthogonal() * (half[i].y - 3.0)
+		for end: float in [-1.0, 1.0]:
+			var at := pos[i] + axis[i] * (half[i].x - 3.0) * end
+			for flank: float in [-1.0, 1.0]:
+				_fx.draw_circle(at + side * flank, 9.0, Color(1.0, 0.62, 0.18, 0.22))
+				_fx.draw_circle(at + side * flank, 2.5, Color(1.0, 0.85, 0.45, 0.95))
 	for i in _smoking:
 		if not view.has_point(pos[i]):
 			continue

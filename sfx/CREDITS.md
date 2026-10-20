@@ -308,3 +308,5 @@ A4 voice edits, gore/player synthesis and UI edits are dedicated to CC0 1.0. Ori
 | `ui/confirm_1.wav` | weapons/rifle/dry_0.wav + weapons/pistol/dry_0.wav x1.28 (A2 mechanics), two clicks 75 ms apart | ×1.28 |
 | `ui/deny_0.wav` | weapons/revolver/dry_0.wav x0.6 (A2 mechanics), lowpass 1.1 kHz + dull thud, two soft knocks | seed 144229 |
 | `ui/deny_1.wav` | weapons/revolver/dry_0.wav x0.52 (A2 mechanics), lowpass 1.1 kHz + dull thud, two soft knocks | seed 144230 |
+
+Z2: `world/car_alarm_0..1` — car alarm, synthesized by `tools/gen_sfx_world.py` (two alternating tones, square-ish speaker, band 450–3800 Hz, -6 dBFS). CC0 1.0.
