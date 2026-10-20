@@ -31,11 +31,15 @@ var hp := PackedFloat32Array()
 var burn := PackedFloat32Array()
 var blood := PackedByteArray()
 var high := PackedByteArray()
+## Орда лезет напролом: машины, бетонные блоки, мешки и доски перелезает, а не обходит.
+## Обходит только то, через что не перелезть: здания, заборы, бочки.
+var climbable := PackedByteArray()
 var round_shape := PackedByteArray()
 var grid_w := 0
 var grid_h := 0
 var near_head := PackedInt32Array()
 var blocked := PackedByteArray()
+var wall := PackedByteArray() # клетки, которые орда обходит (без перелезаемых объектов)
 var flow := PackedVector2Array()
 var nav_worst_usec := 0
 var collision_worst_usec := 0
@@ -147,6 +151,7 @@ func setup(rect: Rect2, layout: Array[Dictionary]) -> void:
 	burn.resize(count)
 	blood.resize(count)
 	high.resize(count)
+	climbable.resize(count)
 	round_shape.resize(count)
 	_burning.clear()
 	_smoking.clear()
@@ -183,6 +188,7 @@ func setup(rect: Rect2, layout: Array[Dictionary]) -> void:
 			_structure_tex[i] = null
 		_extent[i] = axis[i].abs() * half[i].x + axis[i].orthogonal().abs() * half[i].y
 		high[i] = 1 if k == Kind.STRUCTURE or k <= Kind.TRUCK or k == Kind.JERSEY or k == Kind.FENCE else 0
+		climbable[i] = 1 if k <= Kind.TRUCK or k == Kind.JERSEY or k == Kind.BAGS or k == Kind.WOOD else 0
 		round_shape[i] = 1 if k in [Kind.RED, Kind.ACID, Kind.BAGS] else 0
 		hp[i] = 120.0 if k <= Kind.TRUCK else 12.0
 		if k <= Kind.TRUCK:
@@ -207,6 +213,7 @@ func setup(rect: Rect2, layout: Array[Dictionary]) -> void:
 	var n := grid_w * grid_h
 	near_head.resize(n)
 	blocked.resize(n)
+	wall.resize(n)
 	flow.resize(n)
 	_next_flow.resize(n)
 	distance.resize(n)
@@ -232,6 +239,7 @@ func cell_center(c: int) -> Vector2:
 func rebuild_grid() -> void:
 	near_head.fill(-1)
 	blocked.fill(0)
+	wall.fill(0)
 	_link_obj.clear()
 	_link_next.clear()
 	for i in count:
@@ -250,12 +258,14 @@ func rebuild_grid() -> void:
 				# Запас для элитки и диагонали клетки: поток не срезает углы.
 				if _overlaps(i, cell_center(c), 18.9):
 					blocked[c] = 1
+					if climbable[i] == 0:
+						wall[c] = 1
 	_building = false
 	_dirty = true # старое поле остаётся в работе, пока строится новое
 	# Связи неизменны между разрушениями: горячий BFS не считает границы и координаты.
 	_adjacency.fill(-1)
-	for c in blocked.size():
-		if blocked[c] != 0:
+	for c in wall.size():
+		if wall[c] != 0:
 			continue
 		var x := c % grid_w
 		for direction_index in 4:
@@ -263,7 +273,7 @@ func rebuild_grid() -> void:
 			var next := c + offset
 			if next < 0 or next >= blocked.size() or (direction_index == 0 and x == 0) or (direction_index == 1 and x == grid_w - 1):
 				continue
-			if blocked[next] == 0:
+			if wall[next] == 0:
 				_adjacency[c * 4 + direction_index] = next
 	queue_redraw()
 
@@ -293,8 +303,31 @@ func contains(p: Vector2, r := 0.1) -> bool:
 	return false
 
 
+## Стоит ли точка на перелезаемом объекте (зомби лезет через машину или блок).
+func climb_at(p: Vector2) -> bool:
+	var link := near_head[cell_at(p)]
+	while link != -1:
+		var i := _link_obj[link]
+		link = _link_next[link]
+		if climbable[i] == 1 and state[i] != State.GONE and _overlaps(i, p, 0.5):
+			return true
+	return false
+
+
+## Как contains, но только то, что орда не перелезает (здания, заборы, бочки).
+func contains_wall(p: Vector2, r := 0.1) -> bool:
+	var link := near_head[cell_at(p)]
+	while link != -1:
+		var i := _link_obj[link]
+		link = _link_next[link]
+		if climbable[i] == 0 and state[i] != State.GONE and _overlaps(i, p, r):
+			return true
+	return false
+
+
 ## Узкая фаза только в занятых окрестностях; повтор нужен в стыке двух блоков.
-func resolve(p: Vector2, r: float) -> Vector2:
+## horde — для орды: перелезаемые объекты не выталкивают.
+func resolve(p: Vector2, r: float, horde_mode := false) -> Vector2:
 	var started := Time.get_ticks_usec() if profile_enabled else 0
 	if profile_enabled:
 		resolve_calls += 1
@@ -304,7 +337,7 @@ func resolve(p: Vector2, r: float) -> Vector2:
 		while link != -1:
 			var i := _link_obj[link]
 			link = _link_next[link]
-			if state[i] == State.GONE:
+			if state[i] == State.GONE or (horde_mode and climbable[i] == 1):
 				continue
 			# AABB отсеивает дальнюю часть расширенного бакета крови.
 			var rel := (p - pos[i]).abs() - _extent[i]
@@ -341,7 +374,7 @@ func resolve(p: Vector2, r: float) -> Vector2:
 
 
 ## Подшаги исключают туннелирование рывка, тарана и сильного отброса.
-func move_actor(from: Vector2, to: Vector2, r: float) -> Vector2:
+func move_actor(from: Vector2, to: Vector2, r: float, horde_mode := false) -> Vector2:
 	var started := Time.get_ticks_usec() if profile_enabled else 0
 	if profile_enabled:
 		move_calls += 1
@@ -350,7 +383,7 @@ func move_actor(from: Vector2, to: Vector2, r: float) -> Vector2:
 	var step := (to - from) / float(steps)
 	var p := from
 	for j in steps:
-		p = resolve(p + step, r)
+		p = resolve(p + step, r, horde_mode)
 	if profile_enabled:
 		move_usec += Time.get_ticks_usec() - started
 	return p
@@ -456,7 +489,7 @@ func steering(p: Vector2, direct: Vector2) -> Vector2:
 	var d := distance[c]
 	if d != NO_PATH:
 		if d == absi(c % grid_w - _target_cell % grid_w) + absi(c / grid_w - _target_cell / grid_w):
-			if near_head[c] == -1 or (blocked[cell_at(p + direct * 20.0)] == 0 and blocked[cell_at(p + direct * 40.0)] == 0):
+			if near_head[c] == -1 or (wall[cell_at(p + direct * 20.0)] == 0 and wall[cell_at(p + direct * 40.0)] == 0):
 				return Vector2.ZERO
 		return flow[c]
 	# Агент мог быть растолкнут в запас сетки: берёт ближайшую свободную клетку.
@@ -464,7 +497,7 @@ func steering(p: Vector2, direct: Vector2) -> Vector2:
 	var direction := Vector2.ZERO
 	for offset: int in [-1, 1, -grid_w, grid_w]:
 		var next := c + offset
-		if next >= 0 and next < blocked.size() and blocked[next] == 0 and distance[next] < best:
+		if next >= 0 and next < wall.size() and wall[next] == 0 and distance[next] < best:
 			best = distance[next]
 			direction = (cell_center(next) - p).normalized()
 	return direction

@@ -40,6 +40,15 @@ const BLOODY_STEPS := 8
 # стадии ран по доле HP: целый > 75% > ранен > 50% > изувечен > 25% > еле жив
 const STAGE_THRESHOLDS := [0.75, 0.5, 0.25]
 const VARIANT_WEIGHTS := [0.4, 0.2, 0.2, 0.2]
+# Поведение «напролом»: зомби не боятся и не хитрят — прут на игрока, лезут через машины,
+# задние ряды давят на передние. Обходят только здания и заборы.
+const CLIMB_SPEED := 0.45 # доля скорости, пока лезет через машину или блок
+const CLIMB_SCALE := 1.15 # на крыше машины зомби выше — спрайт крупнее
+const LUNGE_DIST := 44.0 # ближе — бросается на игрока
+const LUNGE_SPEED := 1.35
+const TURN_RATE := 7.0 # плавность поворота (1/с): нет «поворотов под прямым углом»
+const RUNNER_TURN_RATE := 11.0
+const FRONT_PUSH := 0.3 # доля расталкивания, которую получает тот, кто ближе к игроку
 
 @export var hp_growth_per_min := 0.12
 @export var damage_growth_per_min := 0.05
@@ -61,6 +70,8 @@ var count := 0
 var pos := PackedVector2Array()
 var knock := PackedVector2Array()
 var steer := PackedVector2Array() # кэш направления обхода (O1), ZERO — прямо
+var heading := PackedVector2Array() # куда зомби сейчас идёт (поворачивает плавно)
+var climb := PackedByteArray() # 1 — лезет через машину или блок
 var hp := PackedFloat32Array()
 var max_hp := PackedFloat32Array()
 var speed := PackedFloat32Array()
@@ -113,6 +124,8 @@ func _ready() -> void:
 	pos.resize(MAX_ENEMIES)
 	knock.resize(MAX_ENEMIES)
 	steer.resize(MAX_ENEMIES)
+	heading.resize(MAX_ENEMIES)
+	climb.resize(MAX_ENEMIES)
 	hp.resize(MAX_ENEMIES)
 	max_hp.resize(MAX_ENEMIES)
 	speed.resize(MAX_ENEMIES)
@@ -194,6 +207,8 @@ func spawn(p: Vector2, k := Kind.SHAMBLER, is_elite := false) -> int:
 		pos[i] = obstacles.free_point(pos[i], radius[i])
 	knock[i] = Vector2.ZERO
 	steer[i] = Vector2.ZERO
+	heading[i] = (player.global_position - pos[i]).normalized() if player else Vector2.ZERO
+	climb[i] = 0
 	hp[i] = KINDS[k]["hp"] * (1.0 + hp_growth_per_min * minutes) * (ELITE_HP if is_elite else 1.0)
 	max_hp[i] = hp[i]
 	# Даже самый медленный бегун быстрее базовых 80 px/с игрока.
@@ -457,14 +472,14 @@ func _physics_process(delta: float) -> void:
 	_rebuild_grid()
 	_separate()
 	if obstacles:
-		var near := obstacles.blocked
+		var near := obstacles.wall
 		var ogw := obstacles.grid_w
 		var gw1 := ogw - 1
 		var gh1 := obstacles.grid_h - 1
 		for i in count:
 			var p := pos[i]
 			if near[clampi(int(p.x / CELL), 0, gw1) + clampi(int(p.y / CELL), 0, gh1) * ogw] != 0:
-				pos[i] = obstacles.resolve(p, radius[i])
+				pos[i] = obstacles.resolve(p, radius[i], true)
 	_render()
 	queue_redraw()
 	update_ms = (Time.get_ticks_usec() - t0) / 1000.0
@@ -488,7 +503,8 @@ func _move(delta: float) -> void:
 	var decay := exp(-10.0 * delta)
 	var touch_damage := 0.0
 	var damage_scale := 1.0 + damage_growth_per_min * minutes
-	var near := obstacles.blocked if obstacles else PackedByteArray()
+	var near := obstacles.wall if obstacles else PackedByteArray()
+	var any_near := obstacles.blocked if obstacles else PackedByteArray()
 	var ogw := obstacles.grid_w if obstacles else 1
 	var gw1 := ogw - 1
 	var gh1 := (obstacles.grid_h if obstacles else 1) - 1
@@ -532,22 +548,49 @@ func _move(delta: float) -> void:
 				move_dir = steer[i]
 		if kind[i] == Kind.SPITTER:
 			spit_cd[i] = maxf(spit_cd[i] - delta, 0.0)
-			move_dir = -dir if d < 130.0 else (move_dir if d > 170.0 else Vector2.ZERO)
 			if not frozen:
 				if spit_windup[i] > 0.0:
 					spit_windup[i] = maxf(spit_windup[i] - delta, 0.0)
 					move_dir = Vector2.ZERO
 					if spit_windup[i] == 0.0:
-						if d >= 90.0 and d <= 260.0 and (obstacles == null or obstacles.line_clear(p, ppos)):
+						if d >= 90.0 and d <= 260.0 and (obstacles == null or climb[i] == 1 or obstacles.line_clear(p, ppos)):
 							spit_fired.emit(p, ppos, 10.0 * damage_scale * (ELITE_DAMAGE if elite[i] == 1 else 1.0))
 				elif spit_cd[i] <= 0.0 and d >= 90.0 and d <= 260.0:
 					spit_windup[i] = SPIT_WINDUP
 					spit_cd[i] = SPIT_COOLDOWN
 					move_dir = Vector2.ZERO
-		p += move_dir * spd * delta + k * delta
+		# Поворот с запаздыванием: дуги вместо ступенек поля обхода и рывков за игроком.
+		var h := heading[i]
+		if move_dir != Vector2.ZERO:
+			if d > 70.0 and steer[i] == Vector2.ZERO:
+				# издалека бредут неровно, вблизи цель захвачена
+				var wob := sin(_time * (0.9 + seed_value[i]) + seed_value[i] * 40.0) * 0.22 * clampf((d - 70.0) / 150.0, 0.0, 1.0)
+				move_dir = move_dir.rotated(wob)
+			var rate := RUNNER_TURN_RATE if kind[i] == Kind.RUNNER else TURN_RATE
+			h = h.lerp(move_dir, 1.0 - exp(-rate * delta))
+			var hl := h.length()
+			h = h / hl if hl > 0.001 else move_dir
+			heading[i] = h
+			# Походка рывками: шаг — толчок, между шагами медленнее. В среднем скорость прежняя.
+			if kind[i] == Kind.RUNNER:
+				spd *= 0.95 + 0.1 * sin(_time * 14.0 + seed_value[i] * TAU)
+			else:
+				spd *= 0.89 + 0.35 * maxf(sin(_time * (7.0 + seed_value[i] * 3.0) + seed_value[i] * TAU), 0.0)
+			if d < LUNGE_DIST and kind[i] != Kind.SPITTER:
+				spd *= LUNGE_SPEED # последний бросок на игрока
+			if climb[i] == 1:
+				spd *= CLIMB_SPEED
+		else:
+			h = Vector2.ZERO
+		p += h * spd * delta + k * delta
 		# Обычный шаг разрешается один раз после расталкивания; быстрый отброс — со свипом.
 		if obstacles and old.distance_squared_to(p) > 16.0:
-			p = obstacles.move_actor(old, p, radius[i])
+			p = obstacles.move_actor(old, p, radius[i], true)
+		if obstacles:
+			var on := 0
+			if any_near[clampi(int(p.x / CELL), 0, gw1) + clampi(int(p.y / CELL), 0, gh1) * ogw] != 0 and obstacles.climb_at(p):
+				on = 1
+			climb[i] = on
 		knock[i] = k * decay
 		# игрок «тяжёлый»: выталкивает зомби из себя
 		var away := p - ppos
@@ -562,7 +605,10 @@ func _move(delta: float) -> void:
 				p = ppos + away / sqrt(ad2) * touch_r
 		p = p.clamp(arena.position + Vector2.ONE * radius[i], arena.end - Vector2.ONE * radius[i])
 		pos[i] = p
-		var a := dir.angle() if freeze_t[i] <= 0.0 else angle[i]
+		# Смотрит туда, куда идёт; вблизи — на игрока.
+		var a := angle[i]
+		if freeze_t[i] <= 0.0:
+			a = dir.angle() if d < 60.0 or heading[i] == Vector2.ZERO else heading[i].angle()
 		if stage[i] == 3 and freeze_t[i] <= 0.0:
 			a += sin(_time * 7.0 + seed_value[i] * 20.0) * 0.35 # еле живые шатаются
 		angle[i] = a
@@ -609,11 +655,14 @@ func _separate() -> void:
 	var gw := _grid_w - 1
 	var gh := _grid_h - 1
 	var stride := _stride
+	# Давка: задние ряды напирают, передние не отступают назад — толпа растекается по бокам и окружает.
+	var ppos := player.global_position
 	for i in count:
 		if dead[i] == 1:
 			continue
 		var p := pos[i]
 		var ri := radius[i]
+		var di2 := p.distance_squared_to(ppos)
 		var base := clampi(int(p.x / CELL), 0, gw) + 1 + (clampi(int(p.y / CELL), 0, gh) + 1) * stride
 		var j := _next[i]
 		var k := 0
@@ -629,9 +678,10 @@ func _separate() -> void:
 							dv = Vector2.from_angle(randf() * TAU) * 0.1
 							d2 = 0.01
 						var d := sqrt(d2)
-						var push := dv * ((min_d - d) / d * 0.5)
-						p += push
-						pos[j] = q - push
+						var push := dv * ((min_d - d) / d)
+						var wi := FRONT_PUSH if di2 < q.distance_squared_to(ppos) else 1.0 - FRONT_PUSH
+						p += push * wi
+						pos[j] = q - push * (1.0 - wi)
 				j = _next[j]
 			if k == 4:
 				break
@@ -650,6 +700,8 @@ func _compact() -> void:
 				pos[i] = pos[count]
 				knock[i] = knock[count]
 				steer[i] = steer[count]
+				heading[i] = heading[count]
+				climb[i] = climb[count]
 				hp[i] = hp[count]
 				max_hp[i] = max_hp[count]
 				speed[i] = speed[count]
@@ -696,7 +748,7 @@ func _render() -> void:
 			front += 1
 		var o := slot * FLOATS_PER_INSTANCE
 		var a := angle[i]
-		var scale_factor := ELITE_SCALE if elite[i] == 1 else 1.0
+		var scale_factor := (ELITE_SCALE if elite[i] == 1 else 1.0) * (CLIMB_SCALE if climb[i] == 1 else 1.0)
 		var c := cos(a) * scale_factor
 		var s := sin(a) * scale_factor
 		var p := pos[i]

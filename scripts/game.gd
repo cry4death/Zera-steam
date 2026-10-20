@@ -312,8 +312,9 @@ func _run_obstacles_test() -> void:
 		obstacles.setup(ARENA, ArenaLayout.generate(test_seed, ArenaLayout.QUARANTINE))
 		ok = _obstacle_check(obstacles.connected(), "connected_seed_%d" % test_seed) and ok
 	var wall: Array[Dictionary] = []
+	# Забор орда не перелезает — проверяем обход; машины и блоки перелезает (проверка ниже).
 	for j in 9:
-		wall.append({"kind": Obstacles.Kind.JERSEY, "pos": Vector2(1088 + j * 44, 720), "angle": 0.0})
+		wall.append({"kind": Obstacles.Kind.FENCE, "pos": Vector2(1088 + j * 44, 720), "angle": 0.0})
 	obstacles.setup(ARENA, wall)
 	player.position = Vector2(1280, 890)
 	horde.count = 0
@@ -329,7 +330,7 @@ func _run_obstacles_test() -> void:
 		horde._physics_process(1.0 / 60.0)
 		if frame % 4 == 0:
 			for i in horde.count:
-				if obstacles.contains(horde.pos[i], horde.radius[i] - 0.04):
+				if obstacles.contains_wall(horde.pos[i], horde.radius[i] - 0.04):
 					penetrations += 1
 		if frame % 600 == 599:
 			print("OBSTEST simulation seconds=%d alive=%d penetrations=%d" % [(frame + 1) / 60, horde.count, penetrations])
@@ -349,6 +350,30 @@ func _run_obstacles_test() -> void:
 	if to.y >= 720 or obstacles.contains(to, Player.RADIUS - 0.01):
 		print("OBSTEST dash from=%s to=%s radius=%.2f" % [from, to, Player.RADIUS])
 	ok = _obstacle_check(to.y < 720 and not obstacles.contains(to, Player.RADIUS - 0.01), "dash_stopped") and ok
+	# Напролом: ряд машин орда перелезает (медленно), а не обходит.
+	var cars_row: Array[Dictionary] = []
+	for j in 7:
+		cars_row.append({"kind": Obstacles.Kind.SEDAN, "pos": Vector2(1100 + j * 64, 720), "angle": 0.0})
+	obstacles.setup(ARENA, cars_row)
+	horde.count = 0
+	for i in 100:
+		var e := horde.spawn(Vector2(1180 + (i % 20) * 12, 560 + (i / 20) * 10), Horde.Kind.SHAMBLER)
+		horde.hp[e] = 100000.0
+		horde.max_hp[e] = 100000.0
+	var climbed := {}
+	for frame in 1200:
+		obstacles.navigation_step(1.0 / 60.0, player.position)
+		horde._physics_process(1.0 / 60.0)
+		for i in horde.count:
+			if horde.climb[i] == 1:
+				climbed[horde.uid[i]] = true
+	var crossed := 0
+	for i in horde.count:
+		if horde.pos[i].y > 750.0:
+			crossed += 1
+	ok = _obstacle_check(climbed.size() >= 50, "horde_climbs_cars") and ok
+	ok = _obstacle_check(crossed >= 90, "horde_crosses_cars") and ok
+	print("OBSTEST cars climbed=%d crossed=%d/100" % [climbed.size(), crossed])
 	var demo: Array[Dictionary] = [
 		{"kind": Obstacles.Kind.SEDAN, "pos": Vector2(1280, 720)},
 		{"kind": Obstacles.Kind.RED, "pos": Vector2(1280, 770)},
@@ -449,7 +474,7 @@ func _run_map_test() -> void:
 			horde._physics_process(1.0 / 60.0)
 			if frame % 4 == 0:
 				for i in horde.count:
-					if obstacles.contains(horde.pos[i], horde.radius[i] - 0.04):
+					if obstacles.contains_wall(horde.pos[i], horde.radius[i] - 0.04):
 						penetrations += 1
 			if frame % 600 == 599:
 				await get_tree().process_frame

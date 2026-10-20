@@ -798,6 +798,8 @@ func _update_bullets(delta: float) -> void:
 				probe = nearest
 		# Стена проверяется до цели; низкое укрытие пропускает пулю, бочка принимает удар.
 		var obstacle := obstacles.ray_hit(p0, probe if hit != -1 else p1, false, BULLET_RADIUS, _bobstacle[i]) if obstacles else -1
+		if obstacle != -1 and hit >= 0 and horde.climb[hit] == 1 and obstacles.climbable[obstacle] == 1:
+			obstacle = -1 # зомби на крыше машины открыт: пуля попадает в него, а не в кузов
 		if obstacle != -1:
 			var s := slots[_bslot[i]]
 			obstacles.damage(obstacle, _bdmg[i], s.ammo == WeaponDefs.Ammo.INCENDIARY)
