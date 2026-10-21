@@ -57,7 +57,10 @@ const ELITE_XP := 25
 const ELITE_CREDITS := 10
 const TOUCH_COOLDOWN := 0.8
 const SPIT_COOLDOWN := 3.0
-const SPIT_WINDUP := 0.3
+const SPIT_WINDUP := 0.5 # ZAI6: замах виден — капля кислоты растёт у рта (_draw)
+const SPIT_LEAD_MAX := 1.5 # упреждение плевка по скорости игрока, не дальше стольких секунд полёта
+const FAT_RADIUS := 6.4 # ZAI6: толстяк — крупный класс поля (> 5,4), элита ×1,2 (≤ 7,95)
+const CRAWLER_SCALE := 0.85 # ZAI6: ползун мелкий
 
 const MAX_ENEMIES := 2000
 const RADIUS := 5.0
@@ -80,6 +83,24 @@ const OVERTAKE_RATIO := 1.3
 const OVERTAKE_COS := 0.8
 const OVERTAKE_SIDE := 0.6 # доля разницы скоростей, с которой быстрый уходит вбок
 const LOD_R := 420.0 # дальше (за экраном) пары считаются через тик
+const RIOT_TURN := 0.6 # ZAI6: поворот щитовика, рад/с (было 0,85: при беге кругом на 120–150 px фланг не открывался)
+const SHIELD_BRACE := 0.6 # ZAI6: после удара в щит столько секунд щит в упоре и не поворачивается
+## ZAI6 (ответ автора 4В): часть ветки claude/inspiring-ramanujan-max7hd — группы на карте со старта и
+## сигнализация-приманка, без конусов зрения и памяти. Бродящего будит игрок на виду ближе WAKE_R (флаг видимости
+## поля), выстрел или взрыв рядом (noise), крик проснувшегося соседа. Вой сигнализации (lure) уводит к машине тех,
+## кто дальше LURE_KEEP от игрока; после воя они снова преследуют.
+enum Mind { CHASE, WANDER, LURE }
+const WANDER_SPEED := 0.45
+const LURE_SPEED := 0.9
+const WAKE_R := 260.0
+const WAKE_NEAR := 70.0 # вплотную чует и без видимости
+const PACK_R := 200.0
+const LURE_KEEP := 140.0
+const LURE_HOLD := 1.5 # приманка держит столько после последнего гудка
+const LURE_STOP := 44.0 # у машины встают вокруг кузова
+const IDLE_GROUPS := 7
+const IDLE_SIZE := Vector2i(3, 6)
+const IDLE_MIN_DIST := 520.0
 const MODE_HOLD := 4 # ZAI5: смена «прямо ↔ по полю» — после стольких решений подряд (решение раз в 4 тика, ~0,27 с)
 const CONTACT_GAP := 1.0 # зомби встаёт на кольцо касания игрока с этим зазором
 const ARRIVE := 6.0 # торможение перед кольцом касания
@@ -96,7 +117,7 @@ const BLOODY_STEPS := 8
 const STAGE_THRESHOLDS := [0.75, 0.5, 0.25]
 enum Trait { ORDINARY, LIMP, FRESH, CRAWLER, STUBBORN }
 # Вероятности: 5% хромых, 5% свежих, 5% упорных, 4% ползунов у шаркунов.
-const TRAIT_SPEED := [0.0036, -0.0564, 0.1036, -0.1364, 0.0036]
+const TRAIT_SPEED := [0.0036, -0.0564, 0.1036, 0.15, 0.0036] # ZAI6: ползун быстрее шаркуна (было −0,1364)
 const DIRECT_RANGE := 700.0 # ближе — при свободном коридоре идём к игроку напрямую, мимо поля путей
 const BASE_SPEED_MEAN := 1.025 # Среднее прежних диапазонов 0.85..1.20 и 0.95..1.10.
 
@@ -122,6 +143,14 @@ var knock := PackedVector2Array()
 var steer := PackedVector2Array() # кэш направления обхода (O1), ZERO — прямо
 var _progress_pos := PackedVector2Array()
 var _stuck_time := PackedFloat32Array()
+var senses := true # --no-senses: группы со старта не появляются, приманка не работает (как до ZAI6)
+var mind := PackedByteArray() # Mind
+var goal := PackedVector2Array() # точка брожения или приманки
+var goal_t := PackedFloat32Array() # брожение: сколько стоять у точки; приманка: сколько ещё держит
+var home := PackedVector2Array() # центр группы брожения
+var poi := PackedVector2Array() # места групп при старте (сценки, входы, круги карты)
+var woken := 0 # сколько бродящих проснулось (стенд, --sim)
+var lured := 0 # сколько раз приманка увела особь
 var _mode_hold := PackedByteArray() # решений подряд против текущего режима (ZAI5)
 var _far_time := PackedFloat32Array() # сколько секунд особь дальше far_distance (R4)
 var _last_player := Vector2.INF
@@ -195,6 +224,7 @@ var _fire_buf := PackedFloat32Array()
 var chill := PackedFloat32Array() # замедление 0..0.6
 var chill_hits := PackedByteArray()
 var freeze_t := PackedFloat32Array()
+var brace_t := PackedFloat32Array() # ZAI6: упор щита после удара, с
 var shatter := PackedByteArray() # Крио III: раскол ранит соседей
 var cryo_contributors := PackedInt32Array()
 var freeze_contributors := PackedInt32Array()
@@ -230,6 +260,10 @@ func _ready() -> void:
 	knock.resize(MAX_ENEMIES)
 	steer.resize(MAX_ENEMIES)
 	_mode_hold.resize(MAX_ENEMIES)
+	mind.resize(MAX_ENEMIES)
+	goal.resize(MAX_ENEMIES)
+	goal_t.resize(MAX_ENEMIES)
+	home.resize(MAX_ENEMIES)
 	_progress_pos.resize(MAX_ENEMIES)
 	_stuck_time.resize(MAX_ENEMIES)
 	_far_time.resize(MAX_ENEMIES)
@@ -287,6 +321,7 @@ func _ready() -> void:
 	chill.resize(MAX_ENEMIES)
 	chill_hits.resize(MAX_ENEMIES)
 	freeze_t.resize(MAX_ENEMIES)
+	brace_t.resize(MAX_ENEMIES)
 	shatter.resize(MAX_ENEMIES)
 	cryo_contributors.resize(MAX_ENEMIES)
 	freeze_contributors.resize(MAX_ENEMIES)
@@ -389,6 +424,10 @@ func spawn(p: Vector2, k := Kind.SHAMBLER, is_elite := false) -> int:
 	radius[i] = RADIUS * collision_scale * (ELITE_SCALE if is_elite else 1.0)
 	if k >= Kind.INFANTRY:
 		radius[i] = 6.9 if k == Kind.JUGGERNAUT else 5.4 if k == Kind.RIOT else radius[i]
+	elif k == Kind.FAT:
+		radius[i] = FAT_RADIUS * (1.2 if is_elite else 1.0)
+	elif quirk[i] == Trait.CRAWLER:
+		radius[i] *= CRAWLER_SCALE
 	touch_cd[i] = 0.0
 	spit_cd[i] = randf_range(SPIT_WINDUP, SPIT_COOLDOWN) if k == Kind.SPITTER else 0.0
 	spit_windup[i] = 0.0
@@ -398,6 +437,8 @@ func spawn(p: Vector2, k := Kind.SHAMBLER, is_elite := false) -> int:
 	knock[i] = Vector2.ZERO
 	steer[i] = Vector2.ZERO
 	_mode_hold[i] = 0
+	mind[i] = Mind.CHASE
+	goal_t[i] = 0.0
 	_progress_pos[i] = pos[i]
 	_stuck_time[i] = 0.0
 	_far_time[i] = 0.0
@@ -412,7 +453,7 @@ func spawn(p: Vector2, k := Kind.SHAMBLER, is_elite := false) -> int:
 	max_hp[i] = hp[i]
 	var spread := 1.0 - body * (0.17 if k == Kind.RUNNER else 0.08) + noise * (0.05 if k == Kind.RUNNER else 0.03)
 	# Поправка компенсирует редкие замедления, без дрейфа среднего типа.
-	spread += TRAIT_SPEED[quirk[i]] - (0.0056 if k != Kind.SHAMBLER else 0.0)
+	spread += TRAIT_SPEED[quirk[i]] - (0.0056 if k != Kind.SHAMBLER else 0.0115)
 	speed[i] = KINDS[k]["speed"] * BASE_SPEED_MEAN * spread * (ELITE_SPEED if is_elite else 1.0)
 	angle[i] = 0.0
 	flash[i] = 0.0
@@ -468,6 +509,7 @@ func spawn(p: Vector2, k := Kind.SHAMBLER, is_elite := false) -> int:
 	chill[i] = 0.0
 	chill_hits[i] = 0
 	freeze_t[i] = 0.0
+	brace_t[i] = 0.0
 	cryo_contributors[i] = 0
 	freeze_contributors[i] = 0
 	freeze_epoch[i] = 0
@@ -671,6 +713,8 @@ func _absorb_armor(i: int, amount: float, dir: Vector2, at: Vector2, pen: float,
 	if remaining <= 0.0: _detach_armor(i, part, dir)
 	if absorbed > 0.0:
 		armor_hit.emit(pos[i] - dir.normalized() * radius[i] if at == Vector2.INF else at, dir)
+		if part == 3:
+			brace_t[i] = SHIELD_BRACE
 	last_armor_blocked = amount - absorbed < 0.001
 	return maxf(0.0, amount - absorbed)
 
@@ -943,7 +987,7 @@ func _move(delta: float) -> void:
 		var old := p
 		var to := ppos - p
 		var d := to.length()
-		if d > far_distance:
+		if d > far_distance and mind[i] == Mind.CHASE:
 			_far_time[i] += delta
 			# Отставший вне кадра дольше FAR_GRACE переносится к краю экрана по ходу игрока (R4, BALANCE §7.2):
 			# роль, HP и черты остаются, лимит работает на экране, а не бредёт через карту.
@@ -983,9 +1027,14 @@ func _move(delta: float) -> void:
 		if dead[i] == 1: # огонь мог убить в этом кадре
 			continue
 		var move_dir := dir
-		if group_id[i] != 0:
+		var calm := mind[i] != Mind.CHASE and _calm_step(i, p, d, delta)
+		if calm:
+			# Бродит у сценки или идёт на вой: без поля к игроку, без очереди и плевка (ZAI6, 4В).
+			move_dir = _calm_dir(i, p)
+			spd *= WANDER_SPEED if mind[i] == Mind.WANDER else LURE_SPEED
+		elif group_id[i] != 0:
 			move_dir = _group_direction(i, dir)
-		if obstacles and (d > 90.0 or near[obstacles.cell_at(p)] != -1):
+		if not calm and obstacles and (d > 90.0 or near[obstacles.cell_at(p)] != -1):
 			# Запрос обхода распределён между четырьмя тиками орды.
 			if (i + _frame) & 3 == 0:
 				# Видно игрока — идём прямо к нему. Видимость считает само поле (флаг клетки для класса, ZAI5/R10):
@@ -1013,7 +1062,7 @@ func _move(delta: float) -> void:
 				var normal := obstacles.wall_normal[obstacles.cell_at(p)]
 				p += normal * 2.0
 				_stuck_time[i] = 0.25
-		if kind[i] == Kind.SPITTER:
+		if kind[i] == Kind.SPITTER and not calm:
 			spit_cd[i] = maxf(spit_cd[i] - delta, 0.0)
 			move_dir = -dir if d < 130.0 else (move_dir if d > 170.0 else Vector2.ZERO)
 			if not frozen:
@@ -1023,7 +1072,10 @@ func _move(delta: float) -> void:
 					if spit_windup[i] == 0.0:
 						# Плевок только из кадра: кислота не прилетает из-за края экрана (ZAI3, М2).
 						if d >= 90.0 and d <= 260.0 and spit_view.has_point(p) and (obstacles == null or obstacles.line_clear(p, ppos)):
-							spit_fired.emit(p, ppos, 10.0 * damage_mult[i] * damage_scale * (ELITE_DAMAGE if elite[i] == 1 else 1.0))
+							# Упреждение по сглаженной скорости игрока (ZAI6): бег по прямой больше не уводит от плевка.
+							# Скорость ограничена: перенос игрока (тесты, телепорт) не уводит плевок за край.
+							var lead := ppos + player_velocity.limit_length(140.0) * minf(d / Hazards.SPIT_SPEED, SPIT_LEAD_MAX)
+							spit_fired.emit(p, lead, 10.0 * damage_mult[i] * damage_scale * (ELITE_DAMAGE if elite[i] == 1 else 1.0))
 				elif spit_cd[i] <= 0.0 and d >= 90.0 and d <= 260.0 and spit_view.has_point(p):
 					spit_windup[i] = SPIT_WINDUP
 					spit_cd[i] = SPIT_COOLDOWN
@@ -1033,12 +1085,12 @@ func _move(delta: float) -> void:
 		# Прибытие: у игрока встаём на кольцо касания, а не давим в его точку (ZAI4).
 		var stop := touch_r + CONTACT_GAP
 		var in_queue := false
-		if d < stop + ARRIVE and kind[i] != Kind.SPITTER:
+		if d < stop + ARRIVE and kind[i] != Kind.SPITTER and not calm:
 			want *= clampf((d - stop) / ARRIVE, 0.0, 1.0)
 			in_queue = true
 		# Сосед впереди медленнее — тормозим до его скорости; бегун и лёгкие уходят вбок, у игрока — к менее
 		# занятому соседнему сектору (окружение без давки).
-		var allowed := _block[i] if d < QUEUE_MAX_R else INF
+		var allowed := _block[i] if d < QUEUE_MAX_R and not calm else INF
 		if allowed < spd * 0.5:
 			in_queue = true
 		if allowed < spd and want != Vector2.ZERO:
@@ -1088,10 +1140,16 @@ func _move(delta: float) -> void:
 		# Курс (R3): вблизи — на игрока, в пути — по скорости, а не «сквозь стену» на игрока.
 		var a := angle[i]
 		if not frozen:
-			a = dir.angle() if d < 40.0 or v.length_squared() < spd * spd * 0.0625 else v.angle()
+			if v.length_squared() >= spd * spd * 0.0625 and v != Vector2.ZERO and (d >= 40.0 or calm):
+				a = v.angle()
+			elif not calm:
+				a = dir.angle() # стоящий бродяга (calm) игрока не «видит» и смотрит, куда смотрел
 			if stage[i] == 3:
 				a += sin(_time * 7.0 + seed_value[i] * 20.0) * 0.35 # еле живые шатаются
-		angle[i] = rotate_toward(angle[i], a, delta * (0.85 if kind[i] == Kind.RIOT else (1.2 if kind[i] >= Kind.INFANTRY else TURN_RATE)))
+		if brace_t[i] > 0.0:
+			brace_t[i] -= delta # ZAI6: щит в упоре после удара — не поворачивается, фланг открывается
+		else:
+			angle[i] = rotate_toward(angle[i], a, delta * (RIOT_TURN if kind[i] == Kind.RIOT else (1.2 if kind[i] >= Kind.INFANTRY else TURN_RATE)))
 		flash[i] = maxf(flash[i] - delta * 10.0, 0.0)
 		# следы и капли: функцию зовём только когда что-то нужно (раньше — 500 вызовов за тик впустую)
 		if floor_decals != null:
@@ -1104,6 +1162,109 @@ func _move(delta: float) -> void:
 	player.crowd_contacts = contacts
 	if touch_damage > 0.0:
 		player_touched.emit(touch_damage)
+
+
+## ZAI6 (4В): шаг «спокойного» (бродит, идёт на вой). false — проснулся и с этого тика преследует.
+func _calm_step(i: int, p: Vector2, d: float, delta: float) -> bool:
+	goal_t[i] -= delta
+	if mind[i] == Mind.LURE:
+		if goal_t[i] <= 0.0 or d < LURE_KEEP:
+			_wake(i, false)
+			return false
+		return true
+	# Проверка раз в 8 тиков вразбивку: вплотную чует, ближе WAKE_R — если видит (флаг клетки поля, без лучей).
+	if (i + _frame) & 7 == 0 and (d < WAKE_NEAR or d < WAKE_R and (obstacles == null or obstacles.sees_target(p, radius[i]))):
+		_wake(i, true)
+		return false
+	if goal_t[i] <= 0.0 and p.distance_squared_to(goal[i]) < 36.0:
+		goal[i] = home[i] + Vector2.from_angle(randf() * TAU) * randf_range(0.0, 50.0)
+		goal_t[i] = randf_range(3.0, 8.0)
+	return true
+
+
+func _calm_dir(i: int, p: Vector2) -> Vector2:
+	var tv := goal[i] - p
+	var td := tv.length()
+	if td < (6.0 if mind[i] == Mind.WANDER else LURE_STOP):
+		return Vector2.ZERO
+	var tdir := tv / td
+	if mind[i] == Mind.LURE and obstacles:
+		var f := obstacles.lure_dir(p, goal[i])
+		if f != Vector2.ZERO:
+			tdir = f
+	return obstacles.slide_wall(p, tdir, radius[i]) if obstacles else tdir
+
+
+## Проснулся — преследует; крик (pack) будит бродящих соседей в PACK_R.
+func _wake(i: int, pack: bool) -> void:
+	if mind[i] == Mind.WANDER:
+		woken += 1
+	mind[i] = Mind.CHASE
+	steer[i] = Vector2.ZERO
+	_mode_hold[i] = 0
+	_far_time[i] = 0.0
+	if pack:
+		for j in query_radius(pos[i], PACK_R):
+			if mind[j] == Mind.WANDER:
+				woken += 1
+				mind[j] = Mind.CHASE
+				steer[j] = Vector2.ZERO
+				_mode_hold[j] = 0
+
+
+## Шум (выстрел, взрыв): бродящие в радиусе просыпаются и идут к игроку. Радиусы 150–1100 px — проще пройти
+## по всем особям (≤ 500), чем по клеткам сетки.
+func noise(at: Vector2, radius_px: float) -> void:
+	if radius_px <= 0.0:
+		return
+	var r2 := radius_px * radius_px
+	for i in count:
+		if mind[i] == Mind.WANDER and dead[i] == 0 and pos[i].distance_squared_to(at) <= r2:
+			_wake(i, false)
+
+
+## Вой сигнализации: бродящие и преследующие дальше LURE_KEEP от игрока идут к машине, пока воет (+ LURE_HOLD).
+## Бегуны и элита не отвлекаются.
+func lure(at: Vector2, radius_px: float) -> void:
+	if not senses or player == null:
+		return
+	var ppos := player.global_position
+	var r2 := radius_px * radius_px
+	for i in count:
+		if dead[i] == 1 or pos[i].distance_squared_to(at) > r2:
+			continue
+		if kind[i] == Kind.RUNNER or elite[i] == 1 or pos[i].distance_to(ppos) < LURE_KEEP:
+			continue
+		if mind[i] != Mind.LURE:
+			lured += 1
+		mind[i] = Mind.LURE
+		goal[i] = at
+		goal_t[i] = LURE_HOLD
+		steer[i] = Vector2.ZERO
+
+
+## Группы на карте со старта: стоят и бродят у сценок, подальше от игрока (ZAI6, 4В). Возвращает число особей.
+func spawn_idle_groups(start: Vector2) -> int:
+	var places := PackedVector2Array()
+	for q in poi:
+		if q.distance_to(start) >= IDLE_MIN_DIST:
+			places.append(q)
+	var spawned := 0
+	for g in mini(IDLE_GROUPS, places.size()):
+		var pick := randi() % places.size()
+		var center := places[pick]
+		places.remove_at(pick)
+		for j in randi_range(IDLE_SIZE.x, IDLE_SIZE.y):
+			var e := spawn(center + Vector2.from_angle(randf() * TAU) * randf_range(4.0, 26.0), Kind.FAT if randf() < 0.08 else Kind.SHAMBLER)
+			if e < 0:
+				return spawned
+			mind[e] = Mind.WANDER
+			home[e] = center
+			goal[e] = pos[e]
+			goal_t[e] = randf_range(3.0, 20.0)
+			angle[e] = randf() * TAU
+			spawned += 1
+	return spawned
 
 
 ## Кровавые следы, если зомби прошёл по луже, и капли с раненых.
@@ -1261,6 +1422,10 @@ func _compact() -> void:
 				knock[i] = knock[count]
 				steer[i] = steer[count]
 				_mode_hold[i] = _mode_hold[count]
+				mind[i] = mind[count]
+				goal[i] = goal[count]
+				goal_t[i] = goal_t[count]
+				home[i] = home[count]
 				_progress_pos[i] = _progress_pos[count]
 				_stuck_time[i] = _stuck_time[count]
 				_far_time[i] = _far_time[count]
@@ -1316,6 +1481,7 @@ func _compact() -> void:
 				chill[i] = chill[count]
 				chill_hits[i] = chill_hits[count]
 				freeze_t[i] = freeze_t[count]
+				brace_t[i] = brace_t[count]
 				shatter[i] = shatter[count]
 				cryo_contributors[i] = cryo_contributors[count]
 				freeze_contributors[i] = freeze_contributors[count]
@@ -1415,9 +1581,15 @@ func _render() -> void:
 		_fire_light_mat.set_shader_parameter("fx_time", _time)
 
 
-## Кишки у еле живых волочатся за спиной (рисуются под спрайтами орды).
+## Кишки у еле живых волочатся за спиной (рисуются под спрайтами орды). Замах плевальщика — капля у рта.
 func _draw() -> void:
 	for i in count:
+		if spit_windup[i] > 0.0 and kind[i] == Kind.SPITTER:
+			var grow := 1.0 - spit_windup[i] / SPIT_WINDUP
+			var mouth := pos[i] + Vector2.from_angle(angle[i]) * (radius[i] + 1.0)
+			PixelArt.draw_dot(self, mouth, 1.0 + grow * 1.8, Color(0.17, 0.23, 0.04))
+			PixelArt.draw_dot(self, mouth, 0.7 + grow * 1.5, Color(0.62, 0.85, 0.2))
+			PixelArt.draw_dot(self, mouth - Vector2(0.4, 0.5), 0.3 + grow * 0.5, Color(0.88, 0.96, 0.52))
 		if bolt_dir[i] != Vector2.ZERO:
 			var shaft := bolt_dir[i].rotated(angle[i])
 			var tip := pos[i] + shaft * 3.0

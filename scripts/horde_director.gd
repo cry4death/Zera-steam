@@ -474,7 +474,11 @@ func spawn_group(n: int, shares: Array, runner_pack: bool, now: float) -> int:
 		var at := _origins[lane]
 		# Не стягиваем пачку в одну точку, если первый разброс попал в машину.
 		for attempt in 12:
-			var candidate := _origins[lane] + inward.orthogonal() * _rng.randf_range(-width, width) - inward * _rng.randf_range(0.0, 72.0)
+			var side := _rng.randf_range(-width, width)
+			var back := _rng.randf_range(0.0, 72.0)
+			if k == Horde.Kind.RIOT:
+				back = 0.0 # ZAI6: щит — в голове строя (порядок RNG формы прежний)
+			var candidate := _origins[lane] + inward.orthogonal() * side - inward * back
 			if view.has_point(candidate) or not horde.arena.grow(-24.0).has_point(candidate) or candidate.distance_to(player.position) + 0.01 < _min_distance:
 				continue
 			if horde.obstacles and (horde.obstacles.contains(candidate, 23.0) or horde.obstacles.distance[horde.obstacles.cell_at(candidate)] == Obstacles.NO_PATH):
@@ -486,6 +490,9 @@ func spawn_group(n: int, shares: Array, runner_pack: bool, now: float) -> int:
 		var i := horde.spawn(at, k)
 		if i >= 0:
 			horde.attach_group(i, _groups[lane])
+			if k == Horde.Kind.RIOT:
+				# ZAI6: щит идёт со скоростью строя (шаркуна), а не отстаёт (было 18 против 28 px/с).
+				horde.speed[i] = maxf(horde.speed[i], float(Horde.KINDS[Horde.Kind.SHAMBLER]["speed"]) * Horde.BASE_SPEED_MEAN)
 			if runner_pack:
 				fast_origin = _origins[lane]
 				_fast_until = _event_until

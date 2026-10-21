@@ -30,6 +30,47 @@ func body_radius() -> float:
 	return 18.0
 
 
+## Радиус для стен и пути. У мягких тел (Мясная гора) меньше радиуса попаданий — протискивается по улицам.
+func move_radius() -> float:
+	return body_radius()
+
+
+## ZAI6 (З5): ходьба в обход домов. Путь крупного тела (Obstacles.big_path) пересчитывается раз в 0,4 с или когда
+## цель ушла на 32 px; без пути (замкнут, нет препятствий) — по прямой, как раньше. Возвращает точку шага.
+var _path := PackedVector2Array()
+var _path_goal := Vector2.INF
+var _path_cd := 0.0
+var _path_found := true
+
+
+func _walk_point(target: Vector2, step: float, delta: float) -> Vector2:
+	var from := global_position
+	if obstacles == null:
+		return from.move_toward(target, step)
+	var r := move_radius()
+	_path_cd -= delta
+	if _path_cd <= 0.0 or _path_goal.distance_to(target) > 32.0:
+		_path_goal = target
+		_path = obstacles.big_path(from, target, r)
+		_path_found = obstacles.big_found
+		# Цель недостижима — путь к ближайшей достижимой клетке; повторный поиск реже (он дорогой).
+		_path_cd = 0.4 if _path_found else 2.0
+		if OS.get_cmdline_user_args().has("--boss-debug"):
+			print("BOSSPATH from=%s to=%s r=%.0f points=%d expanded=%d found=%s" % [from.round(), target.round(), r, _path.size(), obstacles.big_expanded, _path_found])
+	if _path.is_empty():
+		return from.move_toward(target, step)
+	# Промежуточные точки снимаем, когда дошли или видна следующая. Последняя — цель (идём к игроку сейчас)
+	# или, если цель недостижима, ближайшая к ней клетка.
+	while _path.size() > 1 and (from.distance_to(_path[0]) < 4.0 or obstacles.big_clear(from, _path[1], r)):
+		_path.remove_at(0)
+	return from.move_toward(target if _path.size() == 1 and _path_found else _path[0], step)
+
+
+## Таран и бросок — по прямой: начинаются, только если на отрезке нет дома или забора (машины ломаются).
+func _ram_open(to: Vector2) -> bool:
+	return obstacles == null or obstacles.ram_clear(global_position, to, move_radius())
+
+
 func display_name() -> String:
 	return "Объект-7"
 

@@ -33,8 +33,20 @@ const LIMITS := [
 	["move_mode_back_pct", "<=", 0.3, "ZAI5"], # 0,19 / 0,55 → 0,06 / 0,17 (смена режима, отменённая за 0,5 с)
 	["far_mode_back_pct", "<=", 0.3, "ZAI5"], # 0,17 / 0,29 → 0,14 / 0,07
 	["start_long_x", "<=", 1.5, "ZAI5"], # 0 / 0 → 0 / 0 (у домов и заборов к равномерной толпе; машины — PF1, вплотную)
+	# ZAI6 — группы со старта и сигнализация (только old_town: на open_perimeter нет легковушек)
+	["senses_calm_moved", "<=", 80.0, "ZAI6"], # спокойная группа за 3 с не уходит дальше 80 px от места
+	["senses_wake_s", ">=", 0.0, "ZAI6"], # -1 — не проснулась за 2 с
+	["senses_wake_s", "<=", 1.0, "ZAI6"],
+	["senses_noise_woken", ">=", 1.0, "ZAI6"], # выстрел будит всю группу в радиусе
+	["senses_lured_pct", ">=", 60.0, "ZAI6"], # вой увёл большинство преследующих (кроме бегунов и тех, кто у игрока)
+	["senses_lure_closer_pct", ">=", 60.0, "ZAI6"], # и за 6 с воя подошли к машине на четверть пути (или встали у неё)
+	["senses_released_pct", ">=", 95.0, "ZAI6"], # после воя снова преследуют
+	["boss_reached_pct", ">=", 90.0, "ZAI6"], # босс (18 px) из-за дома: до ZAI6 37–50 % (стенд zai1_probe --probe=boss)
+	["boss_stuck_pct", "<=", 10.0, "ZAI6"], # было 31–45 % времени
+	["shield_open_s_120", "<=", 4.0, "ZAI6"], # фланг щита на R 120 px при 80 px/с: было 7,7 с
+	["shield_open_s_150", "<=", 4.0, "ZAI6"], # на R 150 px: было «никогда»
 ]
-const ACTIVE := ["ZAI2", "ZAI3", "ZAI4", "ZAI5"]
+const ACTIVE := ["ZAI2", "ZAI3", "ZAI4", "ZAI5", "ZAI6"]
 
 var game
 var horde: Horde
@@ -82,6 +94,12 @@ func run(owner_game) -> int:
 		for scenario in ["jam", "move", "start", "far"]:
 			if only == "" or only == scenario:
 				await _scenario_run(map_id, scenario)
+		if (only == "" or only == "senses") and map_id == "old_town":
+			await _senses_run(map_id)
+		if (only == "" or only == "boss") and map_id == "old_town":
+			await _boss_run(map_id)
+		if (only == "" or only == "shield") and map_id == "open_perimeter":
+			await _shield_run(map_id)
 	horde.tick_probe = Callable()
 	_check("penetrations", penetrations)
 	print("CROWDTEST checks=%d failed=%d penetrations=%d active=%s ok=%s" % [checks, failed, penetrations, ",".join(ACTIVE), failed == 0])
@@ -158,6 +176,251 @@ func _scenario_run(map_id: String, scenario: String) -> void:
 		if tick % 300 == 299:
 			await game.get_tree().process_frame
 	_report()
+
+
+## ZAI6 (4В): группы на карте и сигнализация. Спокойная группа вне WAKE_R не просыпается и не уходит от места;
+## игрок на виду ближе WAKE_R будит её за ≤ 1 с; выстрел будит группу в радиусе шума; вой машины уводит к ней
+## преследующих дальше LURE_KEEP, после воя они снова идут к игроку.
+func _senses_run(map_id: String) -> void:
+	_map = map_id
+	_scenario = "senses"
+	var data := MapLoader.load_map(map_id)
+	var rect := Rect2(Vector2.ZERO, data["size"])
+	obstacles.setup(rect, MapLoader.layout(data, 81073))
+	horde.setup(rect, player, null)
+	horde.map_entries = data["spawn_points"]
+	horde.count = 0
+	horde.minutes = 6.0
+	horde.senses = true
+	horde.reset_variety_seed(81073)
+	seed(81073)
+	M = {}
+	var start := obstacles.free_point(data["start"], 8.0)
+	player.position = start
+	_follow()
+	game._pathing_warm(5.0, player.position)
+	# Открытое место для группы: ближайшая к старту видимая клетка в 400 px.
+	var place := Vector2.INF
+	for k in 64:
+		var q := obstacles.free_point(start + Vector2.from_angle(k * TAU / 64.0) * 400.0, 12.0)
+		if q.distance_to(start) > 360.0 and obstacles.sees_target(q, 5.0):
+			place = q
+			break
+	var r := {"senses_calm_moved": -1.0, "senses_wake_s": -1.0, "senses_noise_woken": -1.0, "senses_lured_pct": -1.0,
+		"senses_lure_closer_pct": -1.0, "senses_released_pct": -1.0}
+	if place != Vector2.INF:
+		horde.poi = PackedVector2Array([place])
+		var n := horde.spawn_idle_groups(start + (start - place).normalized() * 200.0)
+		_senses_steps(180)
+		var calm := 0
+		var moved := 0.0
+		for i in horde.count:
+			calm += 1 if horde.mind[i] == Horde.Mind.WANDER else 0
+			moved = maxf(moved, horde.pos[i].distance_to(place))
+		r["senses_calm_moved"] = snappedf(moved, 0.1) if calm == n else 999.0
+		# Игрок подходит на 200 px по открытому — группа просыпается.
+		player.position = obstacles.free_point(place + (start - place).normalized() * 200.0, 8.0)
+		_follow()
+		game._pathing_warm(5.0, player.position)
+		for t in 120:
+			_senses_steps(1)
+			var left := 0
+			for i in horde.count:
+				left += 1 if horde.mind[i] != Horde.Mind.CHASE else 0
+			if left == 0:
+				r["senses_wake_s"] = snappedf((t + 1) / 60.0, 0.01)
+				break
+		# Выстрел будит вторую группу в радиусе шума.
+		horde.count = 0
+		player.position = start
+		_follow()
+		game._pathing_warm(5.0, player.position)
+		horde.poi = PackedVector2Array([place])
+		n = horde.spawn_idle_groups(start + (start - place).normalized() * 200.0)
+		horde.noise(start, start.distance_to(place) + 40.0)
+		var woke := 0
+		for i in horde.count:
+			woke += 1 if horde.mind[i] == Horde.Mind.CHASE else 0
+		r["senses_noise_woken"] = float(woke) / maxf(n, 1.0)
+	# Сигнализация: целая легковушка, ближайшая к старту; игрок в 350 px от неё, 40 преследующих вокруг игрока
+	# в 200–500 px.
+	horde.count = 0
+	var car := -1
+	var car_d := INF
+	for i in obstacles.count:
+		if obstacles.kind[i] < Obstacles.Kind.TRUCK and obstacles.state[i] == Obstacles.State.INTACT and obstacles.pos[i].distance_to(start) < car_d:
+			car = i
+			car_d = obstacles.pos[i].distance_to(start)
+	if car >= 0:
+		var away := (start - obstacles.pos[car]).normalized() if car_d > 1.0 else Vector2.RIGHT
+		player.position = obstacles.free_point(obstacles.pos[car] + away * 350.0, 8.0)
+		_follow()
+		game._pathing_warm(5.0, player.position)
+		_ring(40, 200.0, 500.0)
+		var at := obstacles.pos[car]
+		var d0 := PackedFloat32Array()
+		for i in horde.count:
+			d0.append(horde.pos[i].distance_to(at))
+		obstacles.damage(car, 1.0)
+		_senses_steps(360)
+		var eligible := 0
+		var lured := 0
+		var closer := 0
+		for i in horde.count:
+			if horde.kind[i] == Horde.Kind.RUNNER or d0[i] > Obstacles.ALARM_LURE:
+				continue
+			eligible += 1
+			if horde.mind[i] == Horde.Mind.LURE:
+				lured += 1
+				closer += 1 if horde.pos[i].distance_to(at) < d0[i] * 0.75 or horde.pos[i].distance_to(at) < Horde.LURE_STOP + 12.0 else 0
+		r["senses_lured_pct"] = snappedf(100.0 * lured / maxf(eligible, 1.0), 0.1)
+		r["senses_lure_closer_pct"] = snappedf(100.0 * closer / maxf(lured, 1.0), 0.1)
+		_senses_steps(int((Obstacles.ALARM_TIME + Horde.LURE_HOLD - 6.0 + 1.0) * 60.0))
+		var chase := 0
+		for i in horde.count:
+			chase += 1 if horde.mind[i] == Horde.Mind.CHASE else 0
+		r["senses_released_pct"] = snappedf(100.0 * chase / maxf(horde.count, 1.0), 0.1)
+	print("CROWDTEST map=%s scenario=senses %s" % [map_id, JSON.stringify(r)])
+	for key in r:
+		_check(key, r[key])
+	horde.count = 0
+	await game.get_tree().process_frame
+
+
+## ZAI6 (З5): ходьба босса (BossBase._walk_point, тело 18 px, 40 px/с) из-за дома: пары 220–380 px, прямая
+## перекрыта. Доходит — ближе 33 px за 1,5 × время по кратчайшему пути для тела + 5 с; «стоит» — сдвиг < 4 px за
+## 0,5 с дальше 53 px.
+func _boss_run(map_id: String) -> void:
+	_map = map_id
+	_scenario = "boss"
+	var data := MapLoader.load_map(map_id)
+	var rect := Rect2(Vector2.ZERO, data["size"])
+	obstacles.setup(rect, MapLoader.layout(data, 81073))
+	horde.count = 0
+	var walker := BossBase.new()
+	walker.obstacles = obstacles
+	game.add_child(walker)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 81073
+	var r := walker.move_radius()
+	var trials := 0
+	var reached := 0
+	var stuck := 0.0
+	var total := 0.0
+	var area := obstacles.arena.grow(-160.0)
+	for trial in 12:
+		var p := Vector2.INF
+		var b := Vector2.INF
+		for attempt in 400:
+			var pp: Vector2 = obstacles.free_point(area.position + Vector2(rng.randf(), rng.randf()) * area.size, 8.0)
+			var bb: Vector2 = obstacles.free_point(pp + Vector2.from_angle(rng.randf() * TAU) * rng.randf_range(220.0, 380.0), r + 2.0)
+			var dist := pp.distance_to(bb)
+			if dist >= 200.0 and dist <= 400.0 and obstacles.arena.grow(-r - 4.0).has_point(bb) and not obstacles.line_clear(bb, pp):
+				p = pp
+				b = bb
+				break
+		if p == Vector2.INF:
+			continue
+		trials += 1
+		walker.global_position = b
+		walker._path = PackedVector2Array()
+		walker._path_cd = 0.0
+		# Предел — по длине кратчайшего пути для тела, а не по прямой: обход квартала бывает втрое длиннее.
+		var plen := 0.0
+		var prev := b
+		for q in obstacles.big_path(b, p, r):
+			plen += prev.distance_to(q)
+			prev = q
+		var limit := 1.5 * maxf(plen - 33.0, 0.0) / 40.0 + 5.0
+		var last := b
+		var t := 0.0
+		while t < limit:
+			var before := walker.global_position
+			walker.global_position = obstacles.move_actor(before, walker._walk_point(p, 40.0 * DT, DT), r)
+			t += DT
+			if fmod(t, 0.5) < DT:
+				total += 0.5
+				if walker.global_position.distance_to(last) < 4.0 and walker.global_position.distance_to(p) > 53.0:
+					stuck += 0.5
+				last = walker.global_position
+			if walker.global_position.distance_to(p) <= 33.0:
+				reached += 1
+				break
+		if OS.get_cmdline_user_args().has("--crowd-debug"):
+			print("CROWDDEBUG boss d0=%.0f path=%.0f t=%.1f limit=%.1f end=%.0f" % [b.distance_to(p), plen, t, limit, walker.global_position.distance_to(p)])
+	walker.queue_free()
+	var res := {"boss_trials": float(trials), "boss_reached_pct": snappedf(100.0 * reached / maxf(trials, 1.0), 0.1),
+		"boss_stuck_pct": snappedf(100.0 * stuck / maxf(total, 0.5), 0.1), "boss_searches": float(obstacles.big_calls)}
+	print("CROWDTEST map=%s scenario=boss %s" % [map_id, JSON.stringify(res)])
+	for key in res:
+		_check(key, res[key])
+	await game.get_tree().process_frame
+
+
+## ZAI6 (С8): щитовик (бессмертный) стоит, игрок кружит на R со скоростью 80 px/с и стреляет в него 6 раз в
+## секунду (удар в щит — упор SHIELD_BRACE). Время до первого захода во фланг (вне дуги щита).
+func _shield_run(map_id: String) -> void:
+	_map = map_id
+	_scenario = "shield"
+	var data := MapLoader.load_map(map_id)
+	var rect := Rect2(Vector2.ZERO, data["size"])
+	obstacles.setup(rect, MapLoader.layout(data, 81073))
+	horde.setup(rect, player, null)
+	horde.senses = false
+	var center := obstacles.free_point(data["start"], 8.0)
+	var best := INF
+	for c in obstacles.obstacle_distance.size():
+		if obstacles.obstacle_distance[c] >= 40.0 and obstacles.cell_center(c).distance_to(data["start"]) < best:
+			var q := obstacles.cell_center(c)
+			var open := true
+			for k in 8:
+				if obstacles.contains(q + Vector2.from_angle(k * TAU / 8.0) * 150.0, 8.0):
+					open = false
+					break
+			if open:
+				best = q.distance_to(data["start"])
+				center = q
+	var res := {}
+	for radius_px: float in [120.0, 150.0]:
+		horde.count = 0
+		var i := horde.spawn(center, Horde.Kind.RIOT)
+		horde.hp[i] = 1.0e6
+		horde.max_hp[i] = 1.0e6
+		horde.armor_shield[i] = 1.0e6
+		horde.speed[i] = 0.0 # стоит: меряем только поворот щита
+		horde.angle[i] = 0.0
+		var theta := 0.0
+		var first := -1.0
+		var t := 0.0
+		var shot := 0.0
+		while t < 8.0:
+			theta += 80.0 / radius_px * DT
+			player.position = horde.pos[i] + Vector2.from_angle(theta) * radius_px
+			horde._physics_process(DT)
+			t += DT
+			shot += DT
+			if shot >= 1.0 / 6.0:
+				shot = 0.0
+				var dir := (horde.pos[i] - player.position).normalized()
+				horde.damage(i, 1.0, dir, 0.0, WeaponDefs.Ammo.STANDARD, false, horde.pos[i] - dir * horde.radius[i])
+			var off := absf(angle_difference(horde.angle[i], (player.position - horde.pos[i]).angle()))
+			if t > 0.5 and cos(off) < 0.35 and first < 0.0:
+				first = t
+				break
+		res["shield_open_s_%d" % int(radius_px)] = snappedf(first if first >= 0.0 else 99.0, 0.01)
+	horde.count = 0
+	horde.senses = true
+	print("CROWDTEST map=%s scenario=shield %s" % [map_id, JSON.stringify(res)])
+	for key in res:
+		_check(key, res[key])
+	await game.get_tree().process_frame
+
+
+func _senses_steps(ticks: int) -> void:
+	for t in ticks:
+		obstacles.navigation_step(DT, player.position)
+		obstacles._update_alarms(DT)
+		horde._physics_process(DT)
 
 
 func _follow() -> void:

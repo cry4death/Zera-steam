@@ -23,6 +23,12 @@ const WALL_PEN_MAX := 10.0
 const LOS_RANGE := 700.0 # как Horde.DIRECT_RANGE
 const LOS_MARGIN := 4.0 # запас к радиусу класса: прямая проходит не через центр клетки
 const FLOW_BOUND_MARGIN := 400 # R11: волна Дейкстры — до самой дальней особи/входа + запас (стоимость)
+const ALARM_TIME := 8.0 # ZAI6 (4В): сигнализация легковушки воет столько секунд после первого попадания
+const ALARM_PULSE := 1.0 # гудок и приманка орды — раз в столько секунд
+const ALARM_LURE := 800.0 # радиус приманки, px
+const LURE_BOUND := 1250 # волна поля к машине — до этой стоимости (~800 px пути + запас)
+const BIG_MARGIN := 4.0 # ZAI6: запас зазора клетки для пути босса (big_path)
+const BIG_EXPAND := 9000 # предел раскрытых клеток A* босса
 ## Частый пересчёт основного класса — только в окрестности игрока (≈720 px пути); дальше остаются прежние
 ## направления, их обновляет полный пересчёт раз в три цикла.
 const LOCAL_COST := 900
@@ -151,6 +157,18 @@ var ray_calls := 0
 var body_usec := 0
 var body_calls := 0
 var path_calls := 0
+var big_calls := 0 # ZAI6: поиски пути боссов
+var alarm := PackedFloat32Array() # > 0 — воет (осталось, с); < 0 — уже отвыла
+var _alarming := PackedInt32Array()
+var _alarm_pulse := 0.0
+var alarms := 0 # сколько машин завыло (стенд, --sim)
+var lure_flow := PackedVector2Array() # поле к воющей машине (класс 1)
+var _lure_at := Vector2.INF
+var _lure_task := -1
+var _lure_out := {}
+var _lure_gen := 0
+var big_expanded := 0 # раскрыто клеток в последнем поиске (стенд)
+var big_found := false # последний поиск дошёл до цели (иначе путь — к ближайшей достижимой клетке)
 var _art: MultiMesh
 var _art_node: MultiMeshInstance2D
 var _art_buffer := PackedFloat32Array()
@@ -249,6 +267,11 @@ func setup(rect: Rect2, layout: Array[Dictionary]) -> void:
 	blood.resize(count)
 	high.resize(count)
 	round_shape.resize(count)
+	alarm.resize(count)
+	alarm.fill(0.0)
+	_alarming.clear()
+	lure_flow = PackedVector2Array()
+	_lure_at = Vector2.INF
 	_burning.clear()
 	_smoking.clear()
 	_blast_queue.clear()
@@ -1113,8 +1136,9 @@ func _flow_bound(center: Vector2, k: int) -> int:
 	var top := 0
 	var big: float = CLASS_RADII[1] + 0.025
 	for i in horde.count:
-		# Классы 0 и 1 — все обычные (класс 1 берёт поле класса 0 в щелях), класс 2 — только крупные.
-		if horde.dead[i] == 1 or (horde.radius[i] > big) != (k == 2):
+		# Классы 0 и 1 — все обычные (класс 1 берёт поле класса 0 в щелях), класс 2 — только крупные. Бродящие и
+		# идущие на вой поле к игроку не берут (ZAI6); проснувшись вне волны, дадут полный расчёт.
+		if horde.dead[i] == 1 or (horde.radius[i] > big) != (k == 2) or horde.mind[i] != Horde.Mind.CHASE:
 			continue
 		var cost := dist[cell_at(horde.pos[i])]
 		if cost == NO_PATH:
@@ -1222,10 +1246,241 @@ static func _flow_layer(edges: PackedByteArray, weights: PackedByteArray, points
 	out["los"] = los
 
 
+## ZAI6: путь крупного тела (босса, радиус 18–26) — A* по клеткам, где зазор вмещает тело. Слои поля 0–2 не трогает.
+## Клетка годится, если зазор её центра ≥ r + BIG_MARGIN; диагональ — если годятся и обе соседние по сторонам.
+## Путь натягивается: точка пропускается, пока отрезок до следующей годен по клеткам (big_clear).
+
+
+## Нужный зазор клетки: поле расстояний насыщается на 40 px, крупнее этого «всё, что дальше 40».
+func _big_need(r: float) -> float:
+	return minf(r + BIG_MARGIN, 40.0)
+
+
+## Отрезок проходим для тела радиуса r: выборки через 4 px, зазор клетки ≥ r + запас.
+func big_clear(from: Vector2, to: Vector2, r: float) -> bool:
+	var need := _big_need(r)
+	var length := from.distance_to(to)
+	var steps := maxi(1, ceili(length / 4.0))
+	for s in steps + 1:
+		var q := from.lerp(to, float(s) / steps)
+		if not arena.has_point(q) or obstacle_distance[cell_at(q)] < need:
+			return false
+	return true
+
+
+## Отрезок не пересекает длинную стену (дом, забор) — таран по нему возможен (машины он ломает).
+func ram_clear(from: Vector2, to: Vector2, r: float) -> bool:
+	var length := from.distance_to(to)
+	var steps := maxi(1, ceili(length / 4.0))
+	for s in steps + 1:
+		var c := cell_at(from.lerp(to, float(s) / steps))
+		if obstacle_distance[c] < r and long_wall[c] == 1:
+			return false
+	return true
+
+
+func big_path(from: Vector2, to: Vector2, r: float) -> PackedVector2Array:
+	big_calls += 1
+	big_expanded = 0
+	big_found = true
+	if big_clear(from, to, r):
+		return PackedVector2Array([to])
+	var need := _big_need(r)
+	var first := cell_at(from)
+	var last := cell_at(to)
+	# Цель — любая годная клетка ближе r + 16 px к точке: игрок в узком месте, куда тело не влезает, — подходим
+	# вплотную с ближней стороны, а не к «ближайшему просторному месту» за домом.
+	var goal_r := r + 16.0
+	var n := blocked.size()
+	var g := PackedFloat32Array()
+	g.resize(n)
+	g.fill(INF)
+	var parent := PackedInt32Array()
+	parent.resize(n)
+	parent.fill(-1)
+	var closed := PackedByteArray()
+	closed.resize(n)
+	var heap_f := PackedFloat32Array()
+	var heap_c := PackedInt32Array()
+	g[first] = 0.0
+	parent[first] = first
+	_big_push(heap_f, heap_c, maxf(0.0, _octile(first, last) - goal_r / CELL), first)
+	var expanded := 0
+	var found := false
+	# Цели не достать (тело не пролезает или предел поиска) — идём к раскрытой клетке, ближайшей к цели.
+	var best := first
+	var best_h := INF
+	while heap_c.size() > 0 and expanded < BIG_EXPAND:
+		var at := _big_pop(heap_f, heap_c)
+		if closed[at] == 1:
+			continue
+		closed[at] = 1
+		expanded += 1
+		var h := cell_center(at).distance_squared_to(to)
+		if h < best_h:
+			best_h = h
+			best = at
+		if at == last or cell_center(at).distance_to(to) <= goal_r:
+			last = at
+			found = true
+			break
+		var x := at % grid_w
+		var y := at / grid_w
+		for d in 8:
+			var q: Vector2i = Vector2i(x, y) + STEPS[d]
+			if q.x < 0 or q.x >= grid_w or q.y < 0 or q.y >= grid_h:
+				continue
+			var next := at + _offsets[d]
+			if closed[next] == 1 or obstacle_distance[next] < need:
+				continue
+			if d >= 4 and (obstacle_distance[at + STEPS[d].x] < need or obstacle_distance[at + STEPS[d].y * grid_w] < need):
+				continue
+			var ng := g[at] + (1.41421 if d >= 4 else 1.0)
+			if ng < g[next]:
+				g[next] = ng
+				parent[next] = at
+				_big_push(heap_f, heap_c, ng + maxf(0.0, _octile(next, last) - goal_r / CELL), next)
+	big_expanded = expanded
+	big_found = found
+	if not found:
+		if best == first:
+			return PackedVector2Array()
+		last = best
+	var raw := PackedVector2Array([to] if found else [cell_center(best)])
+	var at := last
+	while at != first:
+		raw.append(cell_center(at))
+		at = parent[at]
+	raw.reverse()
+	var path := PackedVector2Array()
+	var p := from
+	var j := 0
+	while j < raw.size():
+		var end := j
+		while end + 1 < raw.size() and big_clear(p, raw[end + 1], r):
+			end += 1
+		path.append(raw[end])
+		p = raw[end]
+		j = end + 1
+	return path
+
+
+func _octile(a: int, b: int) -> float:
+	var dx := absi(a % grid_w - b % grid_w)
+	var dy := absi(a / grid_w - b / grid_w)
+	return maxi(dx, dy) + 0.41421 * mini(dx, dy)
+
+
+func _big_push(hf: PackedFloat32Array, hc: PackedInt32Array, f: float, c: int) -> void:
+	hf.append(f)
+	hc.append(c)
+	var i := hf.size() - 1
+	while i > 0:
+		var up := (i - 1) >> 1
+		if hf[up] <= hf[i]:
+			break
+		var tf := hf[up]
+		hf[up] = hf[i]
+		hf[i] = tf
+		var tc := hc[up]
+		hc[up] = hc[i]
+		hc[i] = tc
+		i = up
+
+
+func _big_pop(hf: PackedFloat32Array, hc: PackedInt32Array) -> int:
+	var top := hc[0]
+	var last := hf.size() - 1
+	hf[0] = hf[last]
+	hc[0] = hc[last]
+	hf.resize(last)
+	hc.resize(last)
+	var i := 0
+	while true:
+		var l := i * 2 + 1
+		var r := l + 1
+		var m := i
+		if l < last and hf[l] < hf[m]:
+			m = l
+		if r < last and hf[r] < hf[m]:
+			m = r
+		if m == i:
+			break
+		var tf := hf[m]
+		hf[m] = hf[i]
+		hf[i] = tf
+		var tc := hc[m]
+		hc[m] = hc[i]
+		hc[i] = tc
+		i = m
+	return top
+
+
+## ZAI6 (4В): воющие машины раз в ALARM_PULSE зовут орду (Horde.lure) и гудят; поле к машине — одно на вой.
+func _update_alarms(delta: float) -> void:
+	if _lure_task >= 0 and WorkerThreadPool.is_task_completed(_lure_task):
+		WorkerThreadPool.wait_for_task_completion(_lure_task)
+		_lure_task = -1
+		if _lure_gen == _nav_generation and _lure_out.has("flow"):
+			lure_flow = _lure_out["flow"]
+	if _alarming.is_empty():
+		return
+	_alarm_pulse -= delta
+	var pulse := _alarm_pulse <= 0.0
+	if pulse:
+		_alarm_pulse = ALARM_PULSE
+	for n in range(_alarming.size() - 1, -1, -1):
+		var i := _alarming[n]
+		alarm[i] -= delta
+		if alarm[i] <= 0.0 or state[i] >= State.BURNING:
+			alarm[i] = -1.0
+			_alarming.remove_at(n)
+			continue
+		if pulse:
+			_request_lure(pos[i])
+			if horde:
+				horde.lure(pos[i], ALARM_LURE)
+			if sfx:
+				sfx.play("world/car_alarm", pos[i], -3.0, 0.0)
+	if _fx:
+		_fx.queue_redraw()
+
+
+## Поле путей к машине (класс 1, волна до LURE_BOUND): в живой игре — в потоке, в тестах — сразу.
+func _request_lure(at: Vector2) -> void:
+	if _lure_at.distance_to(at) < CELL * 2.0 and (not lure_flow.is_empty() or _lure_task >= 0):
+		return
+	if _lure_task >= 0 or not _nav_layers.has(1):
+		return
+	var layer: Dictionary = _nav_layers[1]
+	var seed_cell := cell_at(free_point(at, CLASS_RADII[1] + 0.1))
+	_lure_at = at
+	lure_flow = PackedVector2Array()
+	_lure_out = {}
+	_lure_gen = _nav_generation
+	var job := _flow_layer.bind(layer["edges"], layer["weights"], layer["points"], layer["capacity"], _offsets, seed_cell, cell_center(seed_cell), _lure_out,
+		PackedFloat32Array(), 0, 0.0, LURE_BOUND)
+	if threaded_nav:
+		_lure_task = WorkerThreadPool.add_task(job, false, "lure field")
+	else:
+		job.call()
+		lure_flow = _lure_out["flow"]
+
+
+## Направление к воющей машине at по полю приманки; ZERO — поля нет (идти прямо со скольжением).
+func lure_dir(p: Vector2, at: Vector2) -> Vector2:
+	if lure_flow.is_empty() or _lure_at.distance_to(at) > CELL * 2.0:
+		return Vector2.ZERO
+	return lure_flow[cell_at(p)]
+
+
 func _exit_tree() -> void:
 	for id in _task_ids:
 		WorkerThreadPool.wait_for_task_completion(id)
 	_task_ids.clear()
+	if _lure_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_lure_task)
+		_lure_task = -1
 
 func connected() -> bool:
 	return unreachable_cell() == -1
@@ -1257,6 +1512,12 @@ func unreachable_cell() -> int:
 func damage(i: int, amount: float, fire := false) -> void:
 	if i < 0 or i >= count or kind[i] > Kind.ACID or state[i] >= State.BURNING:
 		return
+	# ZAI6 (4В): первое попадание в целую легковушку — сигнализация, приманка для орды.
+	if kind[i] < Kind.TRUCK and state[i] == State.INTACT and alarm[i] == 0.0 and horde and horde.senses:
+		alarm[i] = ALARM_TIME
+		_alarming.append(i)
+		_alarm_pulse = 0.0
+		alarms += 1
 	hp[i] -= amount
 	if hp[i] <= 60.0:
 		if state[i] == State.INTACT and kind[i] <= Kind.TRUCK:
@@ -1479,6 +1740,7 @@ func _draw_blood() -> void:
 func _physics_process(delta: float) -> void:
 	if player:
 		navigation_step(delta, player.global_position)
+	_update_alarms(delta)
 	_fire_tick -= delta
 	var fire_tick := _fire_tick <= 0.0
 	if fire_tick:
@@ -1619,6 +1881,17 @@ func _sync_art() -> void:
 
 func _draw_fx() -> void:
 	var view := PixelArt.view_rect(self, 130.0)
+	# Сигнализация: фары и поворотники мигают оранжевым (ZAI6, 4В).
+	if int(Time.get_ticks_msec() / 250) % 2 == 0:
+		for i in _alarming:
+			if not view.has_point(pos[i]):
+				continue
+			var side := axis[i].orthogonal() * (half[i].y - 3.0)
+			for end: float in [-1.0, 1.0]:
+				var at := pos[i] + axis[i] * (half[i].x - 3.0) * end
+				for flank: float in [-1.0, 1.0]:
+					_fx.draw_circle(at + side * flank, 9.0, Color(1.0, 0.62, 0.18, 0.22))
+					_fx.draw_circle(at + side * flank, 2.5, Color(1.0, 0.85, 0.45, 0.95))
 	for i in _smoking:
 		if not view.has_point(pos[i]):
 			continue

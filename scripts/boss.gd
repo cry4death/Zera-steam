@@ -136,7 +136,7 @@ func _physics_process(delta: float) -> void:
 			State.WALK:
 				_choose_attack()
 				if _state == State.WALK:
-					_move_to(global_position.move_toward(player.global_position, (40.0 if phase == 1 else 60.0) * delta))
+					_move_to(_walk_point(player.global_position, (40.0 if phase == 1 else 60.0) * delta, delta))
 					_contact()
 			State.TELEGRAPH:
 				if _age + 0.000001 >= _telegraph_time:
@@ -168,7 +168,8 @@ func _physics_process(delta: float) -> void:
 
 func _choose_attack() -> void:
 	var distance := global_position.distance_to(player.global_position)
-	if distance > 180.0 and _charge_cd <= 0.0 and _last_attack != State.CHARGE:
+	var open := _ram_open(player.global_position)
+	if distance > 180.0 and _charge_cd <= 0.0 and _last_attack != State.CHARGE and open:
 		_begin_charge_series()
 	elif distance < 120.0 and _slam_cd <= 0.0 and _last_attack != State.SLAM:
 		_last_attack = State.SLAM
@@ -181,7 +182,7 @@ func _choose_attack() -> void:
 		_enter(State.ROAR)
 		if effects:
 			effects.blood_burst(global_position + _facing * 18.0, _facing, 18, 80.0, 0.8)
-	elif _charge_cd <= 0.0 and _last_attack != State.CHARGE and distance > RADIUS + Player.RADIUS:
+	elif _charge_cd <= 0.0 and _last_attack != State.CHARGE and distance > RADIUS + Player.RADIUS and open:
 		# Дистанция задаёт приоритет, но не блокирует чередование при живых бегунах.
 		_begin_charge_series()
 

@@ -901,6 +901,7 @@ func _ready() -> void:
 	explosions.effects = effects
 	explosions.camera = camera
 	explosions.player = player
+	explosions.horde = horde
 	weapons.explosions = explosions
 	hazards.explosions = explosions
 	effects.sfx = sfx
@@ -969,6 +970,7 @@ func _ready() -> void:
 			obstacles.navigation_step(0.0, player.position)
 	_map_load_ms += (Time.get_ticks_usec() - collision_started) / 1000.0
 	print("MAP loaded id=%s size=%s load_ms=%.2f seed=%d" % [_map_id, ARENA.size, _map_load_ms, _layout_seed])
+	_setup_senses()
 	boss.horde = horde
 	boss.player = player
 	boss.effects = effects
@@ -7484,6 +7486,28 @@ func _pathing_row_flow(spacing: float) -> Dictionary:
 
 ## Живая игра без тестовых флагов (или --nav-thread): поле путей считается в фоновых потоках. Тесты и
 ## симуляции оставляют пошаговый расчёт — их результаты не должны зависеть от реального времени.
+## ZAI6 (ответ автора 4В): места групп при старте — сценки, входы и углы кругов карты; группы бродят там в обычном
+## забеге и в --sim (не в остальных проверках). --no-senses — без групп и сигнализации, как до ZAI6.
+func _setup_senses() -> void:
+	horde.senses = not OS.get_cmdline_user_args().has("--no-senses")
+	horde.poi.clear()
+	var points := PackedVector2Array()
+	for piece: Dictionary in _map_data.get("set_pieces", []):
+		points.append(MapLoader.point(piece["at"]))
+	for at: Vector2 in _map_data.get("spawn_points", PackedVector2Array()):
+		points.append(at)
+	for loop: Array in _map_data.get("loops", []):
+		for corner: Array in loop:
+			points.append(MapLoader.point(corner))
+	for at in points:
+		at = at.clamp(ARENA.position + Vector2.ONE * 40.0, ARENA.end - Vector2.ONE * 40.0)
+		horde.poi.append(obstacles.free_point(at, 10.0) if obstacles else at)
+	if horde.senses and (_sim or not Meta.is_test_run()) and not _boss_test and not _bench:
+		var n := horde.spawn_idle_groups(player.position)
+		if _sim:
+			print("SENSES idle_groups zombies=%d poi=%d" % [n, horde.poi.size()])
+
+
 func _live_play() -> bool:
 	var args := OS.get_cmdline_user_args()
 	if "--nav-thread" in args:

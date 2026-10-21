@@ -315,3 +315,5 @@ A4 voice edits, gore/player synthesis and UI edits are dedicated to CC0 1.0. Ori
 | `weapons/osa/tail_0.wav` | Carl Gustav M45/G_31P.wav | take 1; 0.420292–1.070292 s; ×1.0 |
 | `weapons/osa/tail_1.wav` | Carl Gustav M45/G_31P.wav | take 2; 3.611250–4.261250 s; ×1.0 |
 | `weapons/osa/tail_2.wav` | Carl Gustav M45/G_31P.wav | take 3; 6.837729–7.487729 s; ×1.0 |
+
+ZAI6 (перенос Z2 из claude/inspiring-ramanujan-max7hd): `world/car_alarm_0..1` — car alarm, synthesized by `tools/gen_sfx_world.py` (two alternating tones, square-ish speaker, band 450–3800 Hz, -6 dBFS). CC0 1.0.

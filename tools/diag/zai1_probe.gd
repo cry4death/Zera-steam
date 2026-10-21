@@ -591,6 +591,12 @@ func _trial_setup() -> void:
 		boss.global_position = b
 		break
 	game.time = 605.0 # --boss завершает прогон на 14:00 игрового времени
+	# ZAI6: состояние прошлой попытки не переносится (бросок горы к прошлой точке, путь босса).
+	if "_roll_age" in boss:
+		boss._roll_age = -1.0
+	if "_path" in boss:
+		boss._path = PackedVector2Array()
+		boss._path_cd = 0.0
 	_trial_t = 0.0
 	_trial_stuck = 0.0
 	_trial_hist = PackedVector2Array()
@@ -691,6 +697,10 @@ func _shield_step(delta: float) -> void:
 		var idx: int = h.spawn(z, Horde.Kind.RIOT, false)
 		_sh_uid = h.uid[idx]
 		h.angle[idx] = 0.0 # смотрит на игрока, стоящего справа
+		# ZAI6: со стволами щитовик не должен умереть или лишиться щита за 21 с — меряем только поворот.
+		h.hp[idx] = 1.0e6
+		h.max_hp[idx] = 1.0e6
+		h.armor_shield[idx] = 1.0e6
 		_sh_theta = 0.0
 		_sh_t = 0.0
 		_sh_first = -1.0
@@ -719,7 +729,7 @@ func _shield_step(delta: float) -> void:
 func _shield_report() -> void:
 	var r: float = _radii[_sh_case % _radii.size()]
 	var v: float = _speeds[_sh_case / _radii.size()]
-	var rec := {"R": r, "player_speed": v, "omega": snappedf(v / r, 0.01), "turn_rate": 0.85, "first_open_s": snappedf(_sh_first, 0.1),
+	var rec := {"R": r, "player_speed": v, "omega": snappedf(v / r, 0.01), "turn_rate": game.horde.get_script().get_script_constant_map().get("RIOT_TURN", 0.85), "first_open_s": snappedf(_sh_first, 0.1),
 		"open_share_pct": snappedf(100.0 * _sh_open / 20.0, 0.1), "mean_offset_deg": snappedf(rad_to_deg(_sh_off_sum / maxf(_sh_off_n, 1.0)), 0.1)}
 	print("ZAI1P shield ", JSON.stringify(rec))
 

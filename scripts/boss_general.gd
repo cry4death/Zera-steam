@@ -153,13 +153,17 @@ func _physics_process(delta: float) -> void:
 				_enter(State.WALK)
 		_:
 			var direction := player.global_position - global_position
-			_facing = _facing.rotated(wrapf(direction.angle() - _facing.angle(), -PI, PI) * minf(1.0, delta * 1.6))
+			# ZAI6: поворачивается по пути в обход домов; вблизи и на открытом — к игроку, как раньше.
+			var heading := _walk_point(player.global_position, 24.0, delta) - global_position
+			if heading == Vector2.ZERO:
+				heading = direction
+			_facing = _facing.rotated(wrapf(heading.angle() - _facing.angle(), -PI, PI) * minf(1.0, delta * 1.6))
 			if direction.length() > 125.0 and _order_age < 0.0:
 				_move_to(global_position + _facing * 24.0 * delta)
 			if _contact_cd <= 0.0 and direction.length() < body_radius() + Player.RADIUS:
 				_contact_cd = 1.2
 				player.take_damage(20.0)
-			if _charge_cd <= 0.0 and _order_age < 0.0:
+			if _charge_cd <= 0.0 and _order_age < 0.0 and _ram_open(player.global_position):
 				_begin_shield_charge()
 			elif _mortar_cd <= 0.0:
 				_begin_barrage()

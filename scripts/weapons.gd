@@ -135,6 +135,11 @@ var obstacles: Obstacles
 var horde: Horde
 var boss: Boss
 var firing_enabled := true
+# ZAI6 (4В): громкость выстрела для орды — радиус в px, в котором просыпаются бродящие (по WeaponDefs.Base).
+const NOISE := [450.0, 500.0, 600.0, 550.0, 300.0, 400.0, 400.0, 700.0, 550.0, 600.0, 250.0, 200.0, 150.0, 550.0, 600.0, 350.0]
+const NOISE_PERIOD := 0.25 # автострельба шумит не чаще 4 раз в секунду
+var _noise_r := 0.0
+var _noise_cd := 0.0
 const BOSS_TARGET := -2 # отдельный uid, индексы орды остаются прежними
 const MANUAL_TARGET := -3 # точка игрока, поиск врага не нужен
 var _boss_active := false
@@ -709,6 +714,11 @@ func _class_turret(delta: float) -> void:
 
 func _physics_process(delta: float) -> void:
 	aim_view = PixelArt.view_rect(self, AIM_MARGIN)
+	_noise_cd -= delta
+	if _noise_r > 0.0 and _noise_cd <= 0.0 and horde and player:
+		horde.noise(player.global_position, _noise_r)
+		_noise_r = 0.0
+		_noise_cd = NOISE_PERIOD
 	_update_links(delta)
 	_update_contact_fire(delta)
 	_class_turret(delta)
@@ -857,6 +867,7 @@ func _streak_mult(s: Slot) -> float:
 ## Один выстрел в цель target: снаряды, отдача, вспышка, звук, гильза, магазин. Паузу ставит вызывающий.
 func _fire_shot(i: int, s: Slot, target: int) -> void:
 	var origin := player.global_position
+	_noise_r = maxf(_noise_r, NOISE[s.base] if s.base < NOISE.size() else 400.0)
 	s.retarget = true
 	_burst_shot(s, target if target < -1 else horde.uid[target])
 	var target_pos := player.aim_point if target == MANUAL_TARGET else _target_position(target)

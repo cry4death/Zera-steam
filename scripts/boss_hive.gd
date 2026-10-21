@@ -65,6 +65,15 @@ func body_radius() -> float:
 	return 31.0 if hive == Hive.MOTHER else [39.0, 29.0, 16.0][phase - 1]
 
 
+## ZAI6 (З5): гора мягкая — для стен и пути радиус не больше MOVE_RADIUS_MAX, иначе в 1-й фазе (39 px) ей нужны
+## улицы шире 80 px и из-за дома она не доходит. Попадания и касание — по полному радиусу.
+const MOVE_RADIUS_MAX := 26.0
+
+
+func move_radius() -> float:
+	return minf(body_radius(), MOVE_RADIUS_MAX)
+
+
 func set_mission_profile(hp_mul: float, _shed_fraction: float) -> void:
 	# Гора ловит больше дроби и взрывов; больший запас компенсирует размер мишени.
 	max_hp = HIVE_HP[hive] * clampf(hp_mul, 1.0, 1.25)
@@ -95,7 +104,7 @@ func start(p: Vector2) -> void:
 	direct_damage = 0.0
 	global_position = _bounded(p)
 	if obstacles:
-		global_position = _bounded(obstacles.free_point(global_position, body_radius()))
+		global_position = _bounded(obstacles.free_point(global_position, move_radius()))
 
 
 func hit_test(p: Vector2, r: float) -> bool:
@@ -237,9 +246,9 @@ func _meat_step(delta: float) -> void:
 				_attack_cd = 4.5 if phase < 3 else 2.6
 		return
 	# В ядре больше нет тяжёлого навала и следа гнили: короткие быстрые броски.
-	_move_to(global_position.move_toward(player.global_position, [18.0, 30.0, 96.0][phase - 1] * delta))
+	_move_to(_walk_point(player.global_position, [18.0, 30.0, 96.0][phase - 1] * delta, delta))
 	_contact()
-	if _attack_cd <= 0.0:
+	if _attack_cd <= 0.0 and _ram_open(player.global_position):
 		_begin_roll()
 
 
@@ -341,7 +350,7 @@ func _inner_arena() -> Rect2:
 func _move_to(p: Vector2) -> void:
 	var before := global_position
 	if obstacles:
-		p = obstacles.move_actor(before, p, body_radius())
+		p = obstacles.move_actor(before, p, move_radius())
 	global_position = _bounded(p)
 	_walk += before.distance_to(global_position)
 
