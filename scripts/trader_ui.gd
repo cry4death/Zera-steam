@@ -7,11 +7,13 @@ signal closed
 enum Step { SHOP, INSTALL, MOVE_SOURCE, MOVE_MODULE, MOVE_TARGET }
 enum Action { HEAL = 100, REROLL, MOVE, CLOSE, BACK }
 
-const GOLD := Color(1.0, 0.82, 0.35)
-const WHITE := Color(0.92, 0.90, 0.85)
-const MUTED := Color(0.65, 0.65, 0.62)
-const RED := Color(0.92, 0.43, 0.40)
-const GREEN := Color(0.60, 0.90, 0.60)
+const Style := preload("res://scripts/ui/zera_style.gd")
+const UpgradeScreen := preload("res://scripts/level_up.gd")
+const GOLD := Style.ACTION
+const WHITE := Style.TEXT
+const MUTED := Style.MUTED
+const RED := Style.DANGER
+const GREEN := Style.BETTER
 const GAP := 8.0
 const INPUT_DELAY := 0.25
 
@@ -22,10 +24,17 @@ var _weapons: Weapons
 var _minutes := 0.0
 var _step: Step = Step.SHOP
 var _offer := -1
+var _link_receiver := -1
+var _link_move := false
+var _link_replacement: Dictionary = {}
 var _source := -1
 var _module := -1
+var _offset := Vector2.ZERO
+var _layout: SettingsLayout.Scroll
+var _reveal := true
 var _ui := 1.0
 var _t := 0.0
+var _pad := ChoiceInput.new()
 var _anim := 0.0
 var _hover := -1
 var _rects: Array[Rect2] = []
@@ -34,6 +43,7 @@ var _offer_cache: Array[Dictionary] = []
 
 
 func _ready() -> void:
+	_layout = SettingsLayout.Scroll.new(self)
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	visible = false
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -86,7 +96,7 @@ func _sync_offers() -> void:
 	var next_cache: Array[Dictionary] = []
 	for i in _trader.offers.size():
 		var card: Dictionary = _trader.offers[i]["card"]
-		if i < _offer_cache.size() and _offer_cache[i]["card"] == card:
+		if _trader.offers[i]["sold"] and i < _offer_cache.size() and _offer_cache[i]["card"] == card:
 			next_cache.append(_offer_cache[i])
 		else:
 			next_cache.append({"card": card.duplicate(true), "description": _describe_offer(i)})
@@ -110,7 +120,7 @@ func _describe_offer(index: int) -> Dictionary:
 
 func _on_changed() -> void:
 	_sync_offers()
-	if _step == Step.INSTALL and not _trader.can_buy(_offer):
+	if _step == Step.INSTALL and not _link_move and not _trader.can_buy(_offer):
 		_set_step(Step.SHOP)
 	elif _step in [Step.MOVE_MODULE, Step.MOVE_TARGET]:
 		if _source < 0 or _source >= _weapons.slots.size():
@@ -123,7 +133,17 @@ func _on_changed() -> void:
 func _set_step(value: Step) -> void:
 	_sound("click")
 	_step = value
+	if value == Step.SHOP:
+		_link_receiver = -1
+		_link_move = false
+		_link_replacement = {}
+	_reveal = true
+	if _layout != null:
+		_layout.horizontal.value = 0
+		_layout.vertical.value = 0
 	_hover = -1
+	if ChoiceInput.pad_mode:
+		_pad_focus(0)
 	_anim = 0.0
 	_rects.clear()
 	_actions.clear()
@@ -138,6 +158,8 @@ func _process(delta: float) -> void:
 
 
 func _mouse_left() -> void:
+	if ChoiceInput.pad_mode:
+		return
 	_hover = -1
 	queue_redraw()
 
@@ -145,6 +167,11 @@ func _mouse_left() -> void:
 func _gui_input(event: InputEvent) -> void:
 	if not visible:
 		return
+	if _layout.pointer(event):
+		accept_event()
+		return
+	if event is InputEventMouseMotion or event is InputEventMouseButton:
+		_pad.read(event)
 	var motion := event as InputEventMouseMotion
 	var button := event as InputEventMouseButton
 	if motion == null and button == null:
@@ -153,15 +180,28 @@ func _gui_input(event: InputEvent) -> void:
 	if _t < INPUT_DELAY:
 		return
 	if motion != null:
-		_hover = _rect_at(motion.position / _ui)
+		_hover = _rect_at((motion.position - _offset) / _ui)
 	elif button.pressed:
 		if button.button_index == MOUSE_BUTTON_LEFT:
-			_activate(_rect_at(button.position / _ui))
+			_activate(_rect_at((button.position - _offset) / _ui))
 	queue_redraw()
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not visible:
+		return
+	var command := _pad.read(event)
+	if _t >= INPUT_DELAY and command != "":
+		match command:
+			"left", "up": _pad_focus(-1)
+			"right", "down": _pad_focus(1)
+			"accept":
+				if _hover < 0:
+					_pad_focus(0)
+				_activate(_hover)
+			"cancel": _activate(Action.BACK)
+		get_viewport().set_input_as_handled()
+		queue_redraw()
 		return
 	var key := event as InputEventKey
 	if key == null or not key.pressed:
@@ -195,6 +235,38 @@ func _unhandled_input(event: InputEvent) -> void:
 	else:
 		_activate(action)
 	queue_redraw()
+
+
+func _pad_focus(step: int) -> void:
+	var actions: Array[int] = []
+	if _step == Step.SHOP:
+		for i in _trader.offers.size():
+			if _trader.can_buy(i):
+				actions.append(i)
+		if _trader.can_heal():
+			actions.append(Action.HEAL)
+		if _trader.can_afford(_trader.reroll_price):
+			actions.append(Action.REROLL)
+		if _any_moves():
+			actions.append(Action.MOVE)
+		actions.append(Action.CLOSE)
+	else:
+		var count := _weapons.slots[_source].modules.size() if _step == Step.MOVE_MODULE else _weapons.slots.size()
+		if _step == Step.INSTALL and _progression.link_replacing(_install_card()):
+			count = _weapons.slots[_link_receiver].modules.size()
+		for i in count:
+			var enabled := false
+			match _step:
+				Step.INSTALL: enabled = _progression.slot_status(_install_card(), i) != ""
+				Step.MOVE_SOURCE: enabled = _source_can_move(i)
+				Step.MOVE_MODULE: enabled = _module_can_move(_source, i)
+				Step.MOVE_TARGET: enabled = _trader.can_move(_source, _module, i)
+			if enabled:
+				actions.append(i)
+		actions.append(Action.BACK)
+	var index := actions.find(_hover)
+	_hover = actions[0 if index < 0 else clampi(index + step, 0, actions.size() - 1)]
+	_reveal = true
 
 
 func _rect_at(point: Vector2) -> int:
@@ -244,11 +316,32 @@ func _pick(index: int) -> void:
 			var card: Dictionary = _trader.offers[index]["card"]
 			if Progression.needs_slot(card):
 				_offer = index
+				_link_receiver = -1
 				_set_step(Step.INSTALL)
 			else:
 				_sound("confirm" if _trader.buy(index) else "deny")
 		Step.INSTALL:
-			_sound("confirm" if index < _weapons.slots.size() and _progression.slot_status(_trader.offers[_offer]["card"], index) != "" else "deny")
+			var card := _install_card()
+			if card["type"] == "link":
+				if _progression.slot_status(card, index) == "":
+					_sound("deny")
+					return
+				if _progression.link_replacing(card):
+					_link_replacement = _weapons.slots[_link_receiver].modules[index].duplicate(true)
+					_hover = 0
+					return
+				if _link_receiver < 0:
+					_link_receiver = index
+					_hover = 0
+				else:
+					if _link_move:
+						if _trader.move_module(_source, _module, _link_receiver, index, _link_replacement): _set_step(Step.SHOP)
+					else:
+						_trader.offers[_offer]["card"]["partner_uid"] = _weapons.slots[index].uid
+						if not _link_replacement.is_empty(): _trader.offers[_offer]["card"]["replacement"] = _link_replacement
+						if _trader.buy(_offer, _link_receiver): _set_step(Step.SHOP)
+				return
+			_sound("confirm" if index < _weapons.slots.size() and _progression.slot_status(_install_card(), index) != "" else "deny")
 			if index < _weapons.slots.size() and _trader.buy(_offer, index):
 				_set_step(Step.SHOP)
 		Step.MOVE_SOURCE:
@@ -261,8 +354,26 @@ func _pick(index: int) -> void:
 				_set_step(Step.MOVE_TARGET)
 		Step.MOVE_TARGET:
 			_sound("confirm" if _trader.can_move(_source, _module, index) else "deny")
+			if _trader.can_move(_source, _module, index) and int(_weapons.slots[_source].modules[_module]["id"]) == WeaponDefs.Module.LINK:
+				_link_move = true
+				_link_receiver = index
+				_set_step(Step.INSTALL)
+				return
 			if _trader.can_move(_source, _module, index) and _trader.move_module(_source, _module, index):
 				_set_step(Step.SHOP)
+
+
+func _install_card() -> Dictionary:
+	if _link_move:
+		var moving := {"type": "link", "id": WeaponDefs.Module.LINK, "receiver_uid": _weapons.slots[_link_receiver].uid,
+			"rebind": _weapons.slots[_source].modules[_module]["instance_id"]}
+		if not _link_replacement.is_empty(): moving["replacement"] = _link_replacement
+		return moving
+	var card: Dictionary = _trader.offers[_offer]["card"].duplicate()
+	if card["type"] == "link" and _link_receiver >= 0:
+		card["receiver_uid"] = _weapons.slots[_link_receiver].uid
+		if not _link_replacement.is_empty(): card["replacement"] = _link_replacement
+	return card
 
 
 func _sound(id: String) -> void:
@@ -296,14 +407,21 @@ func _any_moves() -> bool:
 func _draw() -> void:
 	if not visible or not is_instance_valid(_trader):
 		return
-	_ui = maxf(1.0, roundf(size.y / 360.0))
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2(_ui, _ui))
-	var w := size.x / _ui
-	var h := size.y / _ui
-	var font := ThemeDB.fallback_font
+	_ui = SettingsLayout.scale_for(size)
+	var count := _trader.offers.size()
+	var columns := SettingsLayout.columns(size, _ui, 150, GAP, count)
+	var minimum := Vector2(minf(640, size.x / _ui - 14), 360)
+	if _step == Step.SHOP:
+		minimum.y = 140 + ceili(float(count) / columns) * 232
+	var virtual_view := _layout.view(size, minimum, _ui)
+	_offset = _layout.offset
+	draw_set_transform(_offset, 0.0, Vector2(_ui, _ui))
+	var w := virtual_view.x
+	var h := virtual_view.y
+	var font := Style.BODY_FONT
 	_rects.clear()
 	_actions.clear()
-	draw_rect(Rect2(0.0, 0.0, w, h), Color(0.03, 0.0, 0.0, 0.86))
+	draw_rect(Rect2(0.0, 0.0, w, h), Color(Style.RECESS, 0.96))
 	_text_c(font, Vector2(w * 0.5, 29.0), "ПОЛЕВОЕ СНАБЖЕНИЕ", GOLD, 18)
 	_text_c(font, Vector2(w * 0.5, 48.0), "%d кр." % _trader.credits(), GOLD, 15)
 	if _step == Step.SHOP:
@@ -311,16 +429,18 @@ func _draw() -> void:
 	else:
 		_draw_selection(font, w, h)
 	_draw_actions(font, w, h)
+	if _reveal:
+		var index := _actions.find(_hover)
+		if index >= 0:
+			_layout.reveal(_rects[index].grow(3))
+		_reveal = false
 
 
-func _panel(rect: Rect2, action: int, color: Color, enabled: bool, alpha: float = 1.0, strip := true) -> void:
+func _panel(rect: Rect2, action: int, _color: Color, enabled: bool, _alpha: float = 1.0, _strip := true) -> void:
 	_rects.append(rect)
 	_actions.append(action)
 	var hover := _hover == action and enabled
-	draw_rect(rect, Color(0.13 if hover else 0.08, 0.10 if hover else 0.07, 0.07, 0.96 * alpha))
-	draw_rect(rect, Color(color, (0.95 if hover else 0.45) * alpha), false, 1.0)
-	if strip:
-		draw_rect(Rect2(rect.position, Vector2(rect.size.x, 2.0)), Color(color, 0.8 * alpha))
+	Style.surface(self, rect, Style.State.SELECTED if hover else Style.State.NORMAL)
 
 
 func _draw_offers(font: Font, w: float, h: float) -> void:
@@ -328,45 +448,38 @@ func _draw_offers(font: Font, w: float, h: float) -> void:
 	if count == 0:
 		_text_c(font, Vector2(w * 0.5, h * 0.5), "Товаров пока нет", MUTED)
 		return
-	var card_w := minf(150.0, (w - 24.0 - GAP * (count - 1)) / count)
-	var card_h := h - 156.0
-	var x0 := (w - count * card_w - (count - 1) * GAP) * 0.5
+	var columns := SettingsLayout.columns(size, _ui, 150, GAP, count)
+	var card_w := 150.0
+	var card_h := 220.0
+	var x0 := (w - columns * card_w - (columns - 1) * GAP) * 0.5
 	for i in count:
 		var offer: Dictionary = _trader.offers[i]
 		var description: Dictionary = _offer_cache[i]["description"]
 		var sold: bool = offer["sold"]
 		var enabled := _trader.can_buy(i)
-		var color: Color = description["color"]
-		var pop := clampf(_anim * 8.0, 0.0, 1.0) # короткое общее появление, без каскада
-		var alpha := pop * (0.38 if sold else 1.0)
-		var rect := Rect2(x0 + i * (card_w + GAP), 76.0 + (1.0 - pop) * 8.0, card_w, card_h)
+		var color := Style.card_color(offer["card"])
+		var pop := 1.0 if Meta.settings["reduce_motion"] else clampf(_anim * 8.0, 0.0, 1.0) # короткое общее появление, без каскада
+		var alpha := pop * (0.75 if sold else 1.0)
+		var rect := Rect2(x0 + (i % columns) * (card_w + GAP), 68.0 + floorf(float(i) / columns) * 232 + (1.0 - pop) * 8.0, card_w, card_h)
 		_panel(rect, i, color, enabled, alpha, false)
 		var p := rect.position + Vector2(7.0, 16.0)
 		_text(font, p, _fit(font, str(description["kind"]), card_w - 28.0, 8), Color(color, alpha), 8)
-		_text(font, rect.position + Vector2(card_w - 13.0, 16.0), str(i + 1), Color(WHITE, alpha), 9)
+		_text(font, rect.position + Vector2(card_w - 13.0, 16.0), ("Ⓐ" if _hover == i else "") if ChoiceInput.pad_mode else str(i + 1), Color(WHITE, alpha), 9)
 		# пиктограмма на тёмной плите
 		var plate := Rect2(rect.position + Vector2(7.0, 24.0), Vector2(card_w - 14.0, 44.0))
-		draw_rect(plate, Color(0.03, 0.03, 0.03, 0.9 * alpha))
+		Style.cloth(self, plate)
 		_draw_icon(description, plate, alpha)
 		# название и ОДНА крупная цифра эффекта; описание и ранги — по наведению
 		var y := 86.0
 		for title_line in _wrap(font, str(description["title"]), card_w - 14.0, 11):
 			_text(font, rect.position + Vector2(7.0, y), title_line, Color(color, alpha), 11)
 			y += 13.0
-		var big := str(description["big"])
-		if big != "":
-			y += 14.0
-			_text(font, rect.position + Vector2(7.0, y), big, Color(color, alpha), 22)
-			y += 11.0
-			_text(font, rect.position + Vector2(7.0, y), str(description["unit"]), Color(MUTED, alpha), 8)
-		if description.has("round"):
-			var round_info: Array = description["round"]
-			var lay := HudRounds.layout(round_info[0], round_info[1], card_w - 14.0, 20.0)
-			HudRounds.draw_row(self, lay, rect.position + Vector2(7.0, y + 6.0), float(round_info[1]), HudRounds.tip_color(round_info[0], 0, false), Color(1, 1, 1, alpha))
-			y += 26.0
+		if not sold:
+			UpgradeScreen.draw_choice(self, font, offer["card"], _progression, rect.position + Vector2(7, 124), card_w - 14, 16)
+		y = 152.0
 		var details: Array = description["details"]
 		if _hover == i and not details.is_empty():
-			var dy := maxf(y + 16.0, card_h - 74.0)
+			var dy := maxf(y + 8.0, card_h - 64.0)
 			draw_line(rect.position + Vector2(7.0, dy - 8.0), rect.position + Vector2(card_w - 7.0, dy - 8.0), Color(WHITE, alpha * 0.12))
 			for line: String in details:
 				for part in _wrap(font, line, card_w - 14.0, 8):
@@ -402,8 +515,11 @@ func _draw_selection(font: Font, w: float, h: float) -> void:
 	var count := _weapons.slots.size()
 	match _step:
 		Step.INSTALL:
-			heading = "КУДА ПОСТАВИТЬ"
-			subtitle = str(_offer_cache[_offer]["description"]["title"])
+			heading = "ВЫБЕРИ ПАРТНЁРА" if _link_receiver >= 0 else "КУДА ПОСТАВИТЬ"
+			if _progression.link_replacing(_install_card()):
+				heading = "КАКУЮ ДЕТАЛЬ ЗАМЕНИТЬ"
+				count = _weapons.slots[_link_receiver].modules.size()
+			subtitle = "Перелив · заряд будет потерян" if _link_move else str(_offer_cache[_offer]["description"]["title"])
 		Step.MOVE_SOURCE:
 			heading = "ПЕРЕСТАВИТЬ МОДУЛЬ · 1/3"
 			subtitle = "Выбери ствол-источник · " + _move_cost()
@@ -423,12 +539,13 @@ func _draw_selection(font: Font, w: float, h: float) -> void:
 	var row_h := minf(70.0 if columns == 2 else 48.0, (h - 166.0) / maxi(rows, 1) - 5.0)
 	for i in count:
 		var rect := Rect2((w - total_w) * 0.5 + (i % columns) * (row_w + GAP), 94.0 + floorf(float(i) / columns) * (row_h + 5.0), row_w, row_h)
-		if _step == Step.MOVE_MODULE:
-			var module: Dictionary = _weapons.slots[_source].modules[i]
-			var enabled := _module_can_move(_source, i)
+		var replacing := _step == Step.INSTALL and _progression.link_replacing(_install_card())
+		if _step == Step.MOVE_MODULE or replacing:
+			var module: Dictionary = _weapons.slots[_link_receiver if replacing else _source].modules[i]
+			var enabled := _progression.slot_status(_install_card(), i) != "" if replacing else _module_can_move(_source, i)
 			_panel(rect, i, WHITE if enabled else MUTED, enabled)
 			_text(font, rect.position + Vector2(8.0, 14.0), "%d. %s" % [i + 1, _module_name(module)], WHITE if enabled else MUTED)
-			var detail := "Выбрать ствол-цель" if enabled else "Нет доступной цели или кредитов"
+			var detail := "Деталь будет потеряна" if replacing else ("Выбрать ствол-цель" if enabled else "Нет доступной цели или кредитов")
 			_text(font, rect.position + Vector2(8.0, 28.0), _fit(font, detail, row_w - 16.0, 8), GREEN if enabled else RED, 8)
 		else:
 			_draw_weapon_row(font, rect, i)
@@ -443,9 +560,9 @@ func _draw_weapon_row(font: Font, rect: Rect2, index: int) -> void:
 	var enabled := false
 	match _step:
 		Step.INSTALL:
-			var card: Dictionary = _trader.offers[_offer]["card"]
+			var card := _install_card()
 			status = _progression.slot_status(card, index)
-			enabled = status != "" and _trader.can_buy(_offer)
+			enabled = status != "" and (_link_move or _trader.can_buy(_offer))
 			hint = _progression.prototype_hint(card, index)
 			if status == "":
 				status = "нет места"
@@ -459,6 +576,11 @@ func _draw_weapon_row(font: Font, rect: Rect2, index: int) -> void:
 	var color := WHITE if enabled else MUTED
 	var title := "%d. %s ур.%d" % [index + 1, slot.short_name(), slot.level]
 	_text(font, rect.position + Vector2(8.0, 13.0), _fit(font, title, rect.size.x * 0.44, 10), color)
+	if _step == Step.INSTALL and _progression.slot_status(_install_card(), index) != "":
+		UpgradeScreen.draw_choice(self, font, _install_card(), _progression, rect.position + Vector2(rect.size.x * 0.47, 15), rect.size.x * 0.50, 12, index)
+		if hint != "":
+			_text(font, rect.position + Vector2(8, 29), _fit(font, hint, rect.size.x * 0.44, 8), Style.ACTION, 8)
+		return
 	_text_right(font, rect.position + Vector2(rect.size.x - 8.0, 13.0), _fit(font, status, rect.size.x * 0.52, 9), GREEN if enabled else RED, 9)
 	var summary := _wrap(font, slot_summary(slot), rect.size.x - 16.0, 8)
 	for line_index in summary.size():
@@ -466,11 +588,13 @@ func _draw_weapon_row(font: Font, rect: Rect2, index: int) -> void:
 		if y <= rect.size.y - (12.0 if hint != "" else 3.0):
 			_text(font, rect.position + Vector2(8.0, y), summary[line_index], color, 8)
 	if hint != "":
-		_text_right(font, rect.position + Vector2(rect.size.x - 8.0, rect.size.y - 3.0), _fit(font, hint, rect.size.x - 16.0, 8), Color(1.0, 0.55, 0.3), 8)
+		_text_right(font, rect.position + Vector2(rect.size.x - 8.0, rect.size.y - 3.0), _fit(font, hint, rect.size.x - 16.0, 8), Style.ACTION, 8)
 
 
 func _move_status(target: int) -> String:
 	var module: Dictionary = _weapons.slots[_source].modules[_module]
+	if int(module["id"]) == WeaponDefs.Module.LINK:
+		return "партнёр → выбор · потеря +%s" % Progression._num(module["charge"])
 	var have := _weapons.slots[target].module(int(module["id"]))
 	if have.is_empty():
 		return "новый слот · " + str(WeaponDefs.ROMAN[int(module["rank"])])
@@ -489,7 +613,7 @@ func _draw_actions(font: Font, w: float, h: float) -> void:
 	var ids: Array[int] = []
 	var enabled: Array[bool] = []
 	if _step == Step.SHOP:
-		labels = ["H · Лечение", "Q · Реролл", "M · Переставить модуль", "В бой"]
+		labels.assign(["Лечение", "Реролл", "Переставить модуль", "В бой"] if ChoiceInput.pad_mode else ["H · Лечение", "Q · Реролл", "M · Переставить модуль", "В бой"])
 		details = ["+50 HP · %d кр." % _trader.heal_price(), "%d кр." % _trader.reroll_price, _move_cost(), "Space"]
 		ids = [Action.HEAL, Action.REROLL, Action.MOVE, Action.CLOSE]
 		enabled = [_trader.can_heal(), _trader.can_afford(_trader.reroll_price), _any_moves(), true]
@@ -505,10 +629,12 @@ func _draw_actions(font: Font, w: float, h: float) -> void:
 		var color := (GOLD if ids[i] == Action.CLOSE else WHITE) if enabled[i] else MUTED
 		_panel(rect, ids[i], color, enabled[i])
 		_text_c(font, rect.position + Vector2(button_w * 0.5, 14.0), _fit(font, labels[i], button_w - 10.0, 9), color, 9)
-		_text_c(font, rect.position + Vector2(button_w * 0.5, 27.0), _fit(font, details[i], button_w - 10.0, 8), GOLD if enabled[i] else MUTED, 8)
+		_text_c(font, rect.position + Vector2(button_w * 0.5, 27.0), _fit(font, (("Ⓐ · " if _hover == ids[i] else "") + (details[i] if ids[i] not in [Action.CLOSE, Action.BACK] else "Ⓑ")) if ChoiceInput.pad_mode else details[i], button_w - 10.0, 8), GOLD if enabled[i] else MUTED, 8)
 	var hint := "1–5 / клик · ← → подробности"
 	if _step != Step.SHOP:
 		hint = "1–4 / клик · Esc — назад"
+	if ChoiceInput.pad_mode:
+		hint = "Ⓐ   Ⓑ   ◀ ▶   ▲ ▼"
 	_text_c(font, Vector2(w * 0.5, h - 8.0), _fit(font, hint, w - 16.0, 8), MUTED, 8)
 
 
@@ -526,7 +652,8 @@ static func slot_summary(slot: Weapons.Slot) -> String:
 
 func _width(font: Font, value: String, font_size: int) -> float:
 	# Измерение тем же размером, которым текст рисуется в полном разрешении.
-	return font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size * int(_ui)).x / _ui
+	font = Style.TITLE_FONT if font_size >= 13 else Style.BODY_FONT
+	return font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(font_size * _ui)).x / _ui
 
 
 func _fit(font: Font, value: String, max_width: float, font_size: int) -> String:
@@ -561,11 +688,11 @@ func _wrap(font: Font, value: String, max_width: float, font_size: int) -> Array
 
 
 func _text(font: Font, position_px: Vector2, value: String, color: Color, font_size: int = 10) -> void:
+	font = Style.TITLE_FONT if font_size >= 13 else Style.BODY_FONT
 	var scale_int := int(_ui)
-	draw_set_transform(Vector2.ZERO)
-	draw_string_outline(font, position_px * _ui, value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size * scale_int, 2 * scale_int, Color(0.0, 0.0, 0.0, 0.8 * color.a))
-	draw_string(font, position_px * _ui, value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size * scale_int, color)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2(_ui, _ui))
+	draw_set_transform(_offset)
+	draw_string(font, position_px * _ui, value, HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(font_size * _ui), color)
+	draw_set_transform(_offset, 0.0, Vector2(_ui, _ui))
 
 
 func _text_c(font: Font, position_px: Vector2, value: String, color: Color, font_size: int = 10) -> void:

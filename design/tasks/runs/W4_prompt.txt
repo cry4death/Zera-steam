@@ -1,0 +1,14 @@
+Задача: W4 (уровень high)
+
+Ты исполнитель в проекте игры на Godot 4.7.2. Рабочая папка — C:\Users\Dev\Desktop\zera-w4 (git worktree, ветка task/w4). Работаешь автономно, вопросов не задаёшь, доводишь до конца.
+
+1. Прочитай целиком: design/tasks/README.md (правила запуска Godot и общей блокировки), свою задачу design/tasks/M9/W4_gun_sound_feel.md, design/tasks/GPT_REVIEW_BACKLOG.md (блок D), отчёты design/tasks/reports/A1.md, A2.md, A3.md (как готовились звуки), design/tasks/reviews/S3.md (baseline производительности).
+2. Изучи tools/prep_sfx.py, sfx/manifest.json, default_bus_layout.tres, scripts/sfx.gd, выстрел в scripts/weapons.gd, scripts/game_camera.gd и пиши в их стиле (GDScript со статической типизацией, табы, комментарии по-русски кратко; Python — как в prep_sfx.py).
+3. Трогай только файлы из раздела «Можно трогать». Параллельно в других ветках идут R1 (кровь/gore: gore.gd, floor_decals.gd, effects.gd, horde.gd) и Q1 (sfx.gd::_scan, выбор цели в weapons.gd, ввод) — их части не трогай, общие файлы правь минимально и локально.
+4. Godot: C:\Users\Dev\Desktop\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64_console.exe. Сначала --headless --path . --import. Python (numpy, Pillow): C:\Users\Dev\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe. Исходники звуков (только читать): C:\Users\Dev\Desktop\zera-assets\firearm_cc0\. Не распаковывай большой архив целиком — на диске C мало места. Ничего не скачивай из интернета.
+5. Каждый оконный запуск — только через bash C:/Users/Dev/Desktop/zera-assets/locks/godot_exclusive.sh (см. README). Не оставляй открытых окон Godot и фоновых циклов.
+6. Сначала диагностика и файлы «до» (w4_ab/*_before.wav, цифры), потом правки, потом «после».
+7. Git-коммиты не делай (песочница не пишет в .git) — коммитит ревьюер.
+8. Ты не можешь слушать — опирайся на объективные замеры (огибающая, спектр, crest factor, потерянные голоса) и сравнение с исходником; итоговое решение по звучанию примет автор по файлам w4_ab.
+9. Отчёт design/tasks/reports/W4.md по шаблону design/tasks/templates/report.md: диагноз с цифрами, что сделано, файлы, вывод проверок дословно, до/после, отступления.
+10. В конце коротко: что сделано и что не получилось.

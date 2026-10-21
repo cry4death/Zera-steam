@@ -2,17 +2,13 @@ class_name MapLoader
 extends RefCounted
 ## JSON хранит два читаемых ASCII-слоя и список сценок; координаты сценок — в клетках.
 
-const IDS := ["quarantine_checkpoint", "old_town", "open_perimeter"]
-const REGION_MAP := {
-	"east_europe": "quarantine_checkpoint", "west_europe": "old_town",
-	"north_africa": "open_perimeter", "middle_east": "open_perimeter",
-	"siberia": "quarantine_checkpoint", "east_asia": "old_town",
-	"north_america": "quarantine_checkpoint", "south_asia": "old_town",
-	"south_america": "old_town", "central_africa": "open_perimeter",
-	"southeast_asia": "old_town", "oceania": "quarantine_checkpoint",
-	"arctic": "quarantine_checkpoint", "pacific_facility": "quarantine_checkpoint"}
+const IDS := ["quarantine_checkpoint", "old_town", "open_perimeter", "military_airfield", "cargo_port", "residential_district"]
 const CELL := 32.0
-const SKINS := {"B": 0, "R": 1, "W": 2, "T": 8}
+const SKINS := {"B": 0, "R": 1, "W": 2, "T": 8, "H": 12, "A": 13, "Q": 17, "D": 18, "C": 5}
+
+
+static func for_region(region: String) -> String:
+	return str(CampaignCatalog.REGION_MAPS.get(region, "quarantine_checkpoint"))
 
 
 static func load_map(id: String) -> Dictionary:

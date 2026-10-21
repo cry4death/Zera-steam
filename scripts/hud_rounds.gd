@@ -5,11 +5,11 @@ class_name HudRounds
 ## и свободному месту: на 6 дробин — крупная гильза, на 71 патрон ППШ — тонкая чёрточка.
 ## Рисует в текущих единицах канваса (HUD уже масштабирует их целым множителем).
 
-enum Kind { RIFLE, PISTOL, SHELL, REVOLVER, SNIPER, RAIL, GRENADE }
+enum Kind { RIFLE, PISTOL, SHELL, REVOLVER, SNIPER, RAIL, GRENADE, FUEL, CHAIN_LINK, BOLT, CELL }
 ## Как патроны попадают в ствол при перезарядке.
 enum Load { PACK, SHELLS, REVOLVER, GRENADES }
 
-const NAMES := ["rifle", "pistol", "shell", "revolver", "sniper", "rail", "grenade"]
+const NAMES := ["rifle", "pistol", "shell", "revolver", "sniper", "rail", "grenade", "fuel", "chain_link", "bolt", "cell"]
 ## Ярусы по видам: [ширина, высота, шаг по x, шаг по y]; порядок и размеры совпадают с ROUNDS в gen_art_hud_ammo.py.
 const TIERS := [
 	[[3, 9, 4, 10], [3, 7, 4, 8], [2, 6, 3, 7], [1, 4, 2, 5]],
@@ -19,21 +19,34 @@ const TIERS := [
 	[[4, 17, 5, 18], [3, 12, 4, 13], [2, 8, 3, 9]],
 	[[6, 18, 8, 19], [4, 10, 5, 11], [3, 8, 4, 9]],
 	[[6, 16, 8, 17], [4, 9, 5, 10], [3, 7, 4, 8]],
+	[[4, 12, 5, 13], [3, 8, 4, 9], [2, 6, 3, 7], [1, 4, 2, 5]],
+	[[4, 12, 5, 13], [3, 8, 4, 9], [2, 6, 3, 7], [1, 4, 2, 5]],
+	[[4, 12, 5, 13], [3, 8, 4, 9], [2, 6, 3, 7], [1, 4, 2, 5]],
+	[[4, 12, 5, 13], [3, 8, 4, 9], [2, 6, 3, 7], [1, 4, 2, 5]],
 ]
 const BASE_KIND := {
 	WeaponDefs.Base.RIFLE: Kind.RIFLE, WeaponDefs.Base.SMG: Kind.PISTOL, WeaponDefs.Base.PISTOL: Kind.PISTOL,
 	WeaponDefs.Base.SHOTGUN: Kind.SHELL, WeaponDefs.Base.REVOLVER: Kind.REVOLVER, WeaponDefs.Base.SNIPER: Kind.SNIPER,
 	WeaponDefs.Base.RAIL: Kind.RAIL, WeaponDefs.Base.LAUNCHER: Kind.GRENADE,
+	WeaponDefs.Base.LMG: Kind.RIFLE, WeaponDefs.Base.MINIGUN: Kind.RIFLE,
+	WeaponDefs.Base.FLAMER: Kind.FUEL, WeaponDefs.Base.SAW: Kind.CHAIN_LINK,
+	WeaponDefs.Base.CROSSBOW: Kind.BOLT, WeaponDefs.Base.AUTO_SHOTGUN: Kind.SHELL,
+	WeaponDefs.Base.DMR: Kind.RIFLE, WeaponDefs.Base.TESLA: Kind.CELL,
 }
 const BASE_LOAD := {
 	WeaponDefs.Base.RIFLE: Load.PACK, WeaponDefs.Base.SMG: Load.PACK, WeaponDefs.Base.PISTOL: Load.PACK,
 	WeaponDefs.Base.SNIPER: Load.PACK, WeaponDefs.Base.RAIL: Load.PACK,
 	WeaponDefs.Base.SHOTGUN: Load.SHELLS, WeaponDefs.Base.REVOLVER: Load.REVOLVER, WeaponDefs.Base.LAUNCHER: Load.GRENADES,
+	WeaponDefs.Base.LMG: Load.PACK, WeaponDefs.Base.MINIGUN: Load.PACK,
+	WeaponDefs.Base.FLAMER: Load.PACK, WeaponDefs.Base.SAW: Load.PACK,
+	WeaponDefs.Base.CROSSBOW: Load.PACK, WeaponDefs.Base.AUTO_SHOTGUN: Load.PACK,
+	WeaponDefs.Base.DMR: Load.PACK, WeaponDefs.Base.TESLA: Load.PACK,
 }
 ## Цвет наконечника: у обычных патронов свой для каждого вида, дальше — по типу патронов (WeaponDefs.Ammo).
 const TIP_STANDARD := [
 	Color(0.80, 0.46, 0.26), Color(0.80, 0.46, 0.26), Color(0.92, 0.78, 0.42), Color(0.80, 0.46, 0.26),
 	Color(0.80, 0.46, 0.26), Color(0.90, 0.96, 1.0), Color(0.62, 0.70, 0.36),
+	Color(0.72, 0.59, 0.35), Color(0.65, 0.67, 0.64), Color(0.75, 0.72, 0.61), Color(0.65, 0.75, 0.77),
 ]
 const TIP_AMMO := [Color.WHITE, Color(1.0, 0.88, 0.32), Color(1.0, 0.38, 0.10), Color(0.45, 0.90, 1.0)]
 const RARE_TINT := Color(0.45, 0.72, 1.0)

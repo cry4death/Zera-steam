@@ -2,10 +2,10 @@ class_name WeaponDefs
 ## Данные модульного оружия (GDD §5, BALANCE.md §3–6): основы, патроны, модули, пассивки.
 ## Только описания и цифры — логика стрельбы в weapons.gd, выбор карт в progression.gd.
 
-enum Base { RIFLE, SHOTGUN, RAIL, LAUNCHER, PISTOL, REVOLVER, SMG, SNIPER }
+enum Base { RIFLE, SHOTGUN, RAIL, LAUNCHER, PISTOL, REVOLVER, SMG, SNIPER, LMG, MINIGUN, FLAMER, SAW, CROSSBOW, AUTO_SHOTGUN, DMR, TESLA }
 ## Патроны задают тип смерти (GDD §5.3).
 enum Ammo { STANDARD, EXPANSIVE, INCENDIARY, CRYO }
-enum Module { RICOCHET, PIERCE, SPLIT, DETONATOR, TWIN, CHAIN }
+enum Module { RICOCHET, PIERCE, SPLIT, DETONATOR, TWIN, CHAIN, LINK }
 enum Passive { DAMAGE, FIRE_RATE, RELOAD, SPEED, HP, PICKUP }
 ## Редкость модели: серийная доступна с начала, обычная и редкая выпадают из ящиков (CONTRACTS §11).
 enum Rarity { SERIAL, COMMON, RARE }
@@ -99,7 +99,79 @@ const BASES := {
 			{"mag": 2, "text": "магазин +2"},
 			{"rate_mul": 1.15, "crit": 0.1, "text": "скорострельность +15%, +10% крит"},
 			{"damage": 26.0, "reload_mul": 0.75, "text": "урон +26, перезарядка −25%"}],
+	},	Base.LMG: {
+		"name": "Пулемёт ПКМ", "short": "ПКМ", "desc": "Лента, упор и длительная очередь",
+		"damage": 5.0, "rate": 9.0, "mag": 90, "reload": 3.2, "range": 250, "spread": 10.0,
+		"proj": 1, "knock": 45, "speed": 450, "crit": 0.0, "pierce": 0,
+		"levels": [{}, {"damage": 1.25, "text": "урон +25% от L1"},
+			{"mag": 32, "text": "увеличенный запас"},
+			{"rate_mul": 1.15, "proj": 1, "text": "темп +15%, +1 пуля"},
+			{"damage": 2.0, "reload_mul": 0.75, "text": "урон +40% от L1, перезарядка −25%"}],
 	},
+	Base.MINIGUN: {
+		"name": "Миниган М134", "short": "М134", "desc": "Вращающийся блок стволов",
+		"damage": 3, "rate": 24, "mag": 180, "reload": 4.2, "range": 175, "spread": 17,
+		"proj": 1, "knock": 15, "speed": 470, "crit": 0.0, "pierce": 0,
+		"levels": [{}, {"damage": 0.75, "text": "урон +25% от L1"},
+			{"mag": 63, "text": "увеличенный запас"},
+			{"rate_mul": 1.35, "damage": 1.0, "text": "темп +35%, урон +1"},
+			{"damage": 1.2, "reload_mul": 0.75, "text": "урон +40% от L1, перезарядка −25%"}],
+	},
+	Base.FLAMER: {
+		"name": "Огнемёт ЛПО", "short": "ЛПО", "desc": "Топливная струя ближнего действия",
+		"damage": 2.4, "rate": 8, "mag": 60, "reload": 3, "range": 85, "spread": 44,
+		"proj": 1, "knock": 8, "speed": 250, "crit": 0.0, "pierce": 0,
+		"levels": [{}, {"damage": 0.6, "text": "урон +25% от L1"},
+			{"mag": 21, "text": "увеличенный запас"},
+			{"rate_mul": 1.15, "text": "темп +15%"},
+			{"damage": 0.96, "reload_mul": 0.75, "text": "урон +40% от L1, перезарядка −25%"}],
+	},
+	Base.SAW: {
+		"name": "Бензопила «Дружба»", "short": "Дружба", "desc": "Моторная цепная пила",
+		"damage": 8, "rate": 5, "mag": 40, "reload": 2.4, "range": 42, "spread": 85,
+		"proj": 1, "knock": 65, "speed": 250, "crit": 0.0, "pierce": 0,
+		"levels": [{}, {"damage": 2, "text": "урон +25% от L1"},
+			{"mag": 14, "text": "увеличенный запас"},
+			{"rate_mul": 1.15, "text": "темп +15%"},
+			{"damage": 3.2, "reload_mul": 0.75, "text": "урон +40% от L1, перезарядка −25%"}],
+	},
+	Base.CROSSBOW: {
+		"name": "Арбалет «Скиф»", "short": "Скиф", "desc": "Тяжёлый стальной болт",
+		"damage": 38, "rate": 1.1, "mag": 3, "reload": 1.9, "range": 290, "spread": 1,
+		"proj": 1, "knock": 160, "speed": 330, "crit": 0.0, "pierce": 3,
+		"levels": [{}, {"damage": 9.5, "text": "урон +25% от L1"},
+			{"mag": 2, "text": "увеличенный запас"},
+			{"rate_mul": 1.15, "pierce": 2, "text": "темп +15%, ещё 2 цели насквозь"},
+			{"damage": 15.2, "reload_mul": 0.75, "text": "урон +40% от L1, перезарядка −25%"}],
+	},
+	Base.AUTO_SHOTGUN: {
+		"name": "Дробовик «Сайга»", "short": "Сайга", "desc": "Самозарядный дробовик",
+		"damage": 3, "rate": 3.5, "mag": 12, "reload": 3, "range": 115, "spread": 38,
+		"proj": 5, "knock": 25, "speed": 380, "crit": 0.0, "pierce": 0,
+		"levels": [{}, {"damage": 0.75, "text": "урон +25% от L1"},
+			{"mag": 5, "text": "увеличенный запас"},
+			{"rate_mul": 1.15, "text": "темп +15%"},
+			{"damage": 1.2, "reload_mul": 0.75, "text": "урон +40% от L1, перезарядка −25%"}],
+	},
+	Base.DMR: {
+		"name": "Винтовка СВД", "short": "СВД", "desc": "Магазинная винтовка с оптикой",
+		"damage": 19, "rate": 2.4, "mag": 10, "reload": 2, "range": 310, "spread": 1.5,
+		"proj": 1, "knock": 65, "speed": 500, "crit": 0.0, "pierce": 1,
+		"levels": [{}, {"damage": 4.75, "text": "урон +25% от L1"},
+			{"mag": 4, "text": "увеличенный запас"},
+			{"rate_mul": 1.15, "text": "темп +15%"},
+			{"damage": 7.6, "reload_mul": 0.75, "text": "урон +40% от L1, перезарядка −25%"}],
+	},
+	Base.TESLA: {
+		"name": "Разрядник «Дуга»", "short": "Дуга", "desc": "Полевой дуговой разрядник",
+		"damage": 12, "rate": 2, "mag": 12, "reload": 2.7, "range": 145, "spread": 0,
+		"proj": 1, "knock": 10, "speed": 450, "crit": 0.0, "pierce": 0,
+		"levels": [{}, {"damage": 3, "text": "урон +25% от L1"},
+			{"mag": 5, "text": "увеличенный запас"},
+			{"rate_mul": 1.15, "text": "темп +15%"},
+			{"damage": 4.8, "reload_mul": 0.75, "text": "урон +40% от L1, перезарядка −25%"}],
+	},
+
 }
 
 ## Патроны: индексы совпадают с Weapon.Ammo (STANDARD, EXPANSIVE, INCENDIARY, CRYO).
@@ -127,6 +199,8 @@ const MODULES := {
 		"ranks": ["+1 снаряд", "+2 снаряда", "+3 снаряда веером"]},
 	Module.CHAIN: {"name": "Цепь", "big": ["50%", "урона соседу"], "desc": "Убийство выпускает снаряд в соседа",
 		"ranks": ["50% урона", "65% урона", "80%, цепь до 3 звеньев"]},
+	Module.LINK: {"name": "Перелив", "big": ["1", "заряд"], "desc": "Избыток тяжёлого убийства питает следующий дробовой залп",
+		"ranks": ["Один заряд на 6 с; без рангов и редкости"]},
 }
 
 const PASSIVES := {
@@ -152,6 +226,38 @@ const PROTOTYPES := [
 ## на ур.1 (до уровней L2–L5), "mul" — множители поверх итога (после уровней).
 ## "gun" — папка голоса sfx/weapons/<gun>/ (нет файлов — голос серийной модели).
 const MODELS := {
+	"an94": {"base": Base.RIFLE, "name": "Автомат АН-94", "short": "АН-94", "rarity": 2, "gun": "rifle", "trait": "doubletap", "desc": "Автомат, 5,45 мм"},
+	"coach": {"base": Base.SHOTGUN, "name": "Дробовик «Кучер»", "short": "Кучер", "rarity": 1, "gun": "shotgun", "trait": "slug", "desc": "Укороченный дробовик", "stats": {"mag":2,"rate":1.8,"reload":1.4}},
+	"harpoon": {"base": Base.RAIL, "name": "Рейлган «Гарпун»", "short": "Гарпун", "rarity": 1, "gun": "rail", "trait": "last_round", "desc": "Рейлган с длинными направляющими", "stats": {"mag":2,"damage":25}},
+	"thumper": {"base": Base.LAUNCHER, "name": "Гранатомёт «Факел»", "short": "Факел", "rarity": 1, "gun": "launcher", "trait": "tracer", "desc": "Сигнальный гранатомёт", "stats": {"damage":18,"radius":34}},
+	"makarov": {"base": Base.PISTOL, "name": "Пистолет ПМ", "short": "ПМ", "rarity": 1, "gun": "pistol", "trait": "last_round", "desc": "Компактный пистолет", "stats": {"mag":8,"damage":10}},
+	"nagant": {"base": Base.REVOLVER, "name": "Револьвер «Наган»", "short": "Наган", "rarity": 1, "gun": "revolver", "trait": "execute", "desc": "Семизарядный револьвер", "stats": {"mag":7,"damage":24}},
+	"mp5": {"base": Base.SMG, "name": "ПП MP5", "short": "MP5", "rarity": 2, "gun": "smg", "trait": "doubletap", "desc": "Компактный пистолет-пулемёт", "stats": {"mag":30,"rate":10,"spread":3}},
+	"tikka": {"base": Base.SNIPER, "name": "Винтовка «Тикка»", "short": "Тикка", "rarity": 1, "gun": "sniper", "trait": "focus", "desc": "Болтовая винтовка с оптикой", "stats": {"damage":40,"pierce":2}},
+	"pkm": {"base": Base.LMG, "name": "Пулемёт ПКМ", "short": "ПКМ", "rarity": 0, "gun": "lmg", "trait": "brace", "desc": "Пулемёт. Пулемётчик: раскрутка быстрее на 25%"},
+	"rpk": {"base": Base.LMG, "name": "Пулемёт РПК", "short": "РПК", "rarity": 1, "gun": "lmg", "trait": "tracer", "desc": "Пулемёт. Пулемётчик: раскрутка быстрее на 25%", "stats": {"mag":60,"reload":2.5,"damage":5.5}},
+	"pecheneg": {"base": Base.LMG, "name": "Пулемёт «Печенег»", "short": "Печенег", "rarity": 2, "gun": "lmg", "trait": "quick_spin", "desc": "Пулемёт. Пулемётчик: раскрутка быстрее на 25%", "stats": {"rate":9,"mag":80}},
+	"m134": {"base": Base.MINIGUN, "name": "Миниган М134", "short": "М134", "rarity": 0, "gun": "minigun", "trait": "spin", "desc": "Многоствольный пулемёт. Пулемётчик: раскрутка быстрее на 25%"},
+	"gatling": {"base": Base.MINIGUN, "name": "Миниган «Картечница»", "short": "Картечница", "rarity": 1, "gun": "minigun", "trait": "quick_spin", "desc": "Многоствольный пулемёт. Пулемётчик: раскрутка быстрее на 25%", "stats": {"damage":2.6,"mag":120,"reload":3.2}},
+	"vulcan": {"base": Base.MINIGUN, "name": "Миниган «Вулкан»", "short": "Вулкан", "rarity": 2, "gun": "minigun", "trait": "last_round", "desc": "Многоствольный пулемёт. Пулемётчик: раскрутка быстрее на 25%", "stats": {"mag":90,"damage":3.2}},
+	"lpo": {"base": Base.FLAMER, "name": "Огнемёт ЛПО", "short": "ЛПО", "rarity": 0, "gun": "flamer", "trait": "flame", "desc": "Переносной огнемёт"},
+	"torch": {"base": Base.FLAMER, "name": "Огнемёт «Смола»", "short": "Смола", "rarity": 1, "gun": "flamer", "trait": "napalm", "desc": "Переносной огнемёт", "stats": {"damage":1.8,"mag":45}},
+	"furnace": {"base": Base.FLAMER, "name": "Огнемёт «Горн»", "short": "Горн", "rarity": 2, "gun": "flamer", "trait": "wide", "desc": "Переносной огнемёт", "stats": {"range":65,"damage":2.2}},
+	"druzhba": {"base": Base.SAW, "name": "Бензопила «Дружба»", "short": "Дружба", "rarity": 0, "gun": "saw", "trait": "cleave", "desc": "Моторная цепная пила"},
+	"rescuer": {"base": Base.SAW, "name": "Пила «Спасатель»", "short": "Спасатель", "rarity": 1, "gun": "saw", "trait": "sweep", "desc": "Моторная цепная пила", "stats": {"range":49,"damage":6.5}},
+	"butcher_saw": {"base": Base.SAW, "name": "Пила «Забойщик»", "short": "Забойщик", "rarity": 2, "gun": "saw", "trait": "execute", "desc": "Моторная цепная пила", "stats": {"rate":4,"damage":9}},
+	"skif": {"base": Base.CROSSBOW, "name": "Арбалет «Скиф»", "short": "Скиф", "rarity": 0, "gun": "crossbow", "trait": "pin", "desc": "Арбалет со стальным болтом"},
+	"ballista": {"base": Base.CROSSBOW, "name": "Арбалет «Баллиста»", "short": "Баллиста", "rarity": 2, "gun": "crossbow", "trait": "explosive_bolt", "desc": "Арбалет со стальным болтом", "stats": {"damage":27,"pierce":1,"mag":2}},
+	"repeater": {"base": Base.CROSSBOW, "name": "Арбалет «Егерь»", "short": "Егерь", "rarity": 1, "gun": "crossbow", "trait": "return_bolt", "desc": "Арбалет со стальным болтом", "stats": {"damage":29,"mag":5}},
+	"saiga": {"base": Base.AUTO_SHOTGUN, "name": "Дробовик «Сайга»", "short": "Сайга", "rarity": 0, "gun": "auto_shotgun", "trait": "drum", "desc": "Самозарядный дробовик"},
+	"aa12": {"base": Base.AUTO_SHOTGUN, "name": "Дробовик AA-12", "short": "AA-12", "rarity": 1, "gun": "auto_shotgun", "trait": "slug", "desc": "Самозарядный дробовик", "stats": {"spread":3,"mag":8}},
+	"striker": {"base": Base.AUTO_SHOTGUN, "name": "Дробовик «Страйкер»", "short": "Страйкер", "rarity": 2, "gun": "auto_shotgun", "trait": "last_round", "desc": "Самозарядный дробовик", "stats": {"mag":8,"rate":3}},
+	"svd": {"base": Base.DMR, "name": "Винтовка СВД", "short": "СВД", "rarity": 0, "gun": "dmr", "trait": "focus", "desc": "Полуавтоматическая винтовка"},
+	"sks": {"base": Base.DMR, "name": "Карабин СКС", "short": "СКС", "rarity": 1, "gun": "dmr", "trait": "return_bolt", "desc": "Полуавтоматическая винтовка", "stats": {"damage":17,"mag":10,"pierce":0}},
+	"m14": {"base": Base.DMR, "name": "Винтовка M14", "short": "M14", "rarity": 2, "gun": "dmr", "trait": "doubletap", "desc": "Полуавтоматическая винтовка", "stats": {"damage":16,"rate":3,"mag":20}},
+	"arc": {"base": Base.TESLA, "name": "Разрядник «Дуга»", "short": "Дуга", "rarity": 0, "gun": "tesla", "trait": "arc", "desc": "Полевой разрядник. Инженер: ещё одна цель"},
+	"fork": {"base": Base.TESLA, "name": "Разрядник «Вилка»", "short": "Вилка", "rarity": 1, "gun": "tesla", "trait": "fork", "desc": "Полевой разрядник. Инженер: ещё одна цель", "stats": {"damage":8,"mag":10}},
+	"storm": {"base": Base.TESLA, "name": "Разрядник «Гроза»", "short": "Гроза", "rarity": 2, "gun": "tesla", "trait": "ground", "desc": "Полевой разрядник. Инженер: ещё одна цель", "stats": {"damage":10,"range":120}},
 	"ak_s": {"base": Base.RIFLE, "name": "Автомат АК-С", "short": "АК-С", "rarity": Rarity.SERIAL, "gun": "rifle", "trait": ""},
 	"m4": {"base": Base.RIFLE, "name": "Карабин «М4»", "short": "М4", "rarity": Rarity.COMMON, "gun": "m4", "trait": "burst3",
 		"desc": "Карабин",
@@ -196,11 +302,44 @@ const MODELS := {
 }
 
 ## Порядок моделей (как в CONTRACTS §11) — для списков базы и для ящиков.
-const MODEL_ORDER := ["ak_s", "m4", "butcher", "shkval", "needle", "spear", "grom", "hive", "colt", "guard", "bulldog", "cowboy", "ppsh", "osa", "mosin", "winchester"]
+const MODEL_ORDER := ["ak_s", "m4", "butcher", "shkval", "needle", "spear", "grom", "hive", "colt", "guard", "bulldog", "cowboy", "ppsh", "osa", "mosin", "winchester", "an94", "coach", "harpoon", "thumper", "makarov", "nagant", "mp5", "tikka", "pkm", "rpk", "pecheneg", "m134", "gatling", "vulcan", "lpo", "torch", "furnace", "druzhba", "rescuer", "butcher_saw", "skif", "ballista", "repeater", "saiga", "aa12", "striker", "svd", "sks", "m14", "arc", "fork", "storm"]
 const RARITY_NAMES := ["серийная", "обычная", "редкая"]
+
+## Тембр модели поверх четырёхслойного пресета категории W6; механика остаётся в исходной высоте.
+const MODEL_PITCH := {
+	"m4": 1.06, "shkval": 0.9, "spear": 0.8, "hive": 1.15,
+	"guard": 1.18, "cowboy": 0.92, "osa": 1.12, "winchester": 0.9,
+	"an94": 1.18, "coach": 0.82, "harpoon": 0.72, "thumper": 0.9,
+	"makarov": 1.25, "nagant": 1.1, "mp5": 1.22, "tikka": 1.1,
+	"rpk": 1.13, "pecheneg": 0.94, "gatling": 0.88, "vulcan": 1.08,
+	"torch": 0.78, "furnace": 1.15, "rescuer": 1.16, "butcher_saw": 0.82,
+	"ballista": 0.74, "repeater": 1.2, "aa12": 0.85, "striker": 1.1,
+	"sks": 0.9, "m14": 1.1, "fork": 1.18, "storm": 0.76,
+}
 
 ## Черты моделей из ящиков. Механика — weapons.gd, здесь только названия и тексты.
 const TRAITS := {
+	"doubletap": {"name": "Двойка", "text": "Два выстрела с интервалом 0.05 с, затем пауза"},
+	"slug": {"name": "Жакан", "text": "Один тяжёлый снаряд вместо дроби; пробивает две цели"},
+	"last_round": {"name": "Контрольный", "text": "Последний патрон магазина наносит тройной урон"},
+	"tracer": {"name": "Трассеры", "text": "Каждое попадание поджигает цель на 2 с"},
+	"execute": {"name": "Добивание", "text": "Двойной урон врагам ниже 35% здоровья"},
+	"focus": {"name": "Выдержка", "text": "После 0.6 с без движения урон +35%"},
+	"brace": {"name": "Сошки", "text": "Раскрутка 0.35 с; стоя разброс вчетверо меньше"},
+	"quick_spin": {"name": "Лёгкий ротор", "text": "Раскрутка вдвое быстрее, остановка сохраняет вращение дольше"},
+	"spin": {"name": "Блок стволов", "text": "Раскрутка 0.9 с; во время огня скорость движения −35%"},
+	"flame": {"name": "Струя", "text": "Конус 44°; огонь переходит на соседей"},
+	"napalm": {"name": "Смола", "text": "Поджог длится 5 с вместо 2; прямой урон ниже"},
+	"wide": {"name": "Раструб", "text": "Конус 76°; дальность короче"},
+	"cleave": {"name": "Распил", "text": "Цепь бьёт всех в секторе 85° и рассекает тела"},
+	"sweep": {"name": "Подрезка", "text": "Сектор 140° и длинная шина; ниже урон"},
+	"pin": {"name": "Сквозной болт", "text": "Пробивает троих, пришпиливает убитых к земле"},
+	"explosive_bolt": {"name": "Разрывной болт", "text": "Каждое попадание даёт взрыв радиусом 21"},
+	"return_bolt": {"name": "Подхват", "text": "Убийство возвращает один патрон в магазин"},
+	"drum": {"name": "Съёмный магазин", "text": "Дробь без помпы, быстрая смена целого магазина"},
+	"arc": {"name": "Переброс", "text": "До четырёх целей; каждая следующая получает 72% урона"},
+	"fork": {"name": "Развилка", "text": "Две независимые дуги по разным целям"},
+	"ground": {"name": "Проводник", "text": "До шести целей; прыжок 95 вместо 65, затухание сильнее"},
 	"burst3": {"name": "Очереди", "text": "Очередь из 3 пуль; разброс не растёт"},
 	"slamfire": {"name": "Слэм-фаер", "text": "Высокий темп, магазин 10, долгая перезарядка"},
 	"kill_charge": {"name": "Накопитель", "text": "Убийство даёт +50% урона следующему выстрелу"},
@@ -255,15 +394,31 @@ static func model_stats(model: String, level: int) -> Dictionary:
 	return s
 
 
+## Доля урона сквозь броню; остальное уходит в отдельный запас пластины.
+static func armor_penetration(base: int, model := "", module_rank := 0, distance := 200.0) -> float:
+	var values := [0.0, 0.0, 1.0, 1.0, 0.0, 0.35, 0.0, 0.90, 0.20, 0.05, 0.90, 0.80, 0.70, 0.0, 0.65, 1.0]
+	var value: float = values[base] if base >= 0 and base < values.size() else 0.0
+	if base in [Base.SHOTGUN, Base.AUTO_SHOTGUN]:
+		value = 0.80 if distance <= 45.0 else 0.0
+	if model in ["coach", "aa12"]: value = maxf(value, 0.75)
+	if model in ["ballista", "tikka", "pecheneg", "m14"]: value = minf(1.0, value + 0.15)
+	if model in ["makarov", "mp5", "repeater", "sks"]: value = maxf(0.0, value - 0.15)
+	return minf(1.0, value + float(module_rank) * 0.25)
+
+
 ## Эффективный DPS в первую цель (BALANCE §3.1; метод W1: стандартные патроны I, без модулей и пассивок).
 ## Крит: 5% игрока + 10% патронов + крит ствола, множитель ×2. Веер ковбоя тратит на выстрелы FAN_TIME.
 static func effective_dps(model: String, level: int) -> float:
 	var st := model_stats(model, level)
 	var rate: float = st["rate"]
 	var shots_time: float = float(st["mag"]) / rate
+	if int(MODELS[model]["base"]) in [Base.LMG, Base.MINIGUN]:
+		shots_time += (0.35 if MODELS[model]["base"] == Base.LMG else 0.9) * (0.5 if MODELS[model]["trait"] == "quick_spin" else 1.0)
 	if MODELS[model]["trait"] == "fan":
 		shots_time = FAN_TIME * FAN_BASE_RATE / rate
 	var crit: float = 1.0 + float(st["crit"]) + 0.15
+	if MODELS[model]["trait"] == "last_round":
+		crit *= 1.0 + 2.0 / float(st["mag"])
 	return float(st["damage"]) * int(st["proj"]) * float(st["mag"]) / (shots_time + float(st["reload"])) * crit
 
 
@@ -328,3 +483,19 @@ static func _fmt(v: float) -> String:
 
 static func module_slots(level: int) -> int:
 	return 1 if level < 3 else (2 if level < 5 else 3)
+
+
+static func supports_module(base: int, module: int) -> bool:
+	if module == Module.LINK:
+		return base in [Base.SHOTGUN, Base.AUTO_SHOTGUN]
+	if base in [Base.FLAMER, Base.SAW]:
+		return module in [Module.DETONATOR, Module.CHAIN]
+	if base == Base.TESLA:
+		return module in [Module.DETONATOR, Module.CHAIN, Module.TWIN]
+	return true
+
+
+static func supports_ammo(base: int, ammo: int) -> bool:
+	if base == Base.FLAMER: return ammo in [Ammo.STANDARD, Ammo.INCENDIARY]
+	if base == Base.SAW: return ammo in [Ammo.STANDARD, Ammo.EXPANSIVE]
+	return true

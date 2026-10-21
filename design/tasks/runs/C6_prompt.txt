@@ -1,0 +1,13 @@
+Задача: C6 (уровень high)
+
+Ты исполнитель в проекте игры на Godot 4.7.2. Рабочая папка — C:\Users\Dev\Desktop\zera-c6 (git worktree, ветка task/c6). Работаешь автономно, вопросов не задаёшь, доводишь до конца.
+
+1. Прочитай целиком: design/tasks/README.md (правила запуска Godot и общей блокировки), свою задачу design/tasks/M9/C6_campaign_loop.md, design/CAMPAIGN.md (§4, §9–§14, §17, §19–§21, §25), design/SETTING.md, design/tasks/GPT_REVIEW_BACKLOG.md (блок G), отчёты design/tasks/reports/C5.md, C5b.md, O2.md, Q1.md, design/tasks/reports/U1_audit.md (что автор считает «ИИ-стилем» — не возвращать), design/tasks/M7/U3_drive_not_text.md (меньше текста, больше картинок).
+2. Изучи scripts/campaign/*, вкладку «Операции» в scripts/base.gd и scripts/ui/*, финал боя и босса в scripts/game.gd, scripts/spawner.gd, scripts/hud.gd, scripts/map_loader.gd, maps/*.json, scripts/meta.gd (сохранение), tools/gen_art*.py и пиши в их стиле (GDScript со статической типизацией, табы, комментарии по-русски кратко).
+3. Трогай только файлы из раздела «Можно трогать». Параллельно в другой ветке идёт R1b (кровь: gore.gd, effects.gd, floor_decals.gd, horde.gd, шейдеры, sfx попаданий) — эти файлы не трогай, game.gd правь локально.
+4. Godot: C:\Users\Dev\Desktop\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64_console.exe. Сначала --headless --path . --import. Python (numpy, Pillow): C:\Users\Dev\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe. Ничего не скачивай из интернета.
+5. Каждый оконный запуск — только через bash C:/Users/Dev/Desktop/zera-assets/locks/godot_exclusive.sh (см. README). Не оставляй открытых окон Godot и фоновых циклов. Тесты теперь возвращают код 1 при любой ошибке — держи их зелёными.
+6. Git-коммиты не делай (песочница не пишет в .git) — коммитит ревьюер.
+7. Главный критерий — выбор на глобусе меняет сам бой: разные цели (узел, извлечение), заражение видно влияет на угрозу, у кампании есть победа и поражение. Скриншоты глобуса, брифинга и боя смотри сам и итерируй, пока не станет наглядно и без лишнего текста.
+8. Отчёт design/tasks/reports/C6.md по шаблону design/tasks/templates/report.md: что сделано, файлы, вывод проверок дословно, скриншоты, баланс (таблица стадия → угроза), отступления.
+9. В конце коротко: что сделано и что не получилось.

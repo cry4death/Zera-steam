@@ -1,4 +1,0 @@
-FORMAT/LEVELS: PASS; 84 new WAV; PCM16/48 kHz; shots stereo, rest mono; peak -17.99..-2.73 dBFS; clipped=0; endpoints=0; DC<2e-6; tail<-60 dBFS; shot RMS100 and mech RMSmax100 match table
-MAIN HASHES: PASS; 226 files of main (WAV + .import) byte-identical; only CREDITS.md and manifest.json extended
-DETERMINISM: PASS; 197 WAV + manifest.json + CREDITS.md equal to a second build (--out)
-VISUALS: a3_waveforms.png (33 new _0, waveform + spectrogram), a3_detail.png (compound moves)

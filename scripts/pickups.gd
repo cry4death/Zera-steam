@@ -6,12 +6,12 @@ extends Node2D
 
 signal collected(kind: int, pos: Vector2)
 
-enum Kind { MEDKIT, CRATE, PART, CONTAINER }
+enum Kind { MEDKIT, CRATE, PART, CONTAINER, ACTIVITY_MODULE, AMMO }
 
-const TEXTURES := ["medkit", "weapon_crate", "rare_part", "blood_container"]
-const GLOWS := [Color(0.4, 1.0, 0.5), Color(1.0, 0.72, 0.3), Color(0.4, 0.7, 1.0), Color(1.0, 0.2, 0.15)]
-const GLOW_RADIUS := [7.0, 8.0, 7.0, 13.0]
-const TOUCH_RADIUS := [7.0, 8.0, 7.0, 12.0] # радиус предмета; к нему добавляется Player.RADIUS
+const TEXTURES := ["medkit", "weapon_crate", "rare_part", "blood_container", "activity_supply", "weapon_crate"]
+const GLOWS := [Color(0.4, 1.0, 0.5), Color(1.0, 0.72, 0.3), Color(0.4, 0.7, 1.0), Color(1.0, 0.2, 0.15), Color(0.7, 0.7, 0.5, 0.12), Color(0.6, 0.6, 0.4, 0.12)]
+const GLOW_RADIUS := [7.0, 8.0, 7.0, 13.0, 10.0, 7.0]
+const TOUCH_RADIUS := [7.0, 8.0, 7.0, 12.0, 18.0, 7.0] # радиус предмета; к нему добавляется Player.RADIUS
 const LIFETIME := 40.0
 const BLINK_TIME := 5.0
 const FALL_TIME := 0.55 # контейнер падает сверху
@@ -55,7 +55,7 @@ func spawn(p: Vector2, kind: int) -> void:
 			return
 	_pos.append(p)
 	_kind.append(kind)
-	_life.append(INF if kind == Kind.CONTAINER else LIFETIME)
+	_life.append(INF if kind == Kind.CONTAINER or kind == Kind.ACTIVITY_MODULE else LIFETIME)
 	_fall.append(FALL_TIME if kind == Kind.CONTAINER else 0.0)
 	_phase.append(randf() * TAU)
 	count += 1
@@ -67,7 +67,8 @@ func nearest(p: Vector2, max_dist: float) -> Vector2:
 	var best_d := max_dist * max_dist
 	for i in count:
 		var d := _pos[i].distance_squared_to(p)
-		if _kind[i] != Kind.MEDKIT and _fall[i] <= 0.0 and d < best_d:
+		# Расходники собираются по пути; бот направляется за наградами прогрессии.
+		if _kind[i] != Kind.MEDKIT and _kind[i] != Kind.AMMO and _fall[i] <= 0.0 and d < best_d:
 			best_d = d
 			best = _pos[i]
 	return best
@@ -152,6 +153,9 @@ func _draw() -> void:
 		var kind := _kind[i]
 		var tex := _tex[kind]
 		var p := _pos[i]
+		if kind == Kind.ACTIVITY_MODULE:
+			draw_texture_rect(tex, Rect2(p - Vector2(26, 21), Vector2(52, 42)), false)
+			continue
 		var pulse := 0.5 + 0.5 * sin(_time * 4.0 + _phase[i])
 		if _fall[i] > 0.0:
 			# падение: тень растёт, предмет снижается

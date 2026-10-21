@@ -8,10 +8,15 @@ class_name PixelArt
 const ART_SCALE := 1.0 / 3.0
 const ART_DENSITY := 3.0 # пикселей арта на игровую единицу
 const CELL := Vector2(48, 48) # ячейка персонажа в листах
-const VARIANT_COUNT := 7
+const VARIANT_COUNT := 21
+const CLOTH_TONES := 3
+const APPEARANCE_COUNT := VARIANT_COUNT * CLOTH_TONES
 const ANIM_FRAMES := 4
-const VARIANT_NAMES := ["гражданский", "учёный", "солдат", "рабочий", "бегун", "толстяк", "плевальщик"]
+const VARIANT_NAMES := ["гражданский", "учёный", "солдат", "строитель", "бегун", "толстяк", "плевун", "офисный", "медик", "полицейский", "механик", "капюшон", "пожилой", "спортсмен", "платье", "бездомный", "курьер", "бегун: атлет", "толстяк: фартук", "плевун: халат", "ползун"]
+const SHAMBLERS := [0, 1, 2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+const KIND_VARIANTS := [SHAMBLERS, [4, 17], [5, 18], [6, 19]]
 const CORPSE_POSES := 3
+const MILITARY_CODE := 16384
 
 ## Биты ран на живом зомби (столбец атласа).
 const WOUND_ARM_L := 1
@@ -21,6 +26,32 @@ const WOUND_HEAD := 8
 
 
 static var _dot: Texture2D
+
+
+## Сигналы несут индекс внешности и масштаб; старые стенды 0..6 совместимы.
+static func appearance(code: int) -> int:
+	if code & MILITARY_CODE:
+		return APPEARANCE_COUNT + ((code >> 15) & 3)
+	return code & 63
+
+
+static func base_variant(code: int) -> int:
+	if code & MILITARY_CODE:
+		return 9 if (appearance(code) - APPEARANCE_COUNT) == 1 else 2
+	return appearance(code) % VARIANT_COUNT
+
+
+static func variant_kind(code: int) -> int:
+	var v := base_variant(code)
+	return 1 if v in [4, 17] else 2 if v in [5, 18] else 3 if v in [6, 19] else 0
+
+
+static func corpse_scale(code: int) -> Vector2:
+	if code < 64:
+		return Vector2.ONE
+	var flags := (code >> 6) - 1
+	var size := (1.0 + float((flags & 31) - 8) * 0.01) * (1.5 if flags & 64 else 1.0)
+	return Vector2(size, -size if flags & 32 else size)
 
 
 ## Круглая маска для капель и брызг. draw_circle в Godot 4.7 каждый раз

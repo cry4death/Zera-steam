@@ -1,0 +1,14 @@
+Задача: R1 (уровень high)
+
+Ты исполнитель в проекте игры на Godot 4.7.2. Рабочая папка — C:\Users\Dev\Desktop\zera-r1 (git worktree, ветка task/r1). Работаешь автономно, вопросов не задаёшь, доводишь до конца.
+
+1. Прочитай целиком: design/tasks/README.md (правила запуска Godot и общей блокировки), свою задачу design/tasks/M9/R1_gore_readability.md, design/tasks/GPT_REVIEW_BACKLOG.md (блоки B, D2, I1), design/tasks/reports/U1_audit.md (что автор считает «ИИ-стилем» — не возвращать), design/tasks/reviews/S3.md (baseline производительности на этой машине).
+2. Изучи scripts/gore.gd, scripts/floor_decals.gd, scripts/effects.gd, отрисовку в scripts/horde.gd, shaders/blood.gdshader, shaders/flash.gdshader, scripts/player.gd (отрисовка) и пиши в их стиле (GDScript со статической типизацией, табы, комментарии по-русски кратко, packed-массивы для массовых сущностей, без Node на каждый объект).
+3. Трогай только файлы из раздела «Можно трогать».
+4. Godot: C:\Users\Dev\Desktop\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64_console.exe. Сначала --headless --path . --import. Python (numpy, Pillow): C:\Users\Dev\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe.
+5. Каждый оконный запуск — только через bash C:/Users/Dev/Desktop/zera-assets/locks/godot_exclusive.sh (см. README). Не оставляй открытых окон Godot и фоновых циклов.
+6. Сначала сними скриншоты и замеры ДО правок (r1_before_*), потом правь.
+7. Git-коммиты не делай (песочница не пишет в .git) — коммитит ревьюер.
+8. Главный критерий — на скриншотах «после» в густой бойне сразу видно героя и живых зомби, трупов на полу заметно меньше и они тёмные, а попадания мокрые и кровавые. Смотри свои скриншоты сам и итерируй, пока не станет хорошо.
+9. Отчёт design/tasks/reports/R1.md по шаблону design/tasks/templates/report.md: что сделано, файлы, вывод проверок дословно, цифры до/после, скриншоты, отступления.
+10. В конце коротко: что сделано и что не получилось.

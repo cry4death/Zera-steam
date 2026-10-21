@@ -17,8 +17,6 @@ import os
 import random
 import sys
 
-from PIL import Image
-
 ROOT = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.normpath(os.path.join(ROOT, "..", "art"))
 S = 1.5  # плотность: родных пикселей на логический
@@ -248,6 +246,8 @@ class Canvas:
             self.putn(nx, ny, col)
 
     def image(self):
+        from PIL import Image
+
         img = Image.new("RGBA", (self.w, self.h), (0, 0, 0, 0))
         px = img.load()
         for y in range(self.h):
@@ -282,6 +282,26 @@ def body_cond(cx, cy, rx, ry, k=0.92):
     return lambda x, y: ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= k
 
 
+def draw_outfit(cv, d, v, cx, cy):
+    role = d.get('role')
+    cloth = ramp(d['shirt'])
+    if role in ('overalls', 'police', 'bag', 'apron'):
+        for sy in (-1, 1):
+            cv.tube(cx - 3.5, cy + sy * 5.5, cx + 2.7, cy + sy * 5.5, 1.3, ramp(d['pants']))
+        if role == 'bag':
+            cv.ellipse(cx - 3.0, cy, 4., 6.4, ramp(hexc('565347')), tex=.25, seed=91)
+    if role in ('medic', 'sport'):
+        for sy in (-1, 1):
+            cv.tube(cx - 3, cy + sy * 7, cx + 3, cy + sy * 7, .8, ramp(hexc('bcb9a0')))
+    if role in ('coat', 'skirt'):
+        cv.ellipse(cx - 4.5, cy, 3.9, 9.0 if role == 'skirt' else 8.0, cloth, tex=.22, seed=v)
+        for sy in (-6, -2, 3, 6):
+            cv.line(cx - 6, cy + sy, cx - 2, cy + sy + 1, cloth[1])
+    if role in ('office', 'old', 'medic', 'police', 'overalls', 'apron') or v == 7:
+        cv.line(cx - 2, cy, cx + 3, cy, cloth[1])
+        for x in (-2, 0, 2):
+            cv.dot(cx + x, cy, cloth[4])
+
 def draw_torso(cv, d, v, cx, cy, rng, bits):
     """Сгорбленная спина и плечи; плечи несимметричные."""
     b = d["build"]
@@ -315,6 +335,7 @@ def draw_torso(cv, d, v, cx, cy, rng, bits):
     elif v == 1:  # учёный: халат, воротник
         for py in range(int((cy - ry + 3) * S), int((cy + ry - 2) * S)):
             cv.putn(int((cx + 3.8) * S), py, shirt[2])
+    draw_outfit(cv, d, v, cx, cy)
     kind = d.get("kind", "")
     if kind == "fat":
         # раздутое тело: майка лопнула, голое пузо с венами и гнойниками
@@ -523,10 +544,10 @@ def zombie(v, bits, anim, headless=False, outline=True):
             draw_stump(cv, d, sx, sy, side)
             continue
         ext = sway * side * 1.7
-        reach = {"runner": 29.6, "fat": 25.0}.get(d.get("kind", ""), 27.0)
-        hx, hy = reach + ext, cy + side * 5.2 + sway * side * 0.4
+        reach = d.get("reach", {"runner": 29.6, "fat": 25.0}.get(d.get("kind", ""), 27.0))
+        hx, hy = reach + ext, cy + side * d.get("hands", 5.2) + sway * side * 0.4
         draw_arm(cv, d, v, sx, sy, hx, hy, random.Random(v * 7 + side + 3), side)
-    hx0, hy0 = 18.0 + bob * 0.35, cy + (0.4 if v == 0 else -0.3)  # голова чуть набок
+    hx0, hy0 = 18.0 + bob * 0.35 + d.get("lean", 0.0), cy + d.get("tilt", 0.4 if v == 0 else -0.3)  # голова чуть набок
     cv.shade_area(hx0 - 0.4, hy0, 6.6, 6.4, 0.5)  # тень головы на плечах — голова «отрывается» от тела
     if headless:
         draw_neck_stump(cv, hx0 - 1.2, hy0)
@@ -663,6 +684,7 @@ def corpse(v, pose, headless=False, burnt=False):
             cv.ellipse(15.6, 16, 5.2, 6.8, ramp(d["vest"]), tex=0.2)
         if v == 2:
             cv.ellipse(15.8, 16, 4.0, 5.6, ramp(d["vest"]), tex=0.12)
+        draw_outfit(cv, d, v, 15.6, 16)
         for _ in range(2):
             cv.tear(rng, 15 + rng.uniform(-3, 3), 16 + rng.uniform(-5, 5), rng.uniform(0, math.tau), 3.0,
                     MUSCLE if rng.random() < 0.5 else skin, cond=inside)
@@ -952,6 +974,8 @@ BLOOD_COVER = [529, 671, 794, 996, 1182, 1732, 1610, 1656]
 def splat(seed, size, stretch=1.0, min_cover=0, grow=1.0):
     """Маска ТОЛЩИНЫ крови (яркость = толщина): неровные лопасти, густой центр, капли с хвостами.
     Цвет, блик и высыхание считает шейдер blood.gdshader."""
+    from PIL import Image
+
     rng = random.Random(seed)
     w = int(size * stretch)
     img = Image.new("RGBA", (w, size), (0, 0, 0, 0))
@@ -1020,6 +1044,8 @@ def splat(seed, size, stretch=1.0, min_cover=0, grow=1.0):
 
 
 def footprint():
+    from PIL import Image
+
     rows = ["0011110000011111100",
             "0111111100111111110",
             "1111111110111111111",
@@ -1042,6 +1068,7 @@ def asphalt():
     щебень тёмный и редкий (светлого зерна почти нет). Все элементы заворачиваются по краям.
     """
     import numpy as np
+    from PIL import Image
     s = 1536
     rng = np.random.default_rng(1337)
     base = np.array(hexc("3d3f43"), np.float32)
@@ -1126,6 +1153,8 @@ def save(img, name):
 
 
 def main():
+    from PIL import Image
+
     os.makedirs(OUT, exist_ok=True)
     cell = round(32 * S)
     # атлас живых: столбец = биты ран (16), строка = вид × 4 + кадр ходьбы

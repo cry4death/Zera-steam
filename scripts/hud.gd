@@ -9,27 +9,28 @@ extends Control
 ## и дуга урона — каждый кадр на дочернем слое (Overlay). Текст — кэшированные TextLine
 ## (без повторной вёрстки), на тёмных панелях без обводки; все надписи рисуются пачкой в конце слоя.
 
-const TEXT := Color(0.92, 0.91, 0.86)
-const DIM := Color(0.62, 0.62, 0.58)
-const ACCENT := Color(1.0, 0.74, 0.2)
-const ACCENT_DIM := Color(0.62, 0.46, 0.14)
-const HP_COLOR := Color(0.86, 0.17, 0.14)
-const HOT := Color(1.0, 0.45, 0.25)
-const COOL := Color(0.55, 0.88, 1.0)
-const CREDIT_COLOR := Color(1.0, 0.82, 0.35)
-const DNA_COLOR := Color(0.55, 0.9, 0.95)
-const PANEL_BG := Color(0.028, 0.032, 0.038, 0.68)
-const SLOT_BG := Color(0.3, 0.31, 0.34, 0.85) # светлый фон под тёмные силуэты стволов
-const ICON_BG := Color(0.13, 0.14, 0.16, 0.88)
-const EMPTY := Color(0.13, 0.13, 0.14, 0.9)
+const Style := preload("res://scripts/ui/zera_style.gd")
+const TEXT := Style.TEXT
+const DIM := Style.MUTED
+const ACCENT := Style.ACTION
+const ACCENT_DIM := Style.DISABLED
+const HP_COLOR := Style.DANGER
+const HOT := Style.DANGER
+const COOL := Style.SELECTED
+const CREDIT_COLOR := Style.ACTION
+const DNA_COLOR := Style.BETTER
+const PANEL_BG := Color(Style.RECESS, 0.94)
+const SLOT_BG := Style.HOVER # светлый материал под тёмные силуэты стволов
+const ICON_BG := Style.CANVAS
+const EMPTY := Style.METAL
 const FONT_SIZE := 10
 
 const REDRAW_PERIOD := 1.0 / 30.0 # панели обновляются 30 раз в секунду, прицел — каждый кадр
-const OP_Y := 44.0 # строка операции — под убийствами и серией
+const OP_Y := 52.0 # строка операции — под убийствами и серией
 const SLOT_W := 116.0
 const SLOT_H := 36.0
 const SLOT_GAP := 4.0
-const MARGIN := 6.0
+const MARGIN := 12.0
 const GUN_BOX := Vector2(32.0, 18.0)
 const ROUNDS_Y := 14.0 # ряд патронов под названием ствола
 const ROUNDS_H := 20.0
@@ -41,18 +42,18 @@ const LINE_CACHE_MAX := 900
 
 # пассивки значком с цифрой: имя спрайта и цвет; полные названия — в паузе и на картах Level Up
 const PASSIVE_ICONS := {
-	WeaponDefs.Passive.DAMAGE: ["pas_damage", Color(1.0, 0.45, 0.3)], WeaponDefs.Passive.FIRE_RATE: ["pas_rate", Color(1.0, 0.85, 0.35)],
-	WeaponDefs.Passive.RELOAD: ["pas_reload", Color(0.55, 0.88, 1.0)], WeaponDefs.Passive.SPEED: ["pas_speed", Color(0.55, 0.95, 0.6)],
-	WeaponDefs.Passive.HP: ["vest", Color(0.62, 0.8, 1.0)], WeaponDefs.Passive.PICKUP: ["pas_pickup", Color(0.85, 0.65, 1.0)],
+	WeaponDefs.Passive.DAMAGE: ["pas_damage", Style.DANGER], WeaponDefs.Passive.FIRE_RATE: ["pas_rate", Style.ACTION],
+	WeaponDefs.Passive.RELOAD: ["pas_reload", Style.RARE], WeaponDefs.Passive.SPEED: ["pas_speed", Style.BETTER],
+	WeaponDefs.Passive.HP: ["vest", Style.RARE], WeaponDefs.Passive.PICKUP: ["pas_pickup", Style.SELECTED],
 }
 # значок и цвет модификатора операции; красный — усложняет, зелёный — помогает. Названия — CampaignCatalog.MODIFIER_INFO.
 const MODIFIER_TAGS := {
-	"runner_surge": ["dash", Color(1.0, 0.5, 0.35)], "elite_hunt": ["skull", Color(1.0, 0.5, 0.35)],
-	"acid_rain": ["drop", Color(0.7, 0.9, 0.35)], "blood_frenzy": ["drop", Color(1.0, 0.35, 0.3)],
-	"hardened_boss": ["vest", Color(1.0, 0.5, 0.35)], "resource_cache": ["crate", Color(0.55, 0.95, 0.6)],
+	"runner_surge": ["dash", Style.DANGER], "elite_hunt": ["skull", Style.DANGER],
+	"acid_rain": ["drop", Style.BETTER], "blood_frenzy": ["drop", Style.DANGER],
+	"hardened_boss": ["vest", Style.DANGER], "resource_cache": ["crate", Style.BETTER],
 }
 # событие у часов: значок и цвет вместо слов «ТОРГОВЕЦ», «ТРЕВОГА»
-const EVENT_ICONS := {"ТОРГОВЕЦ": ["crate", Color(1.0, 0.82, 0.35)], "ТРЕВОГА": ["alarm", Color(1.0, 0.45, 0.25)], "ОБЪЕКТ-7": ["skull", Color(1.0, 0.4, 0.25)]}
+const EVENT_ICONS := {"ВЫХОД": ["activity_apc", Style.ACTION], "ТОРГОВЕЦ": ["crate", Style.ACTION], "ТРЕВОГА": ["alarm", Style.DANGER], "УЗЕЛ": ["skull", Style.SELECTED], "ОБЪЕКТ-7": ["skull", Style.DANGER]}
 const ICON_NAMES := ["star", "dash", "vest", "dna", "arrow", "skull", "container", "crate", "part", "med", "coin", "bolt", "drop", "alarm", "flame",
 	"pas_damage", "pas_rate", "pas_reload", "pas_speed", "pas_pickup"]
 const POINTER_ELITES := 4 # сколько ближайших элиток показываем у края
@@ -130,6 +131,7 @@ var _elite_p := PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Ve
 var _elite_n := 0
 var _ptr_pos := PackedVector2Array()
 var _ptr_n := 0
+var _nonfinite_logged := false ## HUD_NONFINITE пишется один раз за сессию
 var _op_name := ""
 var _op_threat := 0
 var _op_chips: Array[Array] = [] # [значок, цвет, короткое имя]
@@ -144,9 +146,11 @@ var ammo_sheet := false # --hud-test: лист всех патронов вме�
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS # при паузе убираем анонс из-под экрана награды
-	_font = ThemeDB.fallback_font
+	_font = Style.BODY_FONT
 	for n: String in ICON_NAMES:
 		_icons[n] = PixelArt.tex("hud_" + n)
+	for n: String in ["apc", "turret", "artillery"]:
+		_icons["activity_" + n] = PixelArt.tex("activity_" + n + "_icon")
 	_grenade_icon = PixelArt.tex("icon_grenade")
 	for i in NUM_CACHE:
 		_nums.append(str(i))
@@ -328,7 +332,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _begin(ci: Control) -> void:
 	_ci = ci
-	_ui = maxf(1.0, roundf(size.y / 360.0))
+	_ui = SettingsLayout.scale_for(size)
 	_w = size.x / _ui
 	_h = size.y / _ui
 	if not is_equal_approx(_cache_ui, _ui):
@@ -358,7 +362,7 @@ func _draw() -> void:
 	if _danger > 0.001:
 		var beat := pow(maxf(1.0 - absf(_heartbeat_phase - 0.1) / 0.1, 0.0), 2.0)
 		beat += 0.65 * pow(maxf(1.0 - absf(_heartbeat_phase - 0.3) / 0.08, 0.0), 2.0)
-		_ci.draw_texture_rect(game.alarm_overlay._vignette, Rect2(0, 0, _w, _h), false, Color(1, 1, 1, _danger * (0.8 + beat * 0.2)))
+		_ci.draw_texture_rect(game.alarm_overlay._vignette, Rect2(0, 0, _w, _h), false, Color(1, 1, 1, _danger * (0.8 + beat * 0.2 if Meta.settings["screen_flashes"] else 1.0)))
 	var slots_top := _h - MARGIN - SLOT_H
 	_draw_xp(prog)
 	_draw_vitals(player, prog)
@@ -382,6 +386,7 @@ func _draw() -> void:
 			ability_y = slots_top - 3.0
 	_draw_abilities(player, Vector2(MARGIN, ability_y))
 	_draw_boss_bar(slots_top - 24.0)
+	_draw_objective(slots_top - 26.0)
 	for i in n:
 		_draw_slot(weapons, i, Vector2(x0 + i * (sw + SLOT_GAP), slots_top), sw)
 	_draw_hints(player, slots_top)
@@ -403,17 +408,24 @@ func _draw_overlay(layer: Control) -> void:
 	var covered: bool = game.level_up.visible or game.results.visible
 	if game.announce_t > 0.0 and not covered:
 		var k: float = game.announce_t / 1.4
-		var col: Color = game.announce_color
+		var col := Style.SELECTED
 		col.a = clampf(k * 2.0, 0.0, 1.0)
 		# пока на экране тревога (заголовок, полоса, «ТРЕВОГА ОТБИТА»), анонсы идут ниже неё
-		var ay := 112.0 if game.alarm_overlay.visible else 78.0
-		_text_c(_w * 0.5, ay, game.announce_text, col, 20, true)
+		var ay := 80.0
+		var label: String = game.announce_text.replace("!", "")
+		var width := minf(210.0, _text_w(label, 10) + 16.0)
+		var r := Rect2(_w - MARGIN - width, ay - 13.0, width, 19.0)
+		Style.reward(_ci, r, game.announce_t)
+		_text_r(r.end.x - 8, ay, label, col, 10)
 	# радио Диспетчера: стабильная строка под часами, короткое появление и затухание
 	if game.radio_t > 0.0 and not covered and not game.trader_ui.visible:
 		var fade := clampf((game.RADIO_TIME - game.radio_t) / 0.25, 0.0, 1.0) * clampf(game.radio_t / 0.6, 0.0, 1.0)
-		var rc: Color = game.radio_color
+		var rc := Style.MUTED
 		rc.a = fade
-		_text_c(_w * 0.5, 66.0 if game.alarm_overlay.visible else 46.0, game.radio_text, rc, 9, true)
+		var ry := 91.0 if game.alarm_overlay.visible else 58.0
+		var rw := _text_w(game.radio_text, 9) + 16.0
+		_ci.draw_rect(Rect2((_w - rw) * 0.5, ry - 11, rw, 16), Color(Style.RECESS, fade * 0.95))
+		_text_c(_w * 0.5, ry, game.radio_text, rc, 9)
 	if combat_cursor_visible():
 		_draw_crosshair(player)
 	_flush_text()
@@ -433,7 +445,7 @@ func _line(s: String, fs: int) -> Line:
 			bucket = {}
 		line = Line.new()
 		line.tl = TextLine.new()
-		line.tl.add_string(s, _font, fs * int(_ui))
+		line.tl.add_string(s, Style.TITLE_FONT if fs >= 12 else _font, roundi(maxi(8, fs) * _ui))
 		line.w = line.tl.get_size().x
 		line.asc = line.tl.get_line_ascent()
 		bucket[s] = line
@@ -474,22 +486,20 @@ func _text_w(s: String, fs: int) -> float:
 func _flush_text() -> void:
 	var rid := _ci.get_canvas_item()
 	_ci.draw_set_transform(Vector2.ZERO)
-	var outline := 2 * int(_ui)
 	for i in _job_line.size():
 		var line := _job_line[i]
 		var c := _job_color[i]
 		if _job_outline[i] != 0:
-			line.tl.draw_outline(rid, _job_pos[i], outline, Color(0, 0, 0, 0.8 * c.a))
+			_ci.draw_rect(Rect2(_job_pos[i] - Vector2(2 * _ui, 0), line.tl.get_size() + Vector2(4 * _ui, 0)), Color(Style.RECESS, 0.94 * c.a))
 		line.tl.draw(rid, _job_pos[i], c)
 
 
 # --- панели и примитивы -------------------------------------------------------------------
 
-## Тёмная панель с тонкой рамкой в 1 экранный пиксель.
+## Тёмный материал и одна левая метка.
 func _panel(r: Rect2, edge: Color, bg := PANEL_BG) -> void:
-	var px := 1.0 / _ui
-	_ci.draw_rect(r, bg)
-	_ci.draw_rect(Rect2(r.position + Vector2(px, px) * 0.5, r.size - Vector2(px, px)), Color(edge, edge.a * 0.45), false, px)
+	Style.cut_rect(_ci, r, bg)
+	_ci.draw_rect(Rect2(r.position, Vector2(1, r.size.y)), edge)
 
 
 ## Вертикальные разделители внутри r на n равных частей, одной командой.
@@ -556,7 +566,7 @@ func _draw_xp(prog: Progression) -> void:
 	_ci.draw_rect(Rect2(0, 0, _w * fill, 2), ACCENT)
 	_ci.draw_rect(Rect2(0, 2, _w, px), Color(0.0, 0.0, 0.0, 0.35))
 	_dividers(Rect2(0, 0, _w, 2), 10, Color(0.0, 0.0, 0.0, 0.5), px) # десять делений
-	if _xp_flash > 0.0:
+	if _xp_flash > 0.0 and Meta.settings["screen_flashes"]:
 		var a := _xp_flash
 		_ci.draw_rect(Rect2(0, 0, _w, 2.0 + 4.0 * a), Color(1.0, 0.95, 0.75, 0.75 * a))
 
@@ -564,14 +574,14 @@ func _draw_xp(prog: Progression) -> void:
 func _draw_vitals(player: Player, prog: Progression) -> void:
 	var r := Rect2(MARGIN, MARGIN + 1.0, 126, 40)
 	var low := player.hp / player.max_hp <= 0.3
-	var beat := 0.5 + 0.5 * sin(_clock * 9.0)
+	var beat := 0.0 if Meta.settings["reduce_motion"] or not Meta.settings["screen_flashes"] else 0.5 + 0.5 * sin(_clock * 9.0)
 	var edge := ACCENT_DIM
 	if low and not player.is_dead:
 		edge = HP_COLOR.lerp(Color(1, 0.55, 0.45), beat * 0.5)
-	if _hurt_flash > 0.0:
+	if _hurt_flash > 0.0 and Meta.settings["screen_flashes"]:
 		edge = edge.lerp(Color.WHITE, _hurt_flash)
 	_panel(r, edge)
-	if _hurt_flash > 0.0:
+	if _hurt_flash > 0.0 and Meta.settings["screen_flashes"]:
 		_ci.draw_rect(r, Color(HP_COLOR, 0.28 * _hurt_flash))
 	var x := r.position.x
 	var y := r.position.y
@@ -582,15 +592,15 @@ func _draw_vitals(player: Player, prog: Progression) -> void:
 	_text(Vector2(x + 19, y + 15), _n(ceili(player.hp)), hp_col, 14)
 	_text(Vector2(x + 47, y + 15), "/ " + _n(ceili(player.max_hp)), DIM, 8)
 	if player.max_hp > 100.5:
-		_icon_c("vest", Vector2(x + 75, y + 10), Color(0.62, 0.8, 1.0))
+		_icon_c("vest", Vector2(x + 75, y + 10), Style.RARE)
 	_text_r(x + r.size.x - 6, y + 15, "УР. " + _n(prog.level), ACCENT, 11)
 	# здоровье: сегмент на каждые HP_PER_SEGMENT; светлый «призрак» — недавно потерянное
 	var bar := Rect2(x + 5.0, y + 19.0, r.size.x - 10.0, 7.0)
-	_ci.draw_rect(bar, Color(0.16, 0.03, 0.03, 0.9))
+	_ci.draw_rect(bar, Style.METAL)
 	var ghost := clampf(_hp_ghost / player.max_hp, 0.0, 1.0)
-	_ci.draw_rect(Rect2(bar.position, Vector2(bar.size.x * ghost, bar.size.y)), Color(1.0, 0.82, 0.78, 0.85))
+	_ci.draw_rect(Rect2(bar.position, Vector2(bar.size.x * ghost, bar.size.y)), Color(Style.TEXT, 0.85))
 	var fill := clampf(player.hp / player.max_hp, 0.0, 1.0)
-	_ci.draw_rect(Rect2(bar.position, Vector2(bar.size.x * fill, bar.size.y)), HP_COLOR.lerp(Color.WHITE, _hurt_flash * 0.8))
+	_ci.draw_rect(Rect2(bar.position, Vector2(bar.size.x * fill, bar.size.y)), HP_COLOR.lerp(Color.WHITE, _hurt_flash * 0.8 if Meta.settings["screen_flashes"] else 0.0))
 	_ci.draw_rect(Rect2(bar.position, Vector2(bar.size.x * fill, 2)), Color(1, 1, 1, 0.18))
 	_dividers(bar, maxi(1, ceili(player.max_hp / HP_PER_SEGMENT)), Color(0.0, 0.0, 0.0, 0.7), 1.0)
 	# кредиты и образцы
@@ -640,10 +650,20 @@ func _draw_clock() -> void:
 	var t := int(game.time)
 	if t != _clock_sec:
 		_clock_sec = t
-		_clock_text = "%02d:%02d" % [t / 60, t % 60]
+		_clock_text = ("∞ " if game.endless else "") + "%02d:%02d" % [t / 60, t % 60]
 	_text_c(cx, r.position.y + 14.0, _clock_text, TEXT, 14)
 	# нижняя строка без слов: значок события, обратный отсчёт и полоска, которая заполняется к его началу
 	var by := r.position.y + 21.5
+	if game.endless:
+		var storm := Spawner.storm_active(game.time)
+		var seconds := ceili(Spawner.STORM_DURATION - fposmod(game.time, Spawner.STORM_PERIOD)) if storm else maxi(0, ceili(remain))
+		_text_c(cx, by + 3.0, "ШТОРМ %d:%02d" % [seconds / 60, seconds % 60], Style.DANGER if storm or urgent else Style.MUTED, 8)
+		var best: int = game.endless_best_time
+		var beaten: bool = best > 0 and t > best
+		var record := "ЛУЧШЕЕ —" if best == 0 else ("РЕКОРД +%d:%02d" % [(t - best) / 60, (t - best) % 60] if beaten else "РЕКОРД %d:%02d" % [best / 60, best % 60])
+		_panel(Rect2(cx - 50, MARGIN + 30, 100, 13), ACCENT_DIM)
+		_text_c(cx, MARGIN + 39, record, Style.BETTER if beaten else Style.MUTED, 8)
+		return
 	var bar := Rect2(r.position.x + 38.0, by - 2.0, r.size.x - 44.0, 4.0)
 	if not ev.is_empty():
 		var sec := maxi(ceili(remain), 0)
@@ -656,8 +676,8 @@ func _draw_clock() -> void:
 		_text(Vector2(r.position.x + 17.0, by + 3.0), _event_count, col, 8)
 		_bar(bar, clampf(1.0 - remain / 90.0, 0.0, 1.0), col)
 	elif game.boss.is_alive():
-		_icon_c("skull", Vector2(r.position.x + 9.0, by), Color(1.0, 0.4, 0.25))
-		_bar(Rect2(r.position.x + 18.0, by - 2.0, r.size.x - 24.0, 4.0), game.boss.hp / Boss.MAX_HP, Color(1.0, 0.4, 0.25))
+		_icon_c("skull", Vector2(r.position.x + 9.0, by), Style.DANGER)
+		_bar(Rect2(r.position.x + 18.0, by - 2.0, r.size.x - 24.0, 4.0), game.boss.hp / game.boss.max_hp, Style.DANGER)
 
 
 func _draw_kills() -> void:
@@ -668,15 +688,21 @@ func _draw_kills() -> void:
 	# мультикилл: короткий удар — метка вспыхивает крупной и за 0.15 с садится в размер, дальше затухает
 	if game.multikill_t > 0.0:
 		var age: float = 1.6 - game.multikill_t
-		var fs := 18 if age < 0.07 else (15 if age < 0.15 else 12)
+		var fs := 10
 		var col := Color.WHITE.lerp(HOT, clampf(age / 0.25, 0.0, 1.0))
-		_text_r(r.position.x - 8.0, r.position.y + 13.0, game.multikill_text, Color(col, clampf(game.multikill_t * 2.0, 0.0, 1.0)), fs, true)
+		var label: String = game.multikill_text.replace("МУЛЬТИКИЛЛ", "ЗАЛП")
+		var mr := Rect2(r.position.x - _text_w(label, fs) - 16, r.position.y, _text_w(label, fs) + 10, 17)
+		Style.cut_rect(_ci, mr, PANEL_BG)
+		_text_r(r.position.x - 10.0, r.position.y + 12.0, label, Color(col, clampf(game.multikill_t * 2.0, 0.0, 1.0)), fs)
 	if game.combo >= 5:
 		var cr := Rect2(r.position.x, r.end.y + 2.0, r.size.x, 14.0)
-		_panel(cr, HOT, Color(0.1, 0.03, 0.02, 0.7))
+		var reward: float = game.combo_reward_t / 0.6
+		_panel(cr, HOT, Style.HOVER if reward > 0.0 else Style.RECESS)
 		_icon_c("flame", Vector2(cr.position.x + 10.0, cr.position.y + 7.0), HOT)
-		_text_r(cr.end.x - 5, cr.position.y + 11, "×" + _n(game.combo), HOT.lerp(Color.WHITE, 0.2), 10)
-		# окно серии: сколько ещё можно не прерываться
+		_text_r(cr.end.x - 5, cr.position.y + 11, _n(game.combo), Style.TEXT, 11 if reward > 0.3 else 10)
+		if reward > 0.0 and game.combo_title != "":
+			_text_r(cr.position.x - 8, cr.position.y + 11, game.combo_title, Style.SELECTED, 10)
+		# Время до выхода самого старого убийства из окна.
 		var k := clampf(game._combo_timer / game.COMBO_WINDOW, 0.0, 1.0)
 		_ci.draw_rect(Rect2(cr.position.x + 1, cr.end.y + 1, (cr.size.x - 2) * k, 1), Color(HOT, 0.85))
 
@@ -691,7 +717,7 @@ func _draw_mission_banner() -> void:
 		return
 	var a := clampf(game.mission_banner_t / 0.5, 0.0, 1.0)
 	var width := minf(240.0, _w - 24.0)
-	var r := Rect2(roundf((_w - width) * 0.5), 96.0, width, 42.0)
+	var r := Rect2(MARGIN, 76.0, width, 42.0)
 	_panel(r, Color(ACCENT, a), Color(PANEL_BG, PANEL_BG.a * a + 0.1 * a))
 	_text_c(r.get_center().x, r.position.y + 17.0, _op_name.to_upper(), Color(TEXT, a), 12, true)
 	# строка значков: слева угроза пипсами, дальше модификаторы «значок + короткое имя»
@@ -722,12 +748,19 @@ func _draw_operation() -> void:
 		set_operation(game.mission_config) # профиль боя C2 (в т.ч. --campaign-op без pending)
 	if _op_name.is_empty():
 		return
-	var w := 7.0 + 11.0 + 3.0 + 19.0 + 4.0 + _op_chips.size() * 12.0
+	var extracting: bool = operation.get("type", game.mission_config.get("type", "")) == "extract"
+	var goal := "ЗАБРАТЬ ОБРАЗЕЦ" if extracting else ("УНИЧТОЖИТЬ УЗЕЛ" if game.boss is CampaignNode else "УНИЧТОЖИТЬ ОБЪЕКТ")
+	if extracting and game.objective != null and game.objective.picked:
+		goal = "ДО ЭВАКУАЦИИ"
+	var goal_w := _text_w(goal, 8) + 8.0
+	var w := 7.0 + 11.0 + 3.0 + 19.0 + 4.0 + goal_w + _op_chips.size() * 12.0
 	var r := Rect2(_w - MARGIN - w, OP_Y, w, 15.0)
 	_panel(r, ACCENT_DIM)
 	_icon_c("skull", Vector2(r.position.x + 11.0, r.position.y + 7.5), HP_COLOR if _op_threat >= 4 else ACCENT)
 	_threat_pips(Vector2(r.position.x + 20.0, r.position.y + 4.5))
 	var x := r.position.x + 44.0
+	_text(Vector2(x, r.position.y + 10.5), goal, TEXT, 8)
+	x += goal_w
 	for chip: Array in _op_chips:
 		_icon_c(chip[0], Vector2(x + 5.0, r.position.y + 7.5), chip[1])
 		x += 12.0
@@ -740,14 +773,18 @@ func _draw_abilities(player: Player, origin: Vector2) -> void:
 	var r := 12.0
 	# граната: иконка, сектор кулдауна и секунды
 	var gc := Vector2(origin.x + r + 1.0, origin.y - 24.0)
-	var cd := player.grenade_cd / Player.GRENADE_COOLDOWN
+	var cd := player.grenade_cd / player.ability_cooldown()
 	PixelArt.draw_dot(_ci, gc, r, ICON_BG)
 	_ring(gc, r - 0.5, ACCENT if cd <= 0.0 else ACCENT_DIM)
-	_ci.draw_texture(_grenade_icon, (gc - _grenade_icon.get_size() * 0.5).round(), Color.WHITE if cd <= 0.0 else Color(1, 1, 1, 0.45))
+	if player.class_id == "assault":
+		_ci.draw_texture(_grenade_icon, (gc - _grenade_icon.get_size() * 0.5).round(), Color.WHITE if cd <= 0.0 else Color(1, 1, 1, 0.45))
+	else:
+		var index := 7 if player.class_id == "gunner" else 13
+		_ci.draw_texture_rect_region(PixelArt.tex("tree_t2_icons"), Rect2(gc - Vector2(7, 7), Vector2(14, 14)), Rect2(index * 24, 0, 24, 24))
 	_pie(gc, r - 1.0, cd, Color(0, 0, 0, 0.62))
 	if cd > 0.0:
 		_text_c(gc.x, gc.y + 3.5, _n(ceili(player.grenade_cd)), TEXT, 9)
-	_text_c(gc.x, origin.y - 1.0, "RB" if gamepad else "G", ACCENT if cd <= 0.0 else DIM, 7)
+	_text_c(gc.x, origin.y - 1.0, "RB" if gamepad else SettingsBindings.hint("grenade"), ACCENT if cd <= 0.0 else DIM, 7)
 	# рывок: иконка, сектор текущего заряда, под кругом — заряды
 	var dc := Vector2(gc.x + r * 2.0 + 4.0, gc.y)
 	var ready := player.dash_left > 0
@@ -760,12 +797,12 @@ func _draw_abilities(player: Player, origin: Vector2) -> void:
 	var pip_x := dc.x - (pips * 5.0 - 1.0) * 0.5
 	for k in pips:
 		_ci.draw_rect(Rect2(pip_x + k * 5.0, origin.y - 9.0, 4, 3), COOL if k < player.dash_left else Color(0.2, 0.26, 0.3, 0.9))
-	_text_c(dc.x, origin.y - 1.0, "A" if gamepad else "ПРОБЕЛ", COOL if ready else DIM, 7)
+	_text_c(dc.x, origin.y - 1.0, "A" if gamepad else SettingsBindings.hint("dash"), COOL if ready else DIM, 7)
 	# «Адреналин»: рывок перезаряжает стволы
 	if player.adrenaline:
 		var ac := Vector2(dc.x + r + 16.0, gc.y + 6.0)
 		var ak := player.adrenaline_cd / Meta.ADRENALINE_COOLDOWN
-		var pink := Color(1.0, 0.45, 0.7)
+		var pink := Style.BETTER
 		PixelArt.draw_dot(_ci, ac, 8.0, ICON_BG)
 		_ring(ac, 7.5, pink if ak <= 0.0 else Color(0.5, 0.25, 0.35))
 		_icon_c("bolt", ac, pink if ak <= 0.0 else Color(0.6, 0.4, 0.5))
@@ -786,7 +823,7 @@ func _slot_info(i: int, s: Weapons.Slot) -> Dictionary:
 	c = {"sig": sig, "model": s.model}
 	var proto := s.prototype >= 0
 	c["name"] = s.short_name()
-	c["name_col"] = Color(1.0, 0.7, 0.4) if proto else TEXT
+	c["name_col"] = Style.ACTION if proto else TEXT
 	c["name_fs"] = 8 if _text_w(c["name"], 8) <= 34.0 else 7
 	var mag_max := int(s.stats["mag"])
 	c["mag_max"] = mag_max
@@ -818,6 +855,9 @@ func _gun_icon(model: String) -> Texture2D:
 	return t
 
 
+var _silence_states := {}
+
+
 func _draw_slot(weapons: Weapons, i: int, p: Vector2, sw: float) -> void:
 	var s: Weapons.Slot = weapons.slots[i]
 	var c := _slot_info(i, s)
@@ -842,7 +882,7 @@ func _draw_slot(weapons: Weapons, i: int, p: Vector2, sw: float) -> void:
 		_ci.draw_texture_rect(tex, Rect2(pos, tsize / _ui), false, Color(1, 1, 1, 0.3))
 		var cut := floorf(tsize.x * prog)
 		if cut > 0.0:
-			_ci.draw_texture_rect_region(tex, Rect2(pos, Vector2(cut, tsize.y) / _ui), Rect2(0, 0, cut, tsize.y), Color(1.0, 0.86, 0.5))
+			_ci.draw_texture_rect_region(tex, Rect2(pos, Vector2(cut, tsize.y) / _ui), Rect2(0, 0, cut, tsize.y), Style.ACTION)
 	else:
 		_ci.draw_texture_rect(tex, Rect2(pos, tsize / _ui), false, Color.WHITE)
 	# уровень ствола — текстом
@@ -877,6 +917,16 @@ func _draw_slot(weapons: Weapons, i: int, p: Vector2, sw: float) -> void:
 	elif s.charged:
 		tip = ACCENT.lerp(Color.WHITE, 0.3) # заряд следующего выстрела
 	HudRounds.draw_row(_ci, lay, origin, live, tip, body)
+	var link := s.module(WeaponDefs.Module.LINK)
+	if not link.is_empty():
+		var charged := float(link["charge"]) > 0.0
+		var mark := Rect2(p + Vector2(sw - 14.0, SLOT_H - 12.0), Vector2(10, 8))
+		_ci.draw_texture_rect(Progression.card_icon("sy2_overflow"), mark, false, ACCENT if charged else DIM)
+		if charged:
+			_ci.draw_rect(Rect2(p.x + 42, p.y + SLOT_H - 2, (sw - 46) * float(link["left"]) / Weapons.LINK_TIME, 1), ACCENT)
+			_text_r(p.x + sw - 17, p.y + SLOT_H - 4, "+%s" % Progression._num(link["charge"]), ACCENT, 7)
+		elif not link["active"]:
+			_ci.draw_line(mark.position, mark.end, HP_COLOR, 1.0)
 	for k in _pop_age.size():
 		if _pop_slot[k] == i:
 			var pi := _pop_idx[k]
@@ -884,43 +934,96 @@ func _draw_slot(weapons: Weapons, i: int, p: Vector2, sw: float) -> void:
 	# перезарядка: тонкая полоска по низу слота, без слов
 	if s.reloading:
 		_ci.draw_rect(Rect2(p.x + 1.0, p.y + SLOT_H - 2.0, (sw - 2.0) * prog, 1.0), ACCENT)
+	# Новый значок появляется после 0,25 с устойчивого состояния, выстрел гасит его сразу.
+	var now := Time.get_ticks_msec()
+	var state: Dictionary = _silence_states.get(i, {"next": 0, "since": now, "candidate": "", "shown": ""})
+	if now >= int(state["next"]):
+		var reason := weapons.silence_reason(i)
+		if reason != state["candidate"]:
+			state["candidate"] = reason
+			state["since"] = now
+		if now - int(state["since"]) >= 250 or reason == "":
+			state["shown"] = reason
+		state["next"] = now + 125
+	if s.reloading or s.since_shot < 0.2 or s.cooldown > 0.0 or s.target != -1 or (weapons.player != null and weapons.player.manual_aim):
+		state["shown"] = ""
+	_silence_states[i] = state
+	if state["shown"] != "":
+		var icon := Progression.card_icon("ux1_" + str(state["shown"]))
+		_ci.draw_rect(Rect2(p + Vector2(24, 17), Vector2(17, 17)), Style.RECESS)
+		_ci.draw_texture_rect(icon, Rect2(p + Vector2(25, 18), Vector2(15, 15)), false, Style.DANGER if state["shown"] == "blocked" else Style.MUTED)
 
 
 # --- босс ---------------------------------------------------------------------------------
 
 func _draw_boss_bar(y: float) -> void:
+	if game.endless:
+		return
 	var boss: Boss = game.boss
 	if not boss.is_alive():
-		if game.time >= 570.0 and game.time < 600.0 and not game.game_over:
+		if game.time >= 570.0 and game.time < 600.0 and not game.game_over and not boss is CampaignNode and (game.mission_config.is_empty() or game.mission_config["type"] != "extract"):
 			# Объект-7 на подходе: череп и имя, без пояснений (радио уже сказало)
 			var col := Color(1.0, 0.38, 0.19, 0.7 + 0.3 * sin(game.time * 5.0))
 			_icon_c("skull", Vector2(_w * 0.5 - 38.0, y + 8.0), col, 1.5)
-			_text(Vector2(_w * 0.5 - 28.0, y + 12.0), "ОБЪЕКТ-7", col, 12, true)
+			_text(Vector2(_w * 0.5 - 28.0, y + 12.0), "УЗЕЛ ЗАРАЖЕНИЯ" if boss is CampaignNode else boss.display_name().to_upper(), col, 12, true)
 		return
 	var width := minf(300.0, _w - 40.0)
 	var x := roundf((_w - width) * 0.5)
-	var color := Color(0.75, 0.15, 0.09) if boss.phase == 1 else Color(1.0, 0.28, 0.12)
-	if game.boss_phase_flash > 0.0:
+	if boss is CampaignNode:
+		_draw_node_bar(boss, x, y, width)
+		return
+	var color := Style.DANGER if boss.phase == 1 else Style.ACTION
+	if game.boss_phase_flash > 0.0 and Meta.settings["screen_flashes"]:
 		color = color.lerp(Color.WHITE, game.boss_phase_flash / 0.7)
 	var r := Rect2(x - 6.0, y - 3.0, width + 12.0, 17.0)
+	_text(Vector2(x, y - 6), boss.display_name().to_upper(), Style.MUTED, 8, true)
 	_panel(r, color, Color(0.035, 0.022, 0.022, 0.86))
 	_icon_c("skull", Vector2(x + 5, y + 5.5), color)
-	if boss.phase == 1:
-		_icon_c("vest", Vector2(x + 17, y + 5.5), Color(0.62, 0.8, 1.0)) # броня цела: значок вместо слова
-	_seg_bar(Rect2(x + 25.0, y + 2.0, width - 25.0, 7.0), boss.hp / Boss.MAX_HP, color, 10, 1.0 / _ui, Color(0.0, 0.0, 0.0, 0.6))
+	if boss.phase == 1 and not boss is CampaignNode and not boss is BossHive:
+		_icon_c("vest", Vector2(x + 17, y + 5.5), Style.RARE) # броня цела: значок вместо слова
+	_seg_bar(Rect2(x + 25.0, y + 2.0, width - 25.0, 7.0), boss.hp / boss.max_hp, color, 10, 1.0 / _ui, Color(0.0, 0.0, 0.0, 0.6))
+
+
+## NP1: полоса узла — четыре четверти; пройденные пороги закрашивают метки и сдвигают цвет к красному,
+## во время зова и замаха рамка мигает. Текста нет: давление читается по цвету, меткам и пульсу черепа.
+func _draw_node_bar(node: CampaignNode, x: float, y: float, width: float) -> void:
+	var heat := clampf(node.pressure - 1.0, 0.0, 1.1) / 1.1
+	var color := Style.ACTION.lerp(Style.DANGER, clampf(float(node.steps) / 3.0 * 0.8 + heat * 0.2, 0.0, 1.0))
+	var alert := node.call_left > 0.0 or node.windup_left > 0.0
+	var beat := 0.5 + 0.5 * sin(game.time * (6.0 + 8.0 * heat))
+	var frame := color
+	if alert and Meta.settings["screen_flashes"]:
+		frame = color.lerp(Color.WHITE, 0.35 + 0.35 * beat)
+	var r := Rect2(x - 6.0, y - 3.0, width + 12.0, 17.0)
+	_text(Vector2(x, y - 6), node.display_name().to_upper(), Style.MUTED, 8, true)
+	_panel(r, frame, Color(0.035, 0.022, 0.022, 0.86))
+	_icon_c("skull", Vector2(x + 5, y + 5.5), color, 1.0 + 0.3 * heat * beat)
+	var bar := Rect2(x + 25.0, y + 2.0, width - 25.0, 7.0)
+	_seg_bar(bar, node.hp_fraction(), color, 4, 2.0 / _ui, Color(0.0, 0.0, 0.0, 0.6))
+	# Метки порогов 75/50/25 %: пустая рамка до зова, залитая после.
+	for k in CampaignNode.THRESHOLDS.size():
+		var at := Vector2(bar.position.x + bar.size.x * float(CampaignNode.THRESHOLDS[k]), bar.end.y + 4.0)
+		var lit := k < node.steps
+		var mark := Rect2(at - Vector2(2.0, 2.0), Vector2(4.0, 4.0))
+		_ci.draw_rect(mark, Style.DANGER if lit else Color(0.0, 0.0, 0.0, 0.7))
+		if not lit:
+			_ci.draw_rect(mark, Style.DISABLED, false, 1.0)
 
 
 # --- подсказки и отладка ------------------------------------------------------------------
 
 func _draw_hints(player: Player, slots_top: float) -> void:
+	if game.first_run or has_node("FirstRunHints"):
+		return
 	# управление показываем в начале забега и убираем, чтобы не мозолило глаза
 	var k := clampf((12.0 - float(game.time)) / 2.0, 0.0, 1.0)
 	if k <= 0.0:
 		return
-	var aim_hint := "ПКМ — свой прицел" if Meta.settings["auto_fire"] else "ЛКМ — огонь"
+	var aim_hint := SettingsBindings.hint("aim_override") + " — свой прицел" if Meta.settings["auto_fire"] else SettingsBindings.hint("fire") + " — огонь"
 	if player.aim_gamepad:
 		aim_hint = "правый стик — прицел" if Meta.settings["auto_fire"] else "RT — огонь"
-	_text_c(_w * 0.5, slots_top - 5.0, aim_hint + "   ·   " + ("RB" if player.aim_gamepad else "G") + " — граната", Color(DIM, k), 7, true)
+	var ability := "граната" if player.class_id == "assault" else ("щит" if player.class_id == "gunner" else "турель")
+	_text_c(_w * 0.5, slots_top - 5.0, aim_hint + "   ·   " + ("RB" if player.aim_gamepad else SettingsBindings.hint("grenade")) + " — " + ability, Color(DIM, k), 7, true)
 
 
 ## Лист патронов для проверки (--hud-test): виды ствола × состояния магазина, затем типы патронов и редкость.
@@ -1009,17 +1112,25 @@ func _draw_debug(player: Player, weapons: Weapons) -> void:
 # --- указатели и дуга урона ---------------------------------------------------------------
 
 func _draw_pointers(player: Player) -> void:
-	var bottom := _h - MARGIN - SLOT_H - 14.0 - (26.0 if game.boss.is_alive() else 0.0) # над полосой босса
-	var top := 62.0 if not _op_name.is_empty() else 56.0 # ниже панелей справа
+	var bottom := _h - MARGIN - SLOT_H - 14.0 - (44.0 if game.boss.is_alive() else 0.0) # дистанция не перекрывает имя босса
+	var top := 82.0 if not _op_name.is_empty() else 56.0 # ниже цели операции, с местом для значка
 	if game.alarm_overlay.visible:
 		top = maxf(top, 80.0) # и ниже надписей тревоги
 	var area := Rect2(16.0, top, _w - 32.0, bottom - top)
-	var pulse := 0.65 + 0.35 * sin(_clock * 6.0)
+	var pulse := 1.0 if Meta.settings["reduce_motion"] else 0.65 + 0.35 * sin(_clock * 6.0)
 	_ptr_n = 0
+	_draw_director_pointer(area)
+	_draw_node_call_pointer(area)
+	if game.objective != null and not game.objective.done:
+		var objective: CampaignObjective = game.objective
+		_pointer(player, area, objective.target, objective.icon(), Style.SELECTED, 1.4, 1.0)
+	if game.activities != null and game.activities.is_active():
+		var activity: Activities = game.activities
+		_pointer(player, area, activity.target, Activities.ICONS[activity.kind], Style.SELECTED, 1.3, 1.0)
 	# босс
 	var boss: Boss = game.boss
-	if boss.is_alive():
-		_pointer(player, area, boss.global_position, "skull", Color(1.0, 0.3, 0.15), 2.0, 1.0)
+	if boss.is_alive() and not boss is CampaignNode:
+		_pointer(player, area, boss.global_position, "skull", Style.DANGER, 2.0, 1.0)
 	# предметы: контейнер всегда, ящик и деталь, аптечка — когда плохо с HP
 	var pickups: Pickups = game.pickups
 	var need_med := player.hp / player.max_hp < 0.6
@@ -1029,20 +1140,77 @@ func _draw_pointers(player: Player) -> void:
 		var at := pickups._pos[i] # чтение массивов предметов напрямую, без копий
 		match pickups._kind[i]:
 			Pickups.Kind.CONTAINER:
-				_pointer(player, area, at, "container", Color(1.0, 0.25, 0.18), 1.0, pulse)
+				_pointer(player, area, at, "container", Style.DANGER, 1.0, pulse)
 			Pickups.Kind.CRATE:
 				_pointer(player, area, at, "crate", ACCENT, 1.0, 1.0)
 			Pickups.Kind.PART:
-				_pointer(player, area, at, "part", Color(0.45, 0.72, 1.0), 1.0, 1.0)
+				_pointer(player, area, at, "part", Style.RARE, 1.0, 1.0)
+			Pickups.Kind.ACTIVITY_MODULE:
+				_pointer(player, area, at, "crate", Style.SELECTED, 1.3, 1.0)
 			Pickups.Kind.MEDKIT:
 				if need_med:
-					_pointer(player, area, at, "med", Color(0.4, 1.0, 0.5), 1.0, 1.0)
+					_pointer(player, area, at, "med", Style.BETTER, 1.0, 1.0)
 	for k in _elite_n:
-		_pointer(player, area, _elite_p[k], "skull", Color(1.0, 0.55, 0.2), 1.0, 1.0)
+		_pointer(player, area, _elite_p[k], "skull", Style.ACTION, 1.0, 1.0)
+
+
+## NP1: сторона, с которой узел зовёт орду: красная стрелка с черепом на краю экрана.
+func _draw_node_call_pointer(area: Rect2) -> void:
+	var spawner: Spawner = game.spawner
+	if spawner.node_call_left <= 0.0 or not spawner.node_call_origin.is_finite():
+		return
+	var center := area.get_center()
+	var half := area.size * 0.5
+	var dir: Vector2 = (spawner.node_call_origin - game.player.position).normalized()
+	var k := minf(half.x / maxf(absf(dir.x), 0.001), half.y / maxf(absf(dir.y), 0.001))
+	var at: Vector2 = (center + dir * k).round()
+	var color := Style.DANGER
+	color.a = minf(1.0, spawner.node_call_left)
+	_ci.draw_set_transform(at * _ui, dir.angle(), Vector2(_ui, _ui))
+	_ci.draw_texture(_icons["arrow"], -_icons["arrow"].get_size() * 0.5, color)
+	_ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2(_ui, _ui))
+	var icon_at: Vector2 = (at - dir * 11.0).round()
+	PixelArt.draw_dot(_ci, icon_at, 7.0, ICON_BG)
+	_icon_c("skull", icon_at, color, 1.0)
 
 
 ## Стрелка по краю к точке мира, если она вне экрана; значок и дистанция — со стороны центра.
+func _draw_director_pointer(area: Rect2) -> void:
+	var director: HordeDirector = game.spawner.director
+	if director == null or director.warning_left <= 0.0 or game.blood_alarm.phase in [BloodAlarm.Phase.WARN, BloodAlarm.Phase.ACTIVE]:
+		return
+	var center := area.get_center()
+	var half := area.size * 0.5
+	var alpha := minf(1.0, director.warning_left)
+	var used := PackedVector2Array()
+	for j in director.warning_points.size():
+		var dir: Vector2 = (director.warning_points[j] - game.player.position).normalized()
+		var k := minf(half.x / maxf(absf(dir.x), 0.001), half.y / maxf(absf(dir.y), 0.001))
+		var at: Vector2 = (center + dir * k).round()
+		var overlaps := false
+		for previous in used:
+			overlaps = overlaps or previous.distance_squared_to(at) < 400.0
+		if overlaps:
+			continue
+		used.append(at)
+		var color := Style.ACTION if director.warning_fast[j] == 0 else Style.DANGER
+		color.a = alpha
+		_ci.draw_set_transform(at * _ui, dir.angle(), Vector2(_ui, _ui))
+		_ci.draw_texture(_icons["arrow"], -_icons["arrow"].get_size() * 0.5, color)
+		_ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2(_ui, _ui))
+		var icon_at: Vector2 = (at - dir * 11.0).round()
+		PixelArt.draw_dot(_ci, icon_at, 7.0, ICON_BG)
+		_icon_c("dash" if director.warning_fast[j] else "skull", icon_at, color, 1.0)
+
+
+## Стрелка предмета с дистанцией.
 func _pointer(player: Player, area: Rect2, world: Vector2, icon: String, color: Color, icon_scale: float, alpha: float) -> void:
+	# цель с NaN/inf-позицией (встречалось в --sim=600, не воспроизвелось в BG1) не рисуем и один раз пишем в лог
+	if not world.is_finite() or not player.global_position.is_finite():
+		if not _nonfinite_logged:
+			_nonfinite_logged = true
+			push_warning("HUD_NONFINITE icon=%s target=%s player=%s" % [icon, world, player.global_position])
+		return
 	var sp := _cam * world / _ui
 	if sp.x > 4.0 and sp.x < _w - 4.0 and sp.y > 4.0 and sp.y < _h - 4.0:
 		return
@@ -1092,3 +1260,20 @@ func _draw_crosshair(player: Player) -> void:
 	for dir: Vector2 in [Vector2.LEFT, Vector2.RIGHT, Vector2.UP, Vector2.DOWN]:
 		_ci.draw_line(p + dir * 2.0, p + dir * 4.0, Color(0.015, 0.012, 0.01, 0.95), 3.0)
 		_ci.draw_line(p + dir * 2.0, p + dir * 4.0, color, 1.0)
+
+
+## Иконка предмета/выхода, готовность борта и удержание без инструкции в бою.
+func _draw_objective(y: float) -> void:
+	var objective: CampaignObjective = game.objective
+	if objective == null or objective.type != "extract" or objective.done:
+		return
+	var x := _w * 0.5 - 63.0
+	_ci.draw_rect(Rect2(x - 8, y - 5, 142, 22), PANEL_BG)
+	_icon_c(objective.icon(), Vector2(x, y + 5), Style.SELECTED, 1.5)
+	if objective.picked and game.time < objective.evac_at:
+		_icon_c("alarm", Vector2(x + 21, y + 5), DIM)
+		var left := ceili(objective.evac_at - game.time)
+		_text(Vector2(x + 32, y + 9), "%d:%02d" % [left / 60, left % 60], TEXT, 10)
+	else:
+		_seg_bar(Rect2(x + 15, y, 92, 9), objective.progress(), Style.BETTER, 10, 1.0, EMPTY)
+		_text(Vector2(x + 111, y + 9), "25" if objective.picked else "3", DIM, 8)

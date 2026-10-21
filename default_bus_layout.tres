@@ -1,18 +1,18 @@
 [gd_resource type="AudioBusLayout" format=3 uid="uid://ckk3gv0kd68xi"]
 
 [sub_resource type="AudioEffectCompressor" id="Compressor"]
-threshold = -12.0
-ratio = 6.0
-attack_us = 50.0
-release_ms = 120.0
+threshold = -2.0
+ratio = 1.6
+attack_us = 10000.0
+release_ms = 100.0
 
 [sub_resource type="AudioEffectHardLimiter" id="Limiter"]
-ceiling_db = -1.0
-
-[sub_resource type="AudioEffectLowPassFilter" id="WeaponsLowpass"]
-cutoff_hz = 20500.0
+ceiling_db = -2.3
 
 [sub_resource type="AudioEffectLowPassFilter" id="WorldLowpass"]
+cutoff_hz = 20500.0
+
+[sub_resource type="AudioEffectLowPassFilter" id="MusicLowpass"]
 cutoff_hz = 20500.0
 
 [resource]
@@ -26,8 +26,6 @@ bus/1/mute = false
 bus/1/bypass_fx = false
 bus/1/volume_db = -9.0
 bus/1/send = &"Master"
-bus/1/effect/0/effect = SubResource("WeaponsLowpass")
-bus/1/effect/0/enabled = true
 bus/2/name = &"World"
 bus/2/solo = false
 bus/2/mute = false
@@ -37,8 +35,22 @@ bus/2/send = &"Master"
 bus/2/effect/0/effect = SubResource("WorldLowpass")
 bus/2/effect/0/enabled = true
 bus/3/name = &"UI"
+bus/3/solo = false
+bus/3/mute = false
+bus/3/bypass_fx = false
 bus/3/volume_db = 0.0
 bus/3/send = &"Master"
 bus/4/name = &"Music"
+bus/4/solo = false
+bus/4/mute = false
+bus/4/bypass_fx = false
 bus/4/volume_db = -7.0
 bus/4/send = &"Master"
+bus/4/effect/0/effect = SubResource("MusicLowpass")
+bus/4/effect/0/enabled = true
+bus/5/name = &"Shots"
+bus/5/solo = false
+bus/5/mute = false
+bus/5/bypass_fx = false
+bus/5/volume_db = -1.0
+bus/5/send = &"Master"

@@ -10,6 +10,15 @@ func setup(rect: Rect2, data: Dictionary = {}) -> void:
 	arena = rect
 	for child in get_children():
 		child.queue_free()
+	# У новых мест своя запечённая подложка: швы, берег, разметка и дворовые площадки.
+	if data.has("ground_art"):
+		var backdrop := Sprite2D.new()
+		backdrop.texture = PixelArt.tex(str(data["ground_art"]))
+		backdrop.centered = false
+		backdrop.scale = rect.size / Vector2(backdrop.texture.get_size())
+		add_child(backdrop)
+		queue_redraw()
+		return
 	if data.is_empty():
 		var floor_sprite := Sprite2D.new()
 		floor_sprite.texture = PixelArt.tex("asphalt")

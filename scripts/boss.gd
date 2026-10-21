@@ -1,5 +1,5 @@
 class_name Boss
-extends Node2D
+extends BossBase
 ## «Объект-7»: отдельный босс, без физических тел и нод на атаки.
 
 const RADIUS := 18.0
@@ -17,31 +17,8 @@ const ROAR_TIME := 0.8
 const SHED_TIME := 1.2
 const CELL := Vector2(144.0, 144.0)
 
-signal phase_changed(phase: int)
-signal died(pos: Vector2)
-signal charge_telegraph(from: Vector2, to: Vector2, time: float)
-signal slam_started(pos: Vector2)
-signal roar(count: int)
-signal crushed(pos: Vector2, dir: Vector2)
-signal armor_plate(pos: Vector2, dir: Vector2)
-
-var horde: Horde
-var player: Player
-var obstacles: Obstacles
-var effects: Effects
-var floor_decals: FloorDecals
-var camera: GameCamera
-var arena: Rect2
-var minutes := 0.0
-
-var hp := MAX_HP
-var max_hp := MAX_HP
-var armor_threshold := 0.5
-var phase := 1
-
 enum State { WALK, TELEGRAPH, CHARGE, RECOVER, SLAM, ROAR, SHED }
 
-var _alive := false
 var _state := State.WALK
 var _last_attack := -1
 var _age := 0.0
@@ -52,7 +29,6 @@ var _charge_cd := 0.0
 var _slam_cd := 0.0
 var _roar_cd := 0.0
 var _contact_cd := 0.0
-var _flash := 0.0
 var _plate_damage := 0.0
 var _blood_time := 0.0
 var _charges_left := 0
@@ -123,14 +99,10 @@ func take_damage(amount: float, dir: Vector2, at: Vector2) -> bool:
 	if not _alive or _state == State.SHED or amount <= 0.0:
 		return false
 	var damage := amount * (0.75 if phase == 1 else 1.0)
-	hp = maxf(hp - damage, 0.0)
-	_flash = 0.08
-	if hp <= 0.0:
-		_alive = false
-		visible = false
+	if hp <= damage:
 		_charges_left = 0
 		_slam_wave = false
-		died.emit(global_position)
+	if _lose_hp(damage):
 		return true
 	if phase == 1:
 		_plate_damage += damage
@@ -143,14 +115,6 @@ func take_damage(amount: float, dir: Vector2, at: Vector2) -> bool:
 		effects.blood_hit(at, dir, false)
 	queue_redraw()
 	return false
-
-
-func hit_test(p: Vector2, r: float) -> bool:
-	return _alive and p.distance_squared_to(global_position) <= pow(RADIUS + maxf(r, 0.0), 2.0)
-
-
-func is_alive() -> bool:
-	return _alive
 
 
 func _physics_process(delta: float) -> void:

@@ -1,5 +1,0 @@
-Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
-D3D12 12_0 - Forward+ - Using Device #0: NVIDIA - NVIDIA GeForce RTX 3060 Ti
-
-BENCH frames=8440 avg_fps=843.8 avg_frame_ms=1.19 worst_frame_ms=13.44 horde_ms=2.30 enemies=500 kills=41
-BENCH process_ms=1.78 physics_ms=3.27 draw_calls=298 objects=1870 gore=49 particles=135 wet=12

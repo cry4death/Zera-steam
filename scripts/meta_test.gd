@@ -27,6 +27,9 @@ func _run(game: Node2D) -> bool:
 	_weapons = game.weapons
 	_horde = game.horde
 	_player = game.player
+	# Проверки черт стреляют по манекенам без окружения; стены проверяет Q1 отдельно.
+	var empty_layout: Array[Dictionary] = []
+	game.obstacles.setup(game.ARENA, empty_layout)
 	_player.god_mode = true
 	_weapons.shot_fired.connect(func(_b: int) -> void: _shot_frames.append(_frame))
 	var saved := Meta.to_dict()
@@ -60,8 +63,8 @@ func _run(game: Node2D) -> bool:
 	Meta.reset()
 	Meta.from_dict(saved)
 	print("METATEST checks=%d failed=%d" % [_checks, _failed])
-	print("METATEST ok=%s" % str(_failed == 0).to_lower())
-	return _failed == 0
+	print("METATEST ok=%s" % str(_failed == 0 and Meta.test_errors == 0).to_lower())
+	return _failed == 0 and Meta.test_errors == 0
 
 
 func _check(name: String, cond: bool, detail := "") -> void:
@@ -104,7 +107,7 @@ func _test_save_load() -> void:
 	Meta.persist = true
 	# нет файла: чистое состояние, без падения
 	Meta.dna = 999
-	_check("save.missing_file", not Meta.load_save() and Meta.dna == 0 and Meta.owned.size() == 8)
+	_check("save.missing_file", not Meta.load_save() and Meta.dna == 0 and Meta.owned.size() == WeaponDefs.BASES.size())
 	# запись и чтение: все поля
 	Meta.reset()
 	Meta.dna = 123
@@ -283,7 +286,7 @@ func _test_crates() -> void:
 		_check("crate.%s.rare_share" % label, absf(p_rare - want_rare) <= 0.02, "%.3f" % p_rare)
 		_check("crate.%s.pack_range" % label, pack_min >= 30 and pack_max <= 80, "%d..%d" % [pack_min, pack_max])
 		_check("crate.%s.duplicates" % label, dup_bad == 0 and first_ok)
-		_check("crate.%s.all_models" % label, seen.size() == 8, "выпало %d из 8" % seen.size())
+		_check("crate.%s.all_models" % label, seen.size() == WeaponDefs.MODELS.size() - WeaponDefs.BASES.size(), "выпало %d" % seen.size())
 		_check("crate.%s.dna_sum" % label, Meta.dna == dna_returned and Meta.crates + Meta.military_crates == 0)
 		print("METATEST crate %s x%d: модель %.1f%% (цель %d), редкая среди моделей %.1f%% (цель %d), пачка %d..%d, ср. %.1f, дубликатов-ДНК ок" % [
 			label, n, p_model * 100.0, want_model * 100.0, p_rare * 100.0, want_rare * 100.0, pack_min, pack_max, float(dna_sum) / maxi(kinds["dna"], 1)])
@@ -370,23 +373,23 @@ func _test_run_bonuses_stats() -> void:
 
 func _test_models_table() -> void:
 	print("METATEST dps (BALANCE §3.1, стандартные патроны I): модель L1 / L5")
-	_check("models.count", WeaponDefs.MODELS.size() == 16 and WeaponDefs.MODEL_ORDER.size() == 16)
+	_check("models.count", WeaponDefs.MODELS.size() == 48 and WeaponDefs.MODEL_ORDER.size() == 48)
 	var traits := {}
 	for id: String in WeaponDefs.MODEL_ORDER:
 		var m: Dictionary = WeaponDefs.MODELS[id]
 		_check("models.%s.fields" % id, m.has("base") and m.has("name") and m.has("short") and m.has("gun") and m.has("trait") and WeaponDefs.BASES.has(m["base"]))
 		if m["trait"] != "":
 			traits[m["trait"]] = id
-			_check("models.%s.trait_text" % id, WeaponDefs.TRAITS.has(m["trait"]) and m["rarity"] != WeaponDefs.Rarity.SERIAL)
+			_check("models.%s.trait_text" % id, WeaponDefs.TRAITS.has(m["trait"]))
 		# модель создаётся и стреляет статами без ошибок на всех уровнях
 		for level in range(1, 6):
 			var s := _slot(id, level)
 			_check("models.%s.stats_l%d" % [id, level], s.stats["damage"] > 0.0 and s.stats["mag"] > 0 and s.stats["rate"] > 0.0 and s.stats["reload"] > 0.0)
 		print("METATEST   %-10s %-8s %-9s L1=%6.2f L5=%6.2f  %s" % [id, WeaponDefs.RARITY_NAMES[m["rarity"]], m["short"], WeaponDefs.effective_dps(id, 1), WeaponDefs.effective_dps(id, 5), m["trait"]])
-	_check("models.eight_traits", traits.size() == 8, str(traits.keys()))
+	_check("models.traits", traits.size() == WeaponDefs.TRAITS.size(), str(traits.keys()))
 	for base in WeaponDefs.BASES:
 		var list := WeaponDefs.models_of(base)
-		_check("models.pair_%d" % base, list.size() == 2 and WeaponDefs.MODELS[list[0]]["rarity"] == WeaponDefs.Rarity.SERIAL and WeaponDefs.MODELS[list[1]]["rarity"] != WeaponDefs.Rarity.SERIAL)
+		_check("models.pair_%d" % base, list.size() == 3 and WeaponDefs.MODELS[list[0]]["rarity"] == WeaponDefs.Rarity.SERIAL and WeaponDefs.MODELS[list[1]]["rarity"] != WeaponDefs.Rarity.SERIAL)
 	# голос: нет файлов модели — голос серийной модели категории
 	var s := _slot("m4")
 	_weapons.sfx = _g.sfx
@@ -418,7 +421,7 @@ func _test_player_bonuses() -> void:
 	_player._recharge_dash(1.0)
 	_check("player.recharge_partial", _player.dash_left == 0)
 	_player._recharge_dash(1.1)
-	_check("player.recharge_one", _player.dash_left == 1 and _player.dash_cd > 1.9, "dash_left=%d cd=%.2f" % [_player.dash_left, _player.dash_cd])
+	_check("player.recharge_one", _player.dash_left == 1 and is_equal_approx(_player.dash_cd, _player.dash_cooldown), "dash_left=%d cd=%.2f" % [_player.dash_left, _player.dash_cd])
 	_player._recharge_dash(2.1)
 	_check("player.recharge_full", _player.dash_left == 2 and _player.dash_cd == 0.0)
 	_player.adrenaline_cd = 0.05
@@ -793,3 +796,404 @@ func _test_results_screen() -> void:
 	Meta.add_run({"dna_total": 100, "crates": 0, "military_crates": 0})
 	_check("meta.add_run_accumulates", Meta.dna == 286 and Meta.dna_earned == 286 and Meta.runs == 2 and Meta.class_level() == 3)
 	Meta.reset()
+
+
+## Q1: одинаковые проверки до исправлений и после.
+static func run_q1(game: Node2D) -> bool:
+	var t := MetaTest.new()
+	t._g = game
+	t._weapons = game.weapons
+	t._horde = game.horde
+	t._player = game.player
+	return await t._q1_run()
+
+
+static func run_aim_wall(game: Node2D) -> bool:
+	var t := MetaTest.new()
+	t._g = game
+	t._weapons = game.weapons
+	t._horde = game.horde
+	t._player = game.player
+	t._q1_wall()
+	return t._failed == 0 and Meta.test_errors == 0
+
+
+func _q1_check(label: String, ok: bool) -> void:
+	_check(label, ok)
+	print("Q1TEST %s=%s" % [label, ok])
+
+
+func _q1_pack() -> void:
+	var missing := 0
+	for gun: String in Weapons.GUN_IDS:
+		if not _g.sfx.has("weapons/%s/shot" % gun):
+			missing += 1
+	for id: String in ["ui/click", "ui/confirm", "ui/deny", "gore/hit", "player/hurt", "player/heartbeat", "ambience/horde"]:
+		if not _g.sfx.has(id):
+			missing += 1
+	var maps := 0
+	for id: String in MapLoader.IDS:
+		var data := MapLoader.load_map(id)
+		if not data.is_empty() and not MapLoader.layout(data, 81073).is_empty():
+			maps += 1
+	var bank: Dictionary = _g.sfx._bank
+	var paths := PackedStringArray()
+	var ids: Array = bank.keys()
+	ids.sort()
+	for id: String in ids:
+		for stream: AudioStream in bank[id]:
+			paths.append(id + ":" + stream.resource_path)
+	print("PACKTEST variants=%d sha256=%s" % [paths.size(), "\n".join(paths).sha256_text()])
+	var ok := bank.size() == 92 and missing == 0 and maps == MapLoader.IDS.size()
+	print("PACKTEST bank=%d missing=%d maps=%d ok=%s" % [bank.size(), missing, maps, ok])
+	_q1_check("pack", ok)
+
+
+func _q1_card_valid(card: Dictionary) -> bool:
+	var p: Progression = _g.progression
+	match card["type"]:
+		"weapon": return _weapons.slots.size() < 4 and not _weapons.has_base(card["id"])
+		"level": return _weapons.slots[card["slot"]].level < WeaponDefs.MAX_LEVEL
+		"module", "ammo", "link":
+			for i in _weapons.slots.size():
+				if p.slot_status(card, i) != "":
+					return true
+			return false
+		"passive": return p.passives.get(card["id"], 0) < WeaponDefs.MAX_PASSIVE
+		"credits": return int(card.get("amount", 0)) > 0
+	return false
+
+
+func _q1_cards() -> void:
+	var invalid := 0
+	var generated := 0
+	seed(81073)
+	for state in 3:
+		_weapons.slots.clear()
+		_g.progression.passives.clear()
+		if state > 0:
+			for base in 4:
+				_weapons.add_weapon(base)
+				var s: Weapons.Slot = _weapons.slots.back()
+				s.level = WeaponDefs.MAX_LEVEL
+				s.ammo_rank = WeaponDefs.MAX_RANK
+				if state == 2:
+					for m in WeaponDefs.module_slots(s.level):
+						s.modules.append({"id": m, "rank": WeaponDefs.MAX_RANK, "rare": false})
+			for id in WeaponDefs.PASSIVES:
+				_g.progression.passives[id] = WeaponDefs.MAX_PASSIVE
+		for n in 1000:
+			var cards: Array = _g.progression.make_cards(10.0)
+			if cards.size() != 3:
+				invalid += 1
+			for card: Dictionary in cards:
+				generated += 1
+				if not _q1_card_valid(card):
+					invalid += 1
+	print("Q1CARDS seed=81073 generations=3000 cards=%d invalid=%d" % [generated, invalid])
+	_q1_check("cards_applicable", invalid == 0)
+	_g.progression.passives.clear()
+
+
+func _q1_pad(button: JoyButton) -> void:
+	var event := InputEventJoypadButton.new()
+	event.button_index = button
+	event.pressed = true
+	Input.parse_input_event(event)
+	await _g.get_tree().process_frame
+	event = event.duplicate()
+	event.pressed = false
+	Input.parse_input_event(event)
+	await _g.get_tree().process_frame
+
+
+func _q1_axis(value: float) -> void:
+	var event := InputEventJoypadMotion.new()
+	event.axis = JOY_AXIS_LEFT_X
+	event.axis_value = value
+	Input.parse_input_event(event)
+	await _g.get_tree().process_frame
+
+
+func _q1_shot(label: String) -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	await RenderingServer.frame_post_draw
+	var path := "res://design/tasks/reports/q1_%s_pad.png" % label
+	_q1_check("screenshot_" + label, _g.get_viewport().get_texture().get_image().save_png(path) == OK)
+
+
+func _q1_ui() -> void:
+	_weapons.slots.clear()
+	_weapons.add_weapon(WeaponDefs.Base.RIFLE)
+	var ui: Control = _g.level_up
+	var cards: Array = [{"type": "module", "id": WeaponDefs.Module.TWIN, "rare": false}, {"type": "level", "slot": 0, "rare": false}]
+	_g.progression.pending = 1
+	ui.open(cards)
+	await _q1_pad(JOY_BUTTON_A)
+	_q1_check("pad_open_delay", ui._card.is_empty() and _weapons.slots[0].modules.is_empty())
+	await _g.get_tree().create_timer(0.3, true).timeout
+	await _q1_axis(0.9)
+	var focus: int = ui._hover
+	await _q1_axis(0.95)
+	_q1_check("stick_hold_once", ui._hover == focus and focus >= 0)
+	await _q1_axis(0.0)
+	await _q1_pad(JOY_BUTTON_DPAD_LEFT)
+	await _q1_shot("levelup")
+	var held := InputEventJoypadButton.new()
+	held.button_index = JOY_BUTTON_A
+	held.pressed = true
+	Input.parse_input_event(held)
+	await _g.get_tree().process_frame
+	Input.parse_input_event(held.duplicate())
+	await _g.get_tree().process_frame
+	_q1_check("pad_held_does_not_install", not ui._card.is_empty() and _weapons.slots[0].modules.is_empty())
+	held.pressed = false
+	Input.parse_input_event(held)
+	await _g.get_tree().process_frame
+	_q1_check("pad_install_open", not ui._card.is_empty())
+	await _q1_pad(JOY_BUTTON_B)
+	_q1_check("pad_install_back", ui._card.is_empty())
+	await _q1_pad(JOY_BUTTON_A)
+	await _q1_pad(JOY_BUTTON_A)
+	_q1_check("pad_module_applied", not _weapons.slots[0].module(WeaponDefs.Module.TWIN).is_empty() and _g.progression.pending == 0)
+	ui.close()
+	_g.progression.pending = 0
+	_g.progression.credits = 200
+	_g.trader.offers.assign([{ "card": {"type": "level", "slot": 0, "rare": false}, "price": 50, "sold": false}])
+	_g.trader_ui.open(_g.trader, _g.progression, _weapons, 5.0)
+	await _g.get_tree().create_timer(0.3, true).timeout
+	await _q1_pad(JOY_BUTTON_DPAD_RIGHT)
+	await _q1_pad(JOY_BUTTON_DPAD_LEFT)
+	await _q1_shot("trader")
+	await _q1_pad(JOY_BUTTON_A)
+	_q1_check("pad_purchase", _g.trader.offers[0]["sold"] and _g.progression.credits == 150 and _weapons.slots[0].level == 2)
+	_g.trader.offers.assign([{"card": {"type": "module", "id": WeaponDefs.Module.TWIN, "rare": false}, "price": 40, "sold": false}])
+	_g.trader_ui.open(_g.trader, _g.progression, _weapons, 5.0)
+	await _g.get_tree().create_timer(0.3, true).timeout
+	await _q1_pad(JOY_BUTTON_A)
+	_q1_check("pad_shop_install_open", _g.trader_ui._step == 1)
+	await _q1_pad(JOY_BUTTON_A)
+	_q1_check("pad_shop_install_bought", _weapons.slots[0].mod_rank(WeaponDefs.Module.TWIN) == 2 and _g.progression.credits == 110)
+	await _q1_pad(JOY_BUTTON_B)
+	_q1_check("pad_shop_close", not _g.trader_ui.visible)
+	_g.trader_ui.close()
+	_g.get_tree().paused = true
+
+
+func _q1_wall() -> void:
+	_weapons.slots.clear()
+	_weapons.add_weapon(WeaponDefs.Base.RIFLE)
+	var s := _weapons.slots[0]
+	var layout: Array[Dictionary] = [{"kind": Obstacles.Kind.JERSEY, "pos": Vector2(124, 100), "angle": PI / 2.0}]
+	_g.obstacles.setup(_g.ARENA, layout)
+	_player.position = Vector2(100, 100)
+	_player.sprite.rotation = PI / 2.0
+	_player.force_auto_aim = true
+	_player.manual_aim = false
+	_player.fire_requested = true
+	_horde.count = 0
+	var hidden := _horde.spawn(Vector2(145, 100))
+	var opened := _horde.spawn(Vector2(100, 180))
+	_horde.hp[hidden] = 10000.0
+	_horde.hp[opened] = 10000.0
+	_horde._rebuild_grid()
+	_weapons._boss_active = false
+	_weapons.clear_projectiles()
+	for frame in 60:
+		_weapons._update_slot(0, DT)
+		_weapons._update_bullets(DT)
+	_q1_check("wall_open_takes_damage", _horde.hp[opened] < 10000.0 and _horde.hp[hidden] == 10000.0)
+	_horde.dead[opened] = 1
+	_horde._rebuild_grid()
+	s.target = -1
+	s.target_t = 0.0
+	var mag := s.mag
+	for frame in 30:
+		_weapons._update_slot(0, DT)
+	_q1_check("wall_no_ammo_spent", s.mag == mag)
+	_g.boss.start(Vector2(145, 100))
+	_weapons._boss_active = true
+	_horde.dead[opened] = 0
+	_horde._rebuild_grid()
+	s.target = -1
+	s.target_t = 0.0
+	_weapons._update_slot(0, DT)
+	_q1_check("wall_boss_rejected", s.target == opened)
+	_horde.dead[opened] = 1
+	_horde._rebuild_grid()
+	s.target = -1
+	s.target_t = 0.0
+	_weapons._update_slot(0, DT)
+	_q1_check("wall_boss_only_no_target", s.target == -1)
+	_weapons._boss_active = false
+	for base: int in [WeaponDefs.Base.RAIL, WeaponDefs.Base.LAUNCHER]:
+		_weapons.slots.clear()
+		_weapons.add_weapon(base)
+		_weapons._update_slot(0, DT)
+		_q1_check("wall_bypass_base_%d" % base, _weapons.slots[0].target == hidden)
+	_weapons.slots.clear()
+	_weapons.add_weapon(WeaponDefs.Base.RIFLE)
+	s = _weapons.slots[0]
+	_horde.count = 0
+	for n in 12:
+		_horde.spawn(Vector2(145 + n, 100))
+	opened = _horde.spawn(Vector2(100, 240))
+	_horde._rebuild_grid()
+	_weapons._update_slot(0, DT)
+	_q1_check("wall_expands_beyond_eight", s.target == opened)
+	# Похожие дистанции не дёргают ствол; смерть обходит таймер.
+	var empty_layout: Array[Dictionary] = []
+	_g.obstacles.setup(_g.ARENA, empty_layout)
+	_horde.count = 0
+	var first := _horde.spawn(Vector2(100, 180))
+	var second := _horde.spawn(Vector2(100, 179))
+	_horde._rebuild_grid()
+	s.target = first
+	s.target_uid = _horde.uid[first]
+	s.target_t = 0.0
+	s.retarget = true
+	s.cooldown = 0.0
+	_weapons._update_slot(0, DT)
+	_q1_check("target_hysteresis", s.target == first)
+	_horde.dead[first] = 1
+	s.target_t = 1.0
+	_weapons._update_slot(0, DT)
+	_q1_check("target_death_immediate", s.target == second)
+
+
+func _q1_slider() -> void:
+	var menu: PauseMenu = _g.pause_menu
+	menu.open(true)
+	menu._rows.assign([Rect2(0, 0, 314, 18)])
+	var old_path := Meta.save_path
+	var old_persist := Meta.persist
+	Meta.save_path = "res://tmp/q1_slider.json"
+	Meta.persist = true
+	var calls := Meta.save_calls
+	for n in 100:
+		menu._slider(0, 148.0 + n)
+	_q1_check("slider_applies_immediately", is_equal_approx(Meta.settings["master"], 99.0 / 126.0))
+	menu.close()
+	print("Q1SLIDER movements=100 save_calls=%d" % (Meta.save_calls - calls))
+	_q1_check("slider_one_save", Meta.save_calls - calls == 1)
+	var stored: Variant = JSON.parse_string(FileAccess.get_file_as_string(Meta.save_path))
+	_q1_check("slider_disk_roundtrip", stored is Dictionary and is_equal_approx(float(stored["settings"]["master"]), 99.0 / 126.0) and not FileAccess.file_exists(Meta.save_path + ".tmp"))
+	menu.open(true)
+	menu._rows.assign([Rect2(0, 0, 314, 18)])
+	calls = Meta.save_calls
+	menu._slider(0, 180.0)
+	await _g.get_tree().create_timer(0.6, true).timeout
+	menu.close()
+	_q1_check("slider_debounce_then_close_one_save", Meta.save_calls - calls == 1)
+	DirAccess.remove_absolute(Meta.save_path)
+	Meta.save_path = old_path
+	Meta.persist = old_persist
+
+
+func _q1_run() -> bool:
+	if OS.get_cmdline_user_args().has("--test-fail=check"):
+		_q1_check("deliberate_failed_check", false)
+	_q1_pack()
+	if not OS.get_cmdline_user_args().has("--pack-test"):
+		_q1_cards()
+		_q1_wall()
+		await _q1_ui()
+		await _q1_slider()
+	print("Q1TEST checks=%d failed=%d ok=%s" % [_checks, _failed, _failed == 0])
+	return _failed == 0 and Meta.test_errors == 0 and Meta.test_errors == 0
+
+
+
+## Полный цикл с настоящими переходами сцен; только события геймпада.
+static func run_pad_cycle(meta: Node) -> void:
+	var tree := meta.get_tree()
+	var t := MetaTest.new()
+	await tree.create_timer(0.6).timeout
+	var base: Control = tree.current_scene
+	for n in 5:
+		await _cycle_button(tree, JOY_BUTTON_RIGHT_SHOULDER)
+	t._q1_check("cycle_operations_tab", base._tab == 4)
+	await _cycle_button(tree, JOY_BUTTON_A)
+	t._q1_check("cycle_briefing", base._op_armed)
+	await _cycle_button(tree, JOY_BUTTON_A)
+	for frame in 120:
+		await tree.create_timer(0.05).timeout
+		if tree.current_scene != base:
+			break
+	t._q1_check("cycle_battle_scene", tree.current_scene != base)
+	if tree.current_scene == base:
+		meta.finish_test(1)
+		return
+	t._g = tree.current_scene
+	t._weapons = t._g.weapons
+	t._horde = t._g.horde
+	t._player = t._g.player
+	t._player.god_mode = true
+	t._g.weapons.firing_enabled = false
+	t._q1_check("cycle_mission_config", not t._g.mission_config.is_empty())
+	tree.paused = true
+	await t._q1_ui()
+	tree.paused = false
+	await _cycle_button(tree, JOY_BUTTON_START)
+	t._q1_check("cycle_pause", t._g.pause_menu.visible and tree.paused)
+	await _cycle_button(tree, JOY_BUTTON_DPAD_DOWN)
+	await _cycle_button(tree, JOY_BUTTON_A)
+	t._q1_check("cycle_settings", t._g.pause_menu.settings_open)
+	await _cycle_button(tree, JOY_BUTTON_DPAD_LEFT)
+	await _cycle_button(tree, JOY_BUTTON_B)
+	await _cycle_button(tree, JOY_BUTTON_B)
+	t._q1_check("cycle_resume", not t._g.pause_menu.visible and not tree.paused)
+	var old_game: Node = t._g
+	t._g._open_results(false)
+	await tree.create_timer(0.3, true).timeout
+	await _cycle_button(tree, JOY_BUTTON_X)
+	await _cycle_button(tree, JOY_BUTTON_X)
+	for frame in 120:
+		await tree.create_timer(0.05, true).timeout
+		if tree.current_scene != old_game:
+			break
+	t._q1_check("cycle_reports_to_base", tree.current_scene != null and tree.current_scene.scene_file_path == "res://scenes/base.tscn" and meta.runs == 1)
+	if tree.current_scene == null or tree.current_scene.scene_file_path != "res://scenes/base.tscn":
+		meta.finish_test(1)
+		return
+	base = tree.current_scene
+	for n in 5:
+		if base._tab == 4:
+			break
+		await _cycle_button(tree, JOY_BUTTON_RIGHT_SHOULDER)
+	await _cycle_button(tree, JOY_BUTTON_A)
+	await _cycle_button(tree, JOY_BUTTON_A)
+	for frame in 120:
+		await tree.create_timer(0.05, true).timeout
+		if tree.current_scene != null and tree.current_scene.scene_file_path == "res://scenes/main.tscn":
+			break
+	var repeated := tree.current_scene != null and tree.current_scene.scene_file_path == "res://scenes/main.tscn"
+	t._q1_check("cycle_repeat_operation", repeated)
+	if not repeated:
+		meta.finish_test(1)
+		return
+	t._g = tree.current_scene
+	t._g._open_results(true)
+	await tree.create_timer(0.3, true).timeout
+	await _cycle_button(tree, JOY_BUTTON_B)
+	await _cycle_button(tree, JOY_BUTTON_B)
+	for frame in 120:
+		await tree.create_timer(0.05, true).timeout
+		if tree.current_scene.scene_file_path == "res://scenes/base.tscn":
+			break
+	t._q1_check("cycle_returns_base", tree.current_scene.scene_file_path == "res://scenes/base.tscn" and meta.runs == 2)
+	print("Q1CYCLE checks=%d failed=%d ok=%s" % [t._checks, t._failed, t._failed == 0 and meta.test_errors == 0])
+	meta.finish_test(0 if t._failed == 0 else 1)
+
+
+static func _cycle_button(tree: SceneTree, button: JoyButton) -> void:
+	var event := InputEventJoypadButton.new()
+	event.button_index = button
+	event.pressed = true
+	Input.parse_input_event(event)
+	await tree.create_timer(0.06, true).timeout
+	event = event.duplicate()
+	event.pressed = false
+	Input.parse_input_event(event)
+	await tree.create_timer(0.06, true).timeout

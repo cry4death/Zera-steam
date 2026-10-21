@@ -6,7 +6,9 @@ extends RefCounted
 static func enabled(args: PackedStringArray = OS.get_cmdline_user_args()) -> bool:
 	var filtered := PackedStringArray()
 	for arg: String in args:
-		if arg == "--campaign-test" or arg.begins_with("--campaign-op="):
+		if args.has("--boss-test") and arg == "--fresh-save":
+			continue
+		if arg.begins_with("--c6-test") or arg == "--c6-capture" or arg == "--globe-test" or arg == "--campaign-test" or arg == "--boss-test" or arg.begins_with("--campaign-op="):
 			continue
 		filtered.append(arg)
 	return not Meta.is_test_run(filtered)
@@ -37,13 +39,13 @@ static func region_info(id: String) -> Dictionary:
 			var item: Dictionary = CampaignCatalog.NESTS[nest].duplicate(true)
 			item.merge(Meta.campaign["nests"][nest], true)
 			item["id"] = nest
-			item["status"] = "Объект подтверждён" if item["playable"] else "Сигнал не подтверждён · скоро"
+			item["status"] = "Объект подтверждён" if item["playable"] else "Сигнал не подтверждён"
 			info["nests"].append(item)
 	return info
 
 
 static func start_operation(op_id: String) -> Dictionary:
-	if not enabled() or not Meta.campaign["pending_operation"].is_empty():
+	if not enabled() or Meta.campaign["phase"] in ["defeat", "victory"] or not Meta.campaign["pending_operation"].is_empty():
 		return {}
 	if int(Meta.campaign["turn"]) >= int(CampaignCatalog.BALANCE["max_turn"]) or int(Meta.campaign["run_serial"]) >= int(CampaignCatalog.BALANCE["max_seed"]):
 		return {}
@@ -135,3 +137,9 @@ static func new_campaign(seed: int) -> void:
 
 static func last_report() -> Dictionary:
 	return Meta.campaign.get("last_report", {}).duplicate(true)
+
+
+static func continue_campaign() -> void:
+	if Meta.campaign["phase"] == "victory":
+		Meta.campaign["phase"] = "free"
+		Meta.save()

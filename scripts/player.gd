@@ -54,7 +54,28 @@ var dash_left := 1
 var adrenaline := false # «Адреналин»: рывок мгновенно перезаряжает все стволы
 var adrenaline_cd := 0.0
 var grenade_cd := 0.0
+var class_id := "assault"
+var class_active_t := 0.0
+var class_anchor := Vector2.ZERO
+var class_facing := Vector2.RIGHT
+var stability := 0.0
+var _close_return_cd := 0.0
+var turret_mark := Vector2.INF
+var turret_mark_t := 0.0
+var tree_bonuses: Dictionary = ClassTree.DEFAULTS.duplicate()
+var tree_still := 0.0
+var _tree_unhurt := 0.0
+var _tree_dash_t := 0.0
+var _tree_grenade_t := 0.0
+var _tree_heal_cd := 0.0
+var _tree_cover_cd := 0.0
+var _tree_rescued := false
+var tree_reloading := false # Weapons обновляет один раз за кадр, без сигналов на каждый ствол
 var dirt := 0.0 # насколько боец перемазан кровью
+var _blood_at := Vector2(0.5, 0.5)
+var _blood_amount := 0.0
+var _blood_age := 1000.0
+var _blood_material: ShaderMaterial
 
 var _dash_t := 0.0
 var _dash_dir := Vector2.RIGHT
@@ -86,27 +107,54 @@ func _ready() -> void:
 	for y in 4:
 		for x in PixelArt.ANIM_FRAMES:
 			image.fill_rect(Rect2i(x * 48 + 34, y * 48 + 25, 14, 8), Color.TRANSPARENT)
+			# Светлая ткань погон остаётся различима на всех стадиях крови.
+			for patch: Rect2i in [Rect2i(18, 10, 5, 3), Rect2i(14, 32, 4, 3), Rect2i(7, 19, 2, 10)]:
+				for py in range(patch.position.y, patch.end.y):
+					for px in range(patch.position.x, patch.end.x):
+						var point := Vector2i(x * 48 + px, y * 48 + py)
+						if image.get_pixelv(point).a > 0.5:
+							image.set_pixelv(point, Color("d0cdb4") if px > patch.position.x else Color("999c8c"))
 	sheet = ImageTexture.create_from_image(image)
 	for d in DIRT_STAGES.size():
 		for a in PixelArt.ANIM_FRAMES:
 			_frames.append(PixelArt.frame(sheet, a, d))
 	sprite.texture = _frames[0]
+	_blood_material = ShaderMaterial.new()
+	_blood_material.shader = preload("res://shaders/flash.gdshader")
+	_blood_material.set_shader_parameter("surface_mode", true)
+	sprite.material = _blood_material
 	sprite.scale = Vector2(PixelArt.ART_SCALE, PixelArt.ART_SCALE)
 	_gren_tex = PixelArt.tex("grenade")
+	queue_redraw()
+
+
+var weapon_speed_mul := 1.0
 
 
 func _physics_process(delta: float) -> void:
+	class_tick(delta)
+	_blood_age += delta
+	if _blood_amount > 0.0:
+		_blood_material.set_shader_parameter("surface_stain", Vector4(_blood_at.x, _blood_at.y, _blood_amount, exp(-_blood_age / 18.0)))
 	_update_grenade(delta)
 	if is_dead:
 		return
 	_recharge_dash(delta)
 	adrenaline_cd = maxf(adrenaline_cd - delta, 0.0)
 	grenade_cd = maxf(grenade_cd - delta, 0.0)
+	_tree_dash_t = maxf(0.0, _tree_dash_t - delta)
+	_tree_grenade_t = maxf(0.0, _tree_grenade_t - delta)
+	_tree_heal_cd = maxf(0.0, _tree_heal_cd - delta)
+	_tree_cover_cd = maxf(0.0, _tree_cover_cd - delta)
+	_tree_unhurt += delta
+	if _tree_unhurt >= 6.0:
+		hp = minf(max_hp, hp + float(tree_bonuses["rest_heal"]) * delta)
 	_iframes = maxf(_iframes - delta, 0.0)
 	_hurt_t = maxf(_hurt_t - delta, 0.0)
 
 	var input := _read_input(delta)
 	_moving = input != Vector2.ZERO
+	tree_still = 0.0 if _moving or _dash_t > 0.0 else tree_still + delta
 	if _moving:
 		facing = input.normalized()
 	_update_aim()
@@ -123,7 +171,7 @@ func _physics_process(delta: float) -> void:
 		if effects:
 			effects.ghost(position, sprite.rotation, sprite.texture)
 	else:
-		position += input * move_speed * delta
+		position += input * move_speed * tree_speed_multiplier() * weapon_speed_mul * delta
 	if obstacles:
 		position = obstacles.move_actor(before, position, RADIUS)
 	_walk += position.distance_to(before)
@@ -134,7 +182,7 @@ func _physics_process(delta: float) -> void:
 
 	var look := aim_dir if aim_dir != Vector2.ZERO else facing
 	sprite.rotation = look.angle()
-	sprite.position = -look * _kick * 1.2 # отдача
+	sprite.position = -look * minf(_kick * 0.8, 2.0) # откат плеч, прицел неподвижен
 	sprite.texture = _frames[_dirt_stage * PixelArt.ANIM_FRAMES + int(_walk / 5.0) % PixelArt.ANIM_FRAMES]
 	# мигание после удара + красная вспышка
 	sprite.visible = _hurt_t <= 0.0 or int(_hurt_t * 20.0) % 2 == 0
@@ -143,6 +191,13 @@ func _physics_process(delta: float) -> void:
 
 ## Дерево класса на этот забег (Meta.run_bonuses): +HP, заряды рывка, «Адреналин».
 func apply_bonuses(bonuses: Dictionary) -> void:
+	class_id = Meta.class_id
+	class_active_t = 0.0
+	stability = 0.0
+	turret_mark_t = 0.0
+	_close_return_cd = 0.0
+	tree_bonuses = ClassTree.DEFAULTS.duplicate()
+	tree_bonuses.merge(bonuses, true)
 	max_hp = 100.0 + float(bonuses["hp_add"])
 	hp = max_hp
 	dash_max = int(bonuses["dash_charges"])
@@ -150,6 +205,48 @@ func apply_bonuses(bonuses: Dictionary) -> void:
 	dash_cd = 0.0
 	adrenaline = bool(bonuses["adrenaline"])
 	adrenaline_cd = 0.0
+	move_speed = 80.0 * float(tree_bonuses["speed_mul"])
+	dash_distance = 60.0 + float(tree_bonuses["dash_distance"])
+	dash_cooldown = 2.0 * float(tree_bonuses["dash_cd_mul"])
+	dash_iframes = 0.25 + float(tree_bonuses["dash_guard"])
+	_tree_rescued = false
+	_tree_unhurt = 0.0
+	tree_still = 0.0
+	_tree_dash_t = 0.0
+	_tree_grenade_t = 0.0
+	_tree_heal_cd = 0.0
+	_tree_cover_cd = 0.0
+	tree_reloading = false
+
+
+func tree_speed_multiplier() -> float:
+	return 1.0 + (float(tree_bonuses.get("bastion_move", 0.0)) if class_id == "gunner" and class_active_t > 0.0 else 0.0) + (float(tree_bonuses["reload_move"]) if tree_reloading else 0.0) + (float(tree_bonuses["dash_speed"]) if _tree_dash_t > 0.0 else 0.0) + (float(tree_bonuses["grenade_speed"]) if _tree_grenade_t > 0.0 else 0.0)
+
+
+func tree_damage_multiplier(distance: float) -> float:
+	var mul := tree_range_multiplier(distance)
+	if class_id == "gunner":
+		mul *= 1.0 + stability * (0.08 + float(tree_bonuses.get("brace_damage", 0.0)))
+		if class_active_t > 0.0: mul *= 1.0 + float(tree_bonuses.get("bastion_rate", 0.0))
+	if tree_still >= 1.0:
+		mul *= 1.0 + float(tree_bonuses["standing_damage"])
+	if hp < max_hp * 0.35:
+		mul *= 1.0 + float(tree_bonuses["low_damage"])
+	return mul
+
+
+func tree_range_multiplier(distance: float) -> float:
+	if distance >= 0.0 and distance <= 70.0:
+		return 1.0 + float(tree_bonuses["close_damage"])
+	if distance >= 140.0:
+		return (1.0 + float(tree_bonuses["far_damage"])) * (1.0 + stability * float(tree_bonuses.get("brace_range", 0.0)) if class_id == "gunner" else 1.0)
+	return 1.0
+
+
+func tree_reload_cover() -> void:
+	if _tree_cover_cd <= 0.0 and float(tree_bonuses["reload_cover"]) > 0.0:
+		_iframes = maxf(_iframes, float(tree_bonuses["reload_cover"]))
+		_tree_cover_cd = 3.0
 
 
 ## Рывок по текущему направлению; false — нет заряда. Заряды восстанавливаются по одному за dash_cooldown.
@@ -162,6 +259,11 @@ func try_dash() -> bool:
 	if dash_cd <= 0.0:
 		dash_cd = dash_cooldown
 	_iframes = maxf(_iframes, dash_iframes)
+	_tree_dash_t = 1.0
+	grenade_cd = maxf(0.0, grenade_cd - float(tree_bonuses["dash_grenade"]))
+	if _tree_heal_cd <= 0.0 and float(tree_bonuses["dash_heal"]) > 0.0:
+		hp = minf(max_hp, hp + float(tree_bonuses["dash_heal"]))
+		_tree_heal_cd = 10.0
 	dashed.emit()
 	if adrenaline and adrenaline_cd <= 0.0:
 		adrenaline_cd = Meta.ADRENALINE_COOLDOWN
@@ -232,14 +334,22 @@ func _update_aim() -> void:
 		aim_dir = _manual_dir
 
 
-func take_damage(amount: float) -> void:
+func take_damage(amount: float, source: Vector2 = Vector2.INF) -> void:
 	if is_dead or _iframes > 0.0:
 		return
+	amount *= float(tree_bonuses["hurt_mul"])
+	if class_id == "gunner" and class_active_t > 0.0 and source != Vector2.INF and (source - position).normalized().dot(class_facing) > 0.25:
+		amount *= 0.25
+	_tree_unhurt = 0.0
 	damage_taken += amount
 	if god_mode:
 		return
 	hp -= amount
-	_iframes = hit_iframes
+	if hp <= 0.0 and not _tree_rescued and float(tree_bonuses["rescue_hp"]) > 0.0:
+		hp = minf(max_hp, float(tree_bonuses["rescue_hp"]))
+		_tree_rescued = true
+		_iframes = 1.0
+	_iframes = maxf(_iframes, hit_iframes)
 	_hurt_t = hit_iframes
 	hurt.emit(amount)
 	if hp <= 0.0:
@@ -259,6 +369,14 @@ func add_dirt(amount: float) -> void:
 	_dirt_stage = st
 
 
+## Пятно от упавшей капли привязано к ткани, не к мировой точке.
+func stain_blood(at: Vector2, size: float) -> void:
+	_blood_at = ((at - global_position).rotated(-sprite.rotation) / 16.0 + Vector2(0.5, 0.5)).clamp(Vector2(0.2, 0.2), Vector2(0.8, 0.8))
+	_blood_amount = minf(0.72, _blood_amount + size * 0.12)
+	_blood_age = 0.0
+	_blood_material.set_shader_parameter("surface_stain", Vector4(_blood_at.x, _blood_at.y, _blood_amount, 1.0))
+
+
 ## Отдача при выстреле.
 func kick(strength := 1.0) -> void:
 	_kick = minf(_kick + strength, 3.0)
@@ -273,11 +391,48 @@ func is_dashing() -> bool:
 func throw_grenade() -> bool:
 	if is_dead or grenade_cd > 0.0 or _gren_t >= 0.0:
 		return false
-	grenade_cd = GRENADE_COOLDOWN
+	grenade_cd = ability_cooldown()
+	class_facing = grenade_dir()
+	if class_id == "gunner":
+		class_active_t = 3.0 + float(tree_bonuses.get("bastion_time", 0.0))
+		if bool(tree_bonuses.get("bastion_reload", false)): adrenaline_fired.emit()
+		return true
+	if class_id == "engineer":
+		class_active_t = 8.0 + float(tree_bonuses.get("turret_time", 0.0))
+		class_anchor = position + class_facing * 25.0
+		if obstacles: class_anchor = obstacles.free_point(class_anchor, 5.0)
+		hp = minf(max_hp, hp + float(tree_bonuses.get("turret_heal", 0.0)))
+		_iframes = maxf(_iframes, float(tree_bonuses.get("turret_guard", 0.0)))
+		if bool(tree_bonuses.get("turret_refill", false)): adrenaline_fired.emit()
+		return true
+	_tree_grenade_t = 2.0
 	_gren_t = 0.0
 	_gren_from = position
 	_gren_to = grenade_target()
 	return true
+
+
+func ability_cooldown() -> float:
+	return (8.0 if class_id == "assault" else (18.0 * float(tree_bonuses.get("bastion_cd_mul", 1.0)) if class_id == "gunner" else 16.0 * float(tree_bonuses.get("turret_cd_mul", 1.0)))) * float(tree_bonuses["grenade_cd_mul"])
+
+
+func class_tick(delta: float) -> void:
+	class_active_t = maxf(0.0, class_active_t - delta)
+	_close_return_cd = maxf(0.0, _close_return_cd - delta)
+	turret_mark_t = maxf(0.0, turret_mark_t - delta)
+	if class_id == "gunner":
+		var rate := -1.0 / (1.25 + float(tree_bonuses.get("brace_persist", 0.0))) if _moving else (1.0 + float(tree_bonuses.get("brace_gain", 0.0))) / 1.25
+		stability = clampf(stability + delta * rate, 0.0, 1.0)
+	queue_redraw()
+
+
+func class_hit(at: Vector2) -> float:
+	if class_id == "assault" and position.distance_to(at) <= 70.0 and _close_return_cd <= 0.0:
+		dash_cd = maxf(0.0, dash_cd - 0.25 - float(tree_bonuses.get("assault_return", 0.0)))
+		_close_return_cd = 1.0
+	if class_id == "engineer" and turret_mark_t > 0.0 and at.distance_to(turret_mark) < 20.0 and (position - at).normalized().dot((class_anchor - at).normalized()) < -0.2:
+		return 1.18 + float(tree_bonuses.get("crossfire", 0.0))
+	return 1.0
 
 
 ## Куда полетит граната.
@@ -293,7 +448,7 @@ func grenade_dir() -> Vector2:
 
 ## Точка, куда упадёт граната, брошенная сейчас.
 func grenade_target() -> Vector2:
-	var at := (position + grenade_dir() * GRENADE_DISTANCE).clamp(arena.position + Vector2.ONE * 8.0, arena.end - Vector2.ONE * 8.0)
+	var at := (position + grenade_dir() * (GRENADE_DISTANCE + float(tree_bonuses["grenade_distance"]))).clamp(arena.position + Vector2.ONE * 8.0, arena.end - Vector2.ONE * 8.0)
 	return obstacles.free_point(at, 3.0) if obstacles else at
 
 
@@ -304,17 +459,40 @@ func _update_grenade(delta: float) -> void:
 	if _gren_t >= GRENADE_TIME:
 		_gren_t = -1.0
 		grenade_landed.emit(_gren_to)
+		if not is_dead:
+			hp = minf(max_hp, hp + float(tree_bonuses["grenade_heal"]))
 	queue_redraw()
 
 
 ## Граната в полёте: тень на полу, спрайт приподнят дугой и вращается, метка радиуса.
 func _draw() -> void:
+	if class_active_t > 0.0:
+		if class_id == "gunner":
+			var perpendicular := class_facing.orthogonal() * 14.0
+			var front := class_facing * 12.0
+			draw_line(front - perpendicular, front + perpendicular, Color("343b34"), 5.0)
+			draw_line(front - perpendicular, front + perpendicular, Color("8c957f"), 3.0)
+			draw_line(front - perpendicular * 0.65, front + perpendicular * 0.65, Color("40483f"), 1.0)
+		elif class_id == "engineer":
+			var at := to_local(class_anchor).round()
+			for leg: Vector2 in [Vector2(-7, -6), Vector2(7, -6), Vector2(-7, 6), Vector2(7, 6)]:
+				draw_line(at, at + leg, Color("252b28"), 3.0)
+				draw_line(at, at + leg, Color("69745e"), 1.0)
+			draw_rect(Rect2(at - Vector2(5, 5), Vector2(10, 10)), Color("252b28"))
+			draw_rect(Rect2(at - Vector2(4, 4), Vector2(8, 8)), Color("747e67"))
+			draw_rect(Rect2(at - Vector2(3, 3), Vector2(6, 2)), Color("939b81"))
+			draw_rect(Rect2(at + Vector2(-3, 1), Vector2(6, 2)), Color("485345"))
+			draw_line(at, at + class_facing * 11.0, Color("252b28"), 4.0)
+			draw_line(at, at + class_facing * 10.0, Color("8a9585"), 2.0)
+			draw_line(at + class_facing * 9.0, at + class_facing * 12.0, Color("414c46"), 2.0)
+	if not is_dead:
+		draw_texture_rect(PixelArt.dot(), Rect2(-7.0, -5.0, 14.0, 10.0), false, Color(0.025, 0.02, 0.018, 0.65))
 	if _gren_t < 0.0:
 		return
 	var k := _gren_t / GRENADE_TIME
 	var ground := to_local(_gren_from.lerp(_gren_to, k))
 	var lift := sin(k * PI) * GRENADE_ARC
-	draw_arc(to_local(_gren_to), GRENADE_RADIUS, 0.0, TAU, 32, Color(1.0, 0.45, 0.2, 0.18 + 0.2 * k), 1.0)
+	draw_arc(to_local(_gren_to), GRENADE_RADIUS * float(tree_bonuses["grenade_radius_mul"]), 0.0, TAU, 32, Color(1.0, 0.45, 0.2, 0.18 + 0.2 * k), 1.0)
 	PixelArt.draw_dot(self, ground, 2.6 - lift * 0.05, Color(0, 0, 0, 0.4))
 	var sc := PixelArt.ART_SCALE * 2.0
 	var air := ground + Vector2(0.0, -lift - 2.0)

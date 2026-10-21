@@ -14,8 +14,9 @@ const FLASH_TIME := 0.3
 const CENTER_FLASH_ALPHA := 30.0 / 255.0 # не выше 0.12 после округления RGBA8
 const STRIPE_HEIGHT := 7.0
 const STRIPE_PERIOD := 32.0
-const GOLD := Color(1.0, 0.82, 0.35)
-const RED := Color(0.55, 0.0, 0.02)
+const Style := preload("res://scripts/ui/zera_style.gd")
+const GOLD := Style.ACTION
+const RED := Style.DANGER
 
 @export var reduced_motion := false
 
@@ -54,7 +55,7 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE # слой меню может работать на паузе
 	clip_contents = true
 	texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
-	_font = ThemeDB.fallback_font
+	_font = Style.BODY_FONT
 	_title_width = _font.get_string_size(TITLE, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
 	_active_title_width = _font.get_string_size(TITLE, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
 	_result_width = _font.get_string_size(RESULT, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
@@ -153,21 +154,22 @@ func _process(delta: float) -> void:
 
 
 func _update_visuals(delta: float) -> void:
+	var steady: bool = reduced_motion or not Meta.settings["alarm_blink"]
 	_flash_alpha = 0.0
 	_stripe_offset = 0.0 if reduced_motion else fposmod(_elapsed * 6.0, STRIPE_PERIOD)
 	match _phase:
 		Phase.WARN:
-			_blink = reduced_motion or fposmod(_elapsed, 0.5) < 0.25
+			_blink = steady or fposmod(_elapsed, 0.5) < 0.25
 			_stripe_amount = 1.0 if reduced_motion else _ease_out(_elapsed / ENTER_TIME)
-			var flash := 0.0 if reduced_motion else maxf(1.0 - fposmod(_elapsed, 0.5) / 0.12, 0.0)
+			var flash := 0.0 if steady or not Meta.settings["screen_flashes"] else maxf(1.0 - fposmod(_elapsed, 0.5) / 0.12, 0.0)
 			_edge_alpha = 0.14 + flash * 0.3
 		Phase.ACTIVE:
 			var period := 0.6 if _remaining <= 5.0 else 1.1
 			_heartbeat_phase = fposmod(_heartbeat_phase + delta / period, 1.0)
 			var beat := maxf(_thump(_heartbeat_phase, 0.1, 0.1), _thump(_heartbeat_phase, 0.3, 0.08) * 0.7)
-			_edge_alpha = 0.58 if reduced_motion else 0.46 + beat * 0.24
+			_edge_alpha = 0.58 if steady or not Meta.settings["screen_flashes"] else 0.46 + beat * 0.24
 			_stripe_amount = 0.0 if reduced_motion else _stripe_exit_from * (1.0 - _ease_out(_elapsed / EXIT_TIME))
-			if not reduced_motion:
+			if not steady and Meta.settings["screen_flashes"]:
 				_flash_alpha = CENTER_FLASH_ALPHA * clampf(1.0 - _elapsed / FLASH_TIME, 0.0, 1.0)
 		Phase.FINISH:
 			_edge_alpha = _finish_edge * clampf(_remaining / FINISH_TIME, 0.0, 1.0)
@@ -224,7 +226,7 @@ func _make_textures() -> void:
 		for x in 1024:
 			var side := horizontal[x]
 			var corner := side * vertical
-			var color := Color(0.35, 0.0, 0.02).lerp(Color(0.12, 0.0, 0.01), corner)
+			var color := Style.DANGER.darkened(0.58).lerp(Style.DANGER.darkened(0.82), corner)
 			# При среднем пульсе: 0.40 у середины края, 0.58 в углу.
 			color.a = (0.4 * (side + vertical) - 0.22 * corner) / 0.58
 			image.set_pixel(x, y, color)
@@ -232,7 +234,7 @@ func _make_textures() -> void:
 	var stripes := Gradient.new()
 	stripes.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_CONSTANT
 	stripes.offsets = PackedFloat32Array([0.0, 0.5, 1.0])
-	stripes.colors = PackedColorArray([Color(0.025, 0.015, 0.015), Color(0.48, 0.025, 0.035), Color(0.025, 0.015, 0.015)])
+	stripes.colors = PackedColorArray([Style.RECESS, Style.DANGER.darkened(0.4), Style.RECESS])
 	_stripes = GradientTexture2D.new()
 	_stripes.width = int(STRIPE_PERIOD)
 	_stripes.height = int(STRIPE_HEIGHT)
@@ -258,33 +260,28 @@ func _draw() -> void:
 		var bottom := h - STRIPE_HEIGHT * _stripe_amount
 		draw_texture_rect(_stripes, Rect2(-_stripe_offset, top, w + STRIPE_PERIOD, STRIPE_HEIGHT), true)
 		draw_texture_rect(_stripes, Rect2(_stripe_offset - STRIPE_PERIOD, bottom, w + STRIPE_PERIOD, STRIPE_HEIGHT), true)
-	match _phase:
-		Phase.WARN:
-			if _blink:
-				_text(Vector2(w * 0.5, h / 6.0 - 6.0), TITLE, Color(0.83, 0.16, 0.13), 20, _title_width)
-			_text(Vector2(w * 0.5, h / 6.0 + 8.0), _detail, Color(0.82, 0.45, 0.4), 10, _detail_width)
-		Phase.ACTIVE:
-			_text(Vector2(w * 0.5, 45.0), TITLE, Color(0.42, 0.015, 0.025), 16, _active_title_width, Color(0.87, 0.28, 0.22, 0.95))
-			var bar_width := minf(160.0, w - 32.0)
-			var bar := Rect2((w - bar_width) * 0.5, 52.0, bar_width, 3.0)
-			draw_rect(bar.grow(1.0), Color(0.035, 0.01, 0.015, 0.9))
-			draw_rect(Rect2(bar.position, Vector2(bar_width * clampf(_remaining / _duration, 0.0, 1.0), bar.size.y)), Color(0.63, 0.065, 0.055))
-			_text(Vector2(w * 0.5, 68.0), _detail, Color(0.82, 0.48, 0.42), 10, _detail_width)
-		Phase.FINISH:
-			var t := clampf(_elapsed / FINISH_TIME, 0.0, 1.0)
-			var scale_factor := 1.0 if reduced_motion else lerpf(1.0, 1.04, _ease_out(t))
-			_text(Vector2(w * 0.5, h / 6.0 + 5.0), RESULT, Color(GOLD, 1.0 - t), 20, _result_width, Color(0, 0, 0, 0.8 * (1.0 - t)), scale_factor)
+	var panel := Rect2(w * 0.5 - 104, 46, 208, 36)
+	Style.cut_rect(self, panel, Color(Style.RECESS, 0.96))
+	var color := Style.BETTER if _phase == Phase.FINISH else Style.DANGER
+	draw_rect(Rect2(panel.position, Vector2(2, panel.size.y)), color)
+	var title := RESULT if _phase == Phase.FINISH else TITLE
+	_text(Vector2(w * 0.5, 60), title, color, 13, 0)
+	if _phase != Phase.FINISH:
+		_text(Vector2(w * 0.5, 75), _detail, Style.TEXT, 10, _detail_width)
+		var bar := Rect2(panel.position + Vector2(8, 33), Vector2(192, 1))
+		draw_rect(bar, Style.DISABLED)
+		draw_rect(Rect2(bar.position, Vector2(bar.size.x * clampf(_remaining / _duration, 0, 1), 1)), color)
+
 	draw_set_transform(Vector2.ZERO)
 
 
-func _text(p: Vector2, s: String, color: Color, fs: int, width: float,
-		outline := Color(0, 0, 0, 0.8), scale_factor := 1.0) -> void:
-	# Положение — в игровых пикселях, глифы — в полном разрешении, как в HUD.
-	draw_set_transform(p * _ui, 0.0, Vector2.ONE * scale_factor)
-	var k := int(_ui)
-	var origin := Vector2(-width * 0.5 * _ui, 0.0)
-	draw_string_outline(_font, origin, s, HORIZONTAL_ALIGNMENT_LEFT, -1, fs * k, 2 * k, outline)
-	draw_string(_font, origin, s, HORIZONTAL_ALIGNMENT_LEFT, -1, fs * k, color)
+func _text(p: Vector2, s: String, color: Color, fs: int, _width: float,
+		_outline := Color(0, 0, 0, 0.8), _scale_factor := 1.0) -> void:
+	# Шрифт рисуется в физическом разрешении; материал заменяет обводку.
+	var font := Style.TITLE_FONT if fs >= 13 else Style.BODY_FONT
+	draw_set_transform(Vector2.ZERO)
+	var actual := font.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, fs * int(_ui)).x
+	draw_string(font, p * _ui - Vector2(actual * 0.5, 0), s, HORIZONTAL_ALIGNMENT_LEFT, -1, fs * int(_ui), color)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(_ui, _ui))
 
 

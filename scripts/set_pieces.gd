@@ -40,11 +40,13 @@ static func build(piece: Dictionary, rng: RandomNumberGenerator) -> Array[Dictio
 			rows.append(structure(Vector2(0, -62), Vector2(180, 6), 2))
 			rows.append({"kind": Obstacles.Kind.WOOD, "pos": Vector2(-55, 0)})
 			rows.append({"kind": Obstacles.Kind.WOOD, "pos": Vector2(36, 18)})
-		"field_post":
+		"field_post", "airfield_post":
 			rows.append({"kind": Obstacles.Kind.TRUCK, "pos": Vector2(0, -60)})
+			# На аэродроме отсечки пропускают и самые широкие тела PF1.
+			var spread := 88.0 if id == "airfield_post" else 75.0
 			for i in 5:
 				var a := float(i) * 0.48 + 0.5
-				rows.append({"kind": Obstacles.Kind.BAGS, "pos": Vector2.from_angle(a) * 75, "angle": a + PI * 0.5})
+				rows.append({"kind": Obstacles.Kind.BAGS, "pos": Vector2.from_angle(a) * spread, "angle": a + PI * 0.5})
 			rows.append(structure(Vector2(-83, -50), Vector2(24, 28), 9))
 		"bus_stop":
 			rows.append(structure(Vector2(0, -24), Vector2(90, 28), 3))
@@ -59,6 +61,31 @@ static func build(piece: Dictionary, rng: RandomNumberGenerator) -> Array[Dictio
 			rows.append({"kind": Obstacles.Kind.TRUCK, "pos": Vector2(-110, 100), "state": Obstacles.State.WRECK})
 		"fountain":
 			rows.append(structure(Vector2.ZERO, Vector2(80, 64), 7))
+		"blast_wall":
+			rows.append(structure(Vector2.ZERO, Vector2(128, 16), 14))
+		"radar":
+			rows.append(structure(Vector2.ZERO, Vector2(64, 48), 15))
+			rows.append({"kind": Obstacles.Kind.TRUCK, "pos": Vector2(0, 62)})
+		"helicopter":
+			rows.append(structure(Vector2.ZERO, Vector2(88, 28), 16))
+			rows.append(structure(Vector2(-65, 0), Vector2(52, 10), 16))
+			rows.append({"kind": Obstacles.Kind.BOARDS, "pos": Vector2(20, 30), "angle": 0.4})
+		"fuel_bowser":
+			rows.append(structure(Vector2.ZERO, Vector2(76, 36), 6))
+			rows.append({"kind": Obstacles.Kind.TRUCK, "pos": Vector2(-110, 0)})
+			for i in 3:
+				rows.append({"kind": Obstacles.Kind.RED, "pos": Vector2(20 + i * 24, 52)})
+		"dock_crane":
+			rows.append(structure(Vector2.ZERO, Vector2(96, 80), 19))
+		"cargo_spill":
+			rows.append(structure(Vector2(-48, 0), Vector2(60, 48), 9))
+			rows.append(structure(Vector2(40, 18), Vector2(24, 28), 9))
+			rows.append({"kind": Obstacles.Kind.RED, "pos": Vector2(2, -35)})
+		"bus_wreck":
+			rows.append(structure(Vector2.ZERO, Vector2(112, 32), 20))
+		"dumpsters":
+			rows.append(structure(Vector2.ZERO, Vector2(32, 20), 21))
+			rows.append({"kind": Obstacles.Kind.RUBBISH, "pos": Vector2(30, 10)})
 	# Мусор группируется у сценки, вне её коллизий; проезжая часть между сценками чистая.
 	var litter := 24 if id == "crash" else (5 if id == "fountain" else 12)
 	for i in litter:

@@ -4,7 +4,9 @@ extends Control
 
 signal region_selected(id: String)
 
-const COLORS := [Color("7da38c"), Color("c6b965"), Color("d58a4b"), Color("e04643"), Color("712d42")]
+const Style := preload("res://scripts/ui/zera_style.gd")
+
+const COLORS := [Style.BETTER, Style.ACTION, Color("b7957c"), Style.DANGER, Color("743f49")]
 const SHADER := """
 shader_type spatial;
 render_mode unshaded;
@@ -58,6 +60,11 @@ var _focus_zoom := 2.22
 var _hovered := ""
 var _idle := 0.0
 var _routes: Array[PackedVector3Array] = []
+var _front: Dictionary = {}
+var _front_route := PackedVector3Array()
+var _outposts: Array = []
+var _source_alive := true
+var _phase := "active"
 var _target := Vector2.ZERO
 var _turning := false
 var _dragging := false
@@ -78,7 +85,7 @@ func _ready() -> void:
 	viewport = SubViewport.new()
 	viewport.size = Vector2i(768, 768)
 	viewport.own_world_3d = true
-	viewport.transparent_bg = false
+	viewport.transparent_bg = true
 	viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
 	add_child(viewport)
 	var environment := WorldEnvironment.new()
@@ -129,6 +136,17 @@ static func point(lat: float, lon: float) -> Vector3:
 func refresh() -> void:
 	_regions.clear()
 	_offers = Campaign.offers()
+	var world := Campaign.world()
+	_source_alive = world["nests"]["object_7"]["alive"]
+	_phase = world["phase"]
+	_front = world["war"]["front"].duplicate()
+	_outposts = world["war"]["outposts"].duplicate()
+	_front_route.clear()
+	if not _front.is_empty():
+		var from: Dictionary = CampaignCatalog.REGIONS[_front["source"]]
+		var to: Dictionary = CampaignCatalog.REGIONS[_front["target"]]
+		for step in 49:
+			_front_route.append(point(from["lat"], from["lon"]).slerp(point(to["lat"], to["lon"]), step / 48.0) * 1.008)
 	var zones := PackedVector4Array()
 	var infections := PackedFloat32Array()
 	_routes.clear()
@@ -138,11 +156,9 @@ func refresh() -> void:
 		var c: Color = COLORS[int(info["stage"])].srgb_to_linear()
 		zones.append(Vector4(c.r, c.g, c.b, 1.0 if int(info["stage"]) >= 3 else 0.0))
 		infections.append(float(info["infection"]) / 100.0)
-		if int(info["stage"]) >= 2:
+		if int(info["infection"]) >= 60:
 			for neighbor: String in info["neighbors"]:
 				var other := Campaign.region_info(neighbor)
-				if int(other["infection"]) >= int(info["infection"]):
-					continue
 				var arc := PackedVector3Array()
 				var a := point(info["lat"], info["lon"])
 				var b := point(other["lat"], other["lon"])
@@ -241,11 +257,17 @@ func project_region(id: String) -> Vector2:
 	if p.z <= 0.12:
 		return Vector2.INF
 	var at := camera.unproject_position(p)
-	return (at / Vector2(viewport.size) - Vector2(0.5, 0.5)) * _display_side() + size * 0.5
+	return (at / Vector2(viewport.size) - Vector2(0.5, 0.5)) * _display_side() + _display_center()
 
 
 func _display_side() -> float:
-	return minf(size.x, size.y) * 1.1
+	# Весь диск помещается между сводкой фронта и нижними счётчиками даже при максимальном приближении.
+	var k := size.y / 238.0
+	return minf(size.x - 12 * k, size.y - 40 * k)
+
+
+func _display_center() -> Vector2:
+	return size * 0.5 + Vector2(0, 12.0 * size.y / 238.0)
 
 
 func pointer(event: InputEvent, at: Vector2) -> bool:
@@ -326,13 +348,14 @@ func _layout_labels() -> void:
 				if filter == 2 and int(_offers[i]["threat"]) > 2 or filter == 3 and _offers[i]["type"] != "nest":
 					continue
 				number += ("/" if not number.is_empty() else "") + str(i + 1)
+		var threatened: bool = not _front.is_empty() and _front["target"] == info["id"]
 		_hits.append({"id": info["id"], "point": at, "rect": Rect2(), "label": "",
-			"stage": info["stage"], "number": number, "priority": 0 if selected == info["id"] else (1 if number != "" else 2)})
-		occupied.append(Rect2(at - Vector2.ONE * 10 * k, Vector2.ONE * 20 * k))
+			"stage": info["stage"], "number": number, "priority": 0 if selected == info["id"] else (1 if number != "" or threatened else 2)})
+		occupied.append(Rect2(at + Vector2(-11, -10) * k, Vector2(22, 30 if threatened else 20) * k))
 	_hits.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["priority"]) < int(b["priority"]))
-	var font := ThemeDB.fallback_font
-	var fs := maxi(1, roundi(7 * k))
-	var bounds := Rect2(Vector2.ONE * 3 * k, size - Vector2(6, 20) * k)
+	var font := Style.BODY_FONT
+	var fs := maxi(1, roundi(8 * k))
+	var bounds := Rect2(Vector2(3, 31) * k, size - Vector2(6, 48) * k)
 	var icons: Array[Rect2] = occupied.duplicate()
 	var labels: Array[Rect2] = []
 	var leaders: Array[PackedVector2Array] = []
@@ -440,7 +463,7 @@ func _draw() -> void:
 		return
 	var k := size.y / 238.0
 	var side := _display_side()
-	draw_texture_rect(viewport.get_texture(), Rect2((size - Vector2.ONE * side) * 0.5, Vector2.ONE * side), false)
+	draw_texture_rect(viewport.get_texture(), Rect2(_display_center() - Vector2.ONE * side * 0.5, Vector2.ONE * side), false)
 	# Дуги лежат на поверхности; обратная полусфера отсекается тем же порогом, что метки.
 	for arc: PackedVector3Array in _routes:
 		for i in range(1, arc.size()):
@@ -450,13 +473,35 @@ func _draw() -> void:
 			var b := sphere.basis * arc[i]
 			if a.z <= 0.12 or b.z <= 0.12:
 				continue
-			var screen_a := (camera.unproject_position(a) / Vector2(viewport.size) - Vector2.ONE * 0.5) * side + size * 0.5
-			var screen_b := (camera.unproject_position(b) / Vector2(viewport.size) - Vector2.ONE * 0.5) * side + size * 0.5
+			var screen_a := (camera.unproject_position(a) / Vector2(viewport.size) - Vector2.ONE * 0.5) * side + _display_center()
+			var screen_b := (camera.unproject_position(b) / Vector2(viewport.size) - Vector2.ONE * 0.5) * side + _display_center()
 			draw_line(screen_a, screen_b, Color("9d8870"), k * 0.65, true)
 			if i == 28:
 				var direction := (screen_b - screen_a).normalized()
-				draw_colored_polygon(PackedVector2Array([screen_b + direction * 2 * k, screen_b - direction * 3 * k + direction.orthogonal() * 2 * k, screen_b - direction * 3 * k - direction.orthogonal() * 2 * k]), Color("9d8870"))
+				draw_colored_polygon(PackedVector2Array([screen_b + direction * 2 * k, screen_b - direction * 5 * k + direction.orthogonal() * 3 * k, screen_b - direction * 3 * k - direction.orthogonal() * 2 * k]), Color("9d8870"))
 	_layout_labels()
+	if not _front_route.is_empty():
+		var color := Style.BETTER if _front["stopped"] else Style.DANGER
+		for i in range(1, _front_route.size()):
+			var a := sphere.basis * _front_route[i - 1]
+			var b := sphere.basis * _front_route[i]
+			if a.z <= 0.12 or b.z <= 0.12:
+				continue
+			var screen_a := (camera.unproject_position(a) / Vector2(viewport.size) - Vector2.ONE * 0.5) * side + _display_center()
+			var screen_b := (camera.unproject_position(b) / Vector2(viewport.size) - Vector2.ONE * 0.5) * side + _display_center()
+			draw_line(screen_a, screen_b, color, k * 2.5, true)
+			if i in [20, 36]:
+				var direction := (screen_b - screen_a).normalized()
+				draw_colored_polygon(PackedVector2Array([screen_b + direction * 3 * k, screen_b - direction * 3 * k + direction.orthogonal() * 2 * k, screen_b - direction * 3 * k - direction.orthogonal() * 2 * k]), color)
+	if not _front.is_empty() and not _front["stopped"]:
+		var target := project_region(_front["target"])
+		if target.is_finite():
+			PixelArt.draw_dot(self, target, 25 * k, Color(Style.DANGER, 0.15))
+			draw_arc(target, 25 * k, 0, TAU, 32, Color(Style.DANGER, 0.7), k)
+			for stripe in range(-2, 3):
+				var y := stripe * 8.0 * k
+				var width := sqrt(maxf(0, pow(23 * k, 2) - y * y))
+				draw_line(target + Vector2(-width, y), target + Vector2(width, y), Color(Style.DANGER, 0.18), k)
 	for info: Dictionary in _regions:
 		if not matches_filter(info):
 			continue
@@ -464,7 +509,7 @@ func _draw() -> void:
 		if not at.is_finite():
 			continue
 		var number := ""
-		var nest := false
+		var nest: bool = info["nests"].any(func(n: Dictionary) -> bool: return n["playable"] and n["alive"] and n["discovered"])
 		for i in _offers.size():
 			if _offers[i]["region_id"] == info["id"]:
 				if filter == 2 and int(_offers[i]["threat"]) > 2 or filter == 3 and _offers[i]["type"] != "nest":
@@ -473,13 +518,23 @@ func _draw() -> void:
 				nest = nest or _offers[i]["type"] == "nest"
 		var c: Color = COLORS[int(info["stage"])]
 		var chosen: bool = selected == info["id"]
+		if _outposts.has(info["id"]):
+			var flag := at + Vector2(-7, -8) * k
+			draw_line(flag, flag + Vector2(0, 12) * k, Color("a4b592"), k)
+			draw_colored_polygon(PackedVector2Array([flag, flag + Vector2(8, 1) * k, flag + Vector2(6, 5) * k, flag + Vector2(0, 5) * k]), Color("8e9e7e"))
+		if not _front.is_empty() and _front["target"] == info["id"]:
+			var r := Rect2(at + Vector2(-11, 9) * k, Vector2(22, 10) * k)
+			draw_rect(r, Color("181714"))
+			draw_string(Style.BODY_FONT, r.position + Vector2(2, 8) * k, "×" if _front["stopped"] else "+%d" % int(CampaignCatalog.BALANCE["front_infection"]), HORIZONTAL_ALIGNMENT_LEFT, -1, maxi(1, roundi(8 * k)), Color("a4b592") if _front["stopped"] else Color("cf8e68"))
 		var r := 4.0 * k
 		var diamond := PackedVector2Array([at + Vector2(0, -r), at + Vector2(r, 0), at + Vector2(0, r), at + Vector2(-r, 0), at + Vector2(0, -r)])
 		draw_colored_polygon(diamond, Color("090d0c"))
 		var blink := 1.0
-		if int(info["stage"]) == 3 and not Meta.settings["reduce_motion"]:
+		if int(info["stage"]) >= 3 and not Meta.settings["reduce_motion"]:
 			blink = 0.85 + 0.15 * pow(maxf(0.0, sin(_time * 0.9)), 8.0)
 		var mark_color := Color(Color.WHITE, blink) if number != "" else Color(c, blink)
+		if CampaignCatalog.KEY_REGIONS.has(info["id"]) and int(info["stage"]) == 4:
+			draw_line(at + Vector2(-7, -7) * k, at + Vector2(7, 7) * k, Color("c2a88b", blink), k * 2)
 		if nest:
 			draw_texture_rect(_nest_texture, Rect2(at - Vector2.ONE * 7 * k, Vector2.ONE * 14 * k), false)
 		elif int(info["stage"]) == 0:
@@ -508,9 +563,20 @@ func _draw() -> void:
 		if at.distance_to(edge) > 20 * k:
 			draw_line(at, edge, Color("68736c"), k * 0.7)
 		draw_rect(rect, Color(0.025, 0.04, 0.04, 0.93))
-		draw_string(ThemeDB.fallback_font, rect.position + Vector2(3 * k, 9 * k), hit["label"], HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(7 * k), Color("e5e3d8") if hit["priority"] < 2 else Color("a3aca7"))
+		draw_string(Style.BODY_FONT, rect.position + Vector2(3 * k, 9 * k), hit["label"], HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(8 * k), Color("e5e3d8") if hit["priority"] < 2 else Color("a3aca7"))
 	if _flash > 0.0:
-		draw_string(ThemeDB.fallback_font, Vector2(8, size.y - 6 * k), "ФРОНТ ОБНОВЛЁН · Esc / B — пропустить", HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(7 * k), Color("e4ce87"))
+		draw_string(Style.BODY_FONT, Vector2(8, size.y - 6 * k), "ФРОНТ ОБНОВЛЁН · Esc / B — пропустить", HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(8 * k), Color("e4ce87"))
+	# Сводка рисуется поверх шара, подписи не занимают её полосу.
+	draw_rect(Rect2(Vector2.ZERO, Vector2(size.x, 29 * k)), Color("0b1010"))
+	if not _front.is_empty():
+		var tone := Style.BETTER if _front["stopped"] else Style.DANGER
+		var title := "УДАР СОРВАН" if _front["stopped"] else "УДАР ФРОНТА   +%d%%   ·   ХОД %d" % [int(CampaignCatalog.BALANCE["front_infection"]), _front["due_turn"]]
+		draw_string(Style.BODY_FONT, Vector2(8, 11) * k, title, HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(8 * k), tone)
+		var route := "%s → %s" % [CampaignCatalog.REGIONS[_front["source"]]["name"], CampaignCatalog.REGIONS[_front["target"]]["name"]]
+		draw_string(Style.BODY_FONT, Vector2(8, 23) * k, route, HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(8 * k), Color("bdc0b3"))
+	else:
+		var title := "ВОЙНА ОКОНЧЕНА" if _phase == "victory" else ("ПУТЬ К СЕРДЦУ ОТКРЫТ" if not _source_alive else ("СВЯЗЬ ПОТЕРЯНА" if _phase == "defeat" else "ФРОНТ"))
+		draw_string(Style.BODY_FONT, Vector2(8, 18) * k, title, HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(8 * k), Style.BETTER)
 
 
 ## Сквозная оконная проверка живёт в статическом корутинном вызове между сменами сцен.
@@ -642,7 +708,7 @@ static func run_test(base: Control, path: String) -> void:
 	await _test_shot(tree, path, "globe")
 	base.call("_select_operation", 2)
 	await tree.create_timer(0.8).timeout
-	_check_test(state, "briefing_nest", int(base.get("_op_sel")) == 2 and base.get("_op_region") == "east_europe")
+	_check_test(state, "briefing_third_offer", int(base.get("_op_sel")) == 2 and base.get("_op_region") == Campaign.offers()[2]["region_id"])
 	await _test_shot(tree, path, "card")
 	# Настоящий ввод мышью: перетаскивание не выбирает операцию и не запускает бой.
 	var yaw0 := globe.yaw
@@ -679,16 +745,12 @@ static func run_test(base: Control, path: String) -> void:
 	_check_test(state, "horizon_culls_back", not globe.project_region("east_europe").is_finite())
 	base.call("_select_region", "east_europe")
 	await tree.create_timer(1.1).timeout
-	_check_test(state, "back_autoturn", globe.project_region("east_europe").distance_to(globe.size * 0.5) < 20.0)
+	_check_test(state, "back_autoturn", globe.project_region("east_europe").distance_to(globe._display_center()) < 20.0)
 	await _test_shot(tree, path, "back")
 	# Крестовина обходит все регионы; A сначала выбирает, затем начинает.
 	var visited: Array[String] = []
-	for i in 8:
-		var pad := InputEventJoypadButton.new()
-		pad.button_index = JOY_BUTTON_DPAD_RIGHT
-		pad.pressed = true
-		Input.parse_input_event(pad)
-		await tree.process_frame
+	for i in CampaignCatalog.REGIONS.size() + Campaign.offers().size():
+		await MetaTest._cycle_button(tree, JOY_BUTTON_DPAD_RIGHT)
 		visited.append(str(base.get("_op_region")))
 	var unique := {}
 	for id: String in visited:
@@ -745,14 +807,15 @@ static func run_test(base: Control, path: String) -> void:
 	await base.call("_test_key", KEY_ESCAPE)
 	Meta.set_setting("reduce_motion", true)
 	Meta.persist = true
-	Meta.save_path = "res://design/tasks/reports/c5_settings.json"
+	DirAccess.make_dir_recursive_absolute("res://design/tasks/reports/cp1_userdata/fixtures")
+	Meta.save_path = "res://design/tasks/reports/cp1_userdata/fixtures/globe_settings.json"
 	Meta.save()
 	var loaded := Meta.load_save()
 	_check_test(state, "motion_setting_disk_roundtrip", loaded and Meta.settings["reduce_motion"])
 	Meta.persist = false
 	Meta.save_path = Meta.SAVE_PATH
 	base.call("_select_region", "north_america")
-	_check_test(state, "reduced_motion_instant_focus", not globe._turning and globe.project_region("north_america").distance_to(globe.size * 0.5) < 1.0)
+	_check_test(state, "reduced_motion_instant_focus", not globe._turning and globe.project_region("north_america").distance_to(globe._display_center()) < 1.0)
 	globe.show_changes({"changes": [{"region_id": "north_america", "from": 10, "to": 20}]})
 	_check_test(state, "reduced_motion_no_flash", is_zero_approx(globe._flash))
 	Meta.set_setting("reduce_motion", false)
@@ -761,7 +824,7 @@ static func run_test(base: Control, path: String) -> void:
 	base.call("_set_tab", 4)
 	_check_test(state, "viewing_does_not_advance", Campaign.world() == before)
 	# Щелчок списка и метки, затем настоящий переход база → боевая сцена.
-	await base.call("_test_click", Vector2(60, 120))
+	await base.call("_test_click", Vector2(60, 318))
 	_check_test(state, "mouse_offer_select", int(base.get("_op_sel")) == 0)
 	base.call("_select_operation", 2)
 	globe.skip_motion()
@@ -775,22 +838,22 @@ static func run_test(base: Control, path: String) -> void:
 	a = a.duplicate()
 	a.pressed = false
 	Input.parse_input_event(a)
-	await tree.process_frame
-	a = a.duplicate()
-	a.pressed = true
-	Input.parse_input_event(a)
-	await tree.process_frame
-	_check_test(state, "pending_before_scene", not Campaign.pending().is_empty() and not globe.active)
+	await tree.create_timer(0.12).timeout
+	await MetaTest._cycle_button(tree, JOY_BUTTON_A)
+	_check_test(state, "pending_before_scene", not Campaign.pending().is_empty() and (tree.current_scene != base or not globe.active))
 	await tree.create_timer(0.8).timeout
 	var game := tree.current_scene
 	_check_test(state, "battle_config_and_globe_unloaded", game.scene_file_path == "res://scenes/main.tscn" and not Dictionary(game.get("mission_config")).is_empty() and game.find_children("GlobeView", "", true, false).is_empty())
+	if game.scene_file_path != "res://scenes/main.tscn":
+		Meta.finish_test(1)
+		return
 	var dispatch: Dictionary = game.get_script().get_script_constant_map()["DISPATCH"]
 	var radio_ok := true
 	for event: String in dispatch:
 		var variants: Array = dispatch[event]
 		radio_ok = radio_ok and variants.size() >= 2 and variants.size() <= 3
 		for line: String in variants:
-			radio_ok = radio_ok and not line.contains("\n") and ThemeDB.fallback_font.get_string_size("ДИСПЕТЧЕР: " + line, HORIZONTAL_ALIGNMENT_LEFT, -1, 26).x <= 608.0
+			radio_ok = radio_ok and not line.contains("\n") and Style.BODY_FONT.get_string_size("ДИСПЕТЧЕР: " + line, HORIZONTAL_ALIGNMENT_LEFT, -1, 26).x <= 608.0
 		var first := str(game.call("_dispatch_line", event))
 		var second := str(game.call("_dispatch_line", event))
 		radio_ok = radio_ok and first != second
@@ -815,17 +878,17 @@ static func run_test(base: Control, path: String) -> void:
 	_check_test(state, "results_reopen_idempotent", Meta.dna == dna0 and Meta.runs == 1 and int(Campaign.world()["turn"]) == 1)
 	results._retry_save()
 	_check_test(state, "save_retry_clears_warning", results._report["save_error"] == "" and Meta.runs == 1)
-	_check_test(state, "reward_factors_separate", results.multiplier_text().contains("победа") and results.multiplier_text().contains("операция") and not results.multiplier_text().contains("2.1 победа"))
+	_check_test(state, "reward_factors_separate", results.multiplier_text() == "×1,5 · ×" + String.num(float(results._stats["reward"]["dna_mul"]), 2).replace(".", ","))
 
 	var receipt := RunResults.new()
 	receipt._report = {"run_id": "test"}
 	receipt._stats = {"victory": true, "dna_mult": 2.1, "reward": {"dna_mul": 1.4}}
-	_check_test(state, "reward_factors_exact", receipt.multiplier_text() == "× 1.5 победа · × 1.4 операция")
+	_check_test(state, "reward_factors_exact", receipt.multiplier_text() == "×1,5 · ×1,4")
 	receipt._stats = {"victory": false, "dna_mult": 1.0, "reward": {"dna_mul": 1.4}}
 	_check_test(state, "defeat_no_operation_bonus", receipt.multiplier_text().is_empty())
 	receipt._report = {}
 	receipt._stats = {"victory": true, "dna_mult": 1.5}
-	_check_test(state, "free_victory_factor", receipt.multiplier_text() == "× 1.5 победа")
+	_check_test(state, "free_victory_factor", receipt.multiplier_text() == "×1,5")
 	receipt.free()
 
 	await _test_shot(tree, path, "results")

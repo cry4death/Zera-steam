@@ -11,6 +11,10 @@ var _selected := 0
 var _ui := 3.0
 var _rows: Array[Rect2] = []
 var _drag := -1
+var _pad := ChoiceInput.new()
+var _settings: SettingsScreen
+var _layout: SettingsLayout.Scroll
+var _offset := Vector2.ZERO
 const KEYS := ["master", "weapons", "world", "ui", "music", "gore", "shake", "fullscreen", "auto_fire", "reduce_motion"]
 const LABELS := ["Общая", "Оружие", "Мир", "Интерфейс", "Музыка", "Жестокость", "Тряска экрана", "Полный экран", "Автострельба", "Меньше анимации"]
 ## Разделы настроек: первые SOUND_ROWS строк — звук, остальные — изображение и управление.
@@ -22,9 +26,10 @@ const HELP := {
 	"reduce_motion": ["Меньше анимации интерфейса: без пульсации и плавного", "поворота глобуса. Тряска экрана настраивается отдельно."],
 }
 const SLIDERS := ["master", "weapons", "world", "ui", "music", "shake"]
-const GOLD := Color(1.0, 0.82, 0.35)
-const WHITE := Color(0.92, 0.90, 0.85)
-const DIM := Color(0.60, 0.60, 0.57)
+const Style := preload("res://scripts/ui/zera_style.gd")
+const GOLD := Style.ACTION
+const WHITE := Style.TEXT
+const DIM := Style.MUTED
 
 
 func _ready() -> void:
@@ -32,14 +37,28 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	visible = false
+	_layout = SettingsLayout.Scroll.new(self)
 	resized.connect(queue_redraw)
+	_settings = SettingsScreen.new()
+	add_child(_settings)
+	_settings.back.connect(_settings_back)
+
+
+func _process(_delta: float) -> void:
+	# Закрытие лавки снимает паузу через два тика; уже открытое меню сохраняет владение.
+	if visible and game != null and not get_tree().paused:
+		get_tree().paused = true
 
 
 func open(as_settings := false) -> void:
+	_layout.horizontal.value = 0
+	_layout.vertical.value = 0
 	settings_open = as_settings
 	confirming = false
 	_selected = 0
 	visible = true
+	if settings_open:
+		_settings.open()
 	Music.duck(true)
 	if game != null:
 		get_tree().paused = true
@@ -49,9 +68,10 @@ func open(as_settings := false) -> void:
 
 func close() -> void:
 	visible = false
+	_settings.hide()
 	_drag = -1
 	Music.duck(false)
-	Meta.save()
+	Meta.flush_settings()
 	if game != null:
 		get_tree().paused = false
 	_sound("confirm")
@@ -63,6 +83,7 @@ func _sound(id: String) -> void:
 
 
 func _back() -> void:
+	Meta.flush_settings()
 	_sound("click")
 	if confirming:
 		confirming = false
@@ -75,16 +96,33 @@ func _back() -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if visible and settings_open:
+		return
+	var command := _pad.read(event)
 	var key := event as InputEventKey
 	var pad := event as InputEventJoypadButton
 	var esc := key != null and key.pressed and not key.echo and key.keycode == KEY_ESCAPE
 	var start := pad != null and pad.pressed and pad.button_index == JOY_BUTTON_START
 	if not visible:
-		if game != null and (esc or start) and not game.game_over and not get_tree().paused:
+		if game != null and event.is_action_pressed("pause") and not event.is_echo() and not game.game_over and not get_tree().paused:
 			open()
 			get_viewport().set_input_as_handled()
 		return
+	if event.is_action_pressed("pause") and not event.is_echo():
+		_back()
+		get_viewport().set_input_as_handled()
+		return
+	if visible and event is InputEventJoypadMotion and command != "":
+		match command:
+			"up", "down":
+				_selected = posmod(_selected + (-1 if command == "up" else 1), KEYS.size() + 1 if settings_open else (2 if confirming else 3))
+			"left", "right": _change(-1 if command == "left" else 1)
+		get_viewport().set_input_as_handled()
+		queue_redraw()
+		return
 	if key == null and pad == null:
+		return
+	if pad != null and pad.pressed and command == "":
 		return
 	get_viewport().set_input_as_handled()
 	if key != null and (not key.pressed or key.echo) or pad != null and not pad.pressed:
@@ -105,21 +143,28 @@ func _input(event: InputEvent) -> void:
 
 
 func _gui_input(event: InputEvent) -> void:
+	if settings_open:
+		accept_event()
+		return
+	if _layout.pointer(event):
+		accept_event()
+		return
 	var motion := event as InputEventMouseMotion
 	var button := event as InputEventMouseButton
 	if motion != null:
 		if _drag >= 0:
-			_slider(_drag, motion.position.x / _ui)
+			_slider(_drag, (motion.position.x - _offset.x) / _ui)
 		else:
 			for i in _rows.size():
-				if _rows[i].has_point(motion.position / _ui):
+				if _rows[i].has_point((motion.position - _offset) / _ui):
 					_selected = i
 	if button != null and button.button_index == MOUSE_BUTTON_LEFT:
 		if not button.pressed:
 			_drag = -1
+			Meta.flush_settings()
 		else:
 			for i in _rows.size():
-				if _rows[i].has_point(button.position / _ui):
+				if _rows[i].has_point((button.position - _offset) / _ui):
 					_selected = i
 					if settings_open and i < KEYS.size() and KEYS[i] in SLIDERS and button.position.x / _ui >= _rows[i].position.x + 145.0:
 						_drag = i
@@ -132,7 +177,7 @@ func _gui_input(event: InputEvent) -> void:
 
 func _slider(i: int, x: float) -> void:
 	var r := _rows[i]
-	Meta.set_setting(KEYS[i], clampf((x - r.position.x - 148.0) / 126.0, 0.0, 1.0))
+	Meta.set_setting(KEYS[i], clampf((x - r.position.x - 148.0) / 126.0, 0.0, 1.0), true)
 
 
 func _change(direction: int) -> void:
@@ -146,7 +191,7 @@ func _change(direction: int) -> void:
 		if key == "fullscreen" and DisplayServer.get_name() != "headless":
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if Meta.settings[key] else DisplayServer.WINDOW_MODE_WINDOWED)
 	else:
-		Meta.set_setting(key, float(Meta.settings[key]) + direction * 0.05)
+		Meta.set_setting(key, float(Meta.settings[key]) + direction * 0.05, true)
 	_sound("click")
 
 
@@ -167,6 +212,7 @@ func _activate(i: int) -> void:
 		close()
 	elif i == 1:
 		settings_open = true
+		_settings.open()
 		_selected = 0
 	else:
 		confirming = true
@@ -175,23 +221,24 @@ func _activate(i: int) -> void:
 
 
 func _draw() -> void:
-	_ui = maxf(1.0, floorf(size.y / 360.0))
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE * _ui)
-	var view := size / _ui
+	if settings_open:
+		return
+	_ui = SettingsLayout.scale_for(size)
 	# на главном экране паузы в бою добавляется сборка: стволы, патроны, модули и пассивки полными названиями
 	var build: Array[Array] = []
 	if not settings_open and not confirming:
 		build = _build_rows()
+	var stacked := size.x / _ui < 616
 	var dimensions := Vector2(350, 354) if settings_open else Vector2(280, 208)
 	if not build.is_empty():
-		dimensions = Vector2(350, 206.0 + build.size() * 10.0 + 22.0)
+		dimensions = Vector2(380, 252 + build.size() * 11.0) if stacked else Vector2(592, maxf(252, 60 + build.size() * 11.0))
+	var view := _layout.view(size, dimensions + Vector2(24, 24), _ui)
+	_offset = _layout.offset
+	draw_set_transform(_offset, 0.0, Vector2.ONE * _ui)
 	var panel := Rect2((view - dimensions) * 0.5, dimensions)
 	var p := panel.position
-	draw_rect(Rect2(Vector2.ZERO, view), Color(0.025, 0.02, 0.02, 0.78))
-	draw_rect(Rect2(p + Vector2(3, 4), dimensions), Color(0, 0, 0, 0.45))
-	draw_rect(panel, Color(0.075, 0.065, 0.06, 0.98))
-	draw_rect(panel, Color(GOLD, 0.55), false)
-	draw_rect(Rect2(p, Vector2(dimensions.x, 3)), GOLD)
+	draw_rect(Rect2(Vector2.ZERO, view), Color(Style.RECESS, 0.92))
+	Style.cloth(self, panel)
 	_text(p + Vector2(18, 29), "НАСТРОЙКИ" if settings_open else (("ПРЕРВАТЬ ОПЕРАЦИЮ?" if _in_operation() else "ЗАВЕРШИТЬ ВЫЛАЗКУ?") if confirming else "ПАУЗА"), GOLD, 17)
 	# регион операции одной строкой; в свободной вылазке и в настройках подзаголовка нет
 	if not settings_open and _in_operation():
@@ -209,12 +256,12 @@ func _draw() -> void:
 			y += 19.0
 			_rows.append(r)
 			if i == _selected:
-				draw_rect(r, Color(0.18, 0.15, 0.10))
+				Style.surface(self, r, Style.State.SELECTED)
 			_text(r.position + Vector2(4, 14), LABELS[i], WHITE, 10)
 			var value: Variant = Meta.settings[KEYS[i]]
 			if KEYS[i] in SLIDERS:
 				var bar := Rect2(r.position + Vector2(148, 9), Vector2(126, 4))
-				draw_rect(bar, Color(0.25, 0.22, 0.18))
+				draw_rect(bar, Style.DISABLED)
 				draw_rect(Rect2(bar.position, Vector2(126 * float(value), 4)), GOLD)
 				draw_rect(Rect2(bar.position + Vector2(126 * float(value) - 1, -3), Vector2(3, 10)), WHITE)
 				_text(r.position + Vector2(281, 14), str(roundi(float(value) * 100)), GOLD, 9)
@@ -223,7 +270,7 @@ func _draw() -> void:
 		var help: Array = HELP.get(KEYS[_selected], []) if _selected < KEYS.size() else []
 		for j in help.size():
 			_text(p + Vector2(22, 300 + j * 11), str(help[j]), DIM, 8)
-		_button(Rect2(p + Vector2(18, 322), Vector2(314, 22)), "НАЗАД", KEYS.size())
+		_button(Rect2(p + Vector2(18, 322), Vector2(314, 22)), "НАЗАД [B]" if ChoiceInput.pad_mode else "НАЗАД [Esc]", KEYS.size())
 	else:
 		if confirming:
 			var campaign := _in_operation()
@@ -233,13 +280,16 @@ func _draw() -> void:
 				_button(Rect2(p + Vector2(18, 103 + i * 35), Vector2(244, 28)), (["ПРЕРВАТЬ", "ПРОДОЛЖИТЬ"] if campaign else ["ЗАВЕРШИТЬ", "ПРОДОЛЖИТЬ"])[i], i)
 		else:
 			for i in 3:
-				_button(Rect2(p + Vector2(18, 67 + i * 35), Vector2(dimensions.x - 36.0 if not build.is_empty() else 244.0, 28)), ["ПРОДОЛЖИТЬ", "НАСТРОЙКИ", "НА БАЗУ"][i], i)
+				_button(Rect2(p + Vector2(18, 67 + i * 35), Vector2(172.0 if not build.is_empty() and not stacked else 244.0, 28)), ["ПРОДОЛЖИТЬ", "НАСТРОЙКИ", "НА БАЗУ"][i], i)
 		if not build.is_empty():
-			draw_rect(Rect2(p + Vector2(18, 181), Vector2(dimensions.x - 36.0, 1)), Color(DIM, 0.4))
-			_text(p + Vector2(18, 195), "СБОРКА", DIM, 8)
+			var at := Vector2(18, 210) if stacked else Vector2(222, 30)
+			_text(p + at, "СБОРКА", DIM, 8)
 			for j in build.size():
 				var row: Array = build[j]
-				_text(p + Vector2(18 + float(row[3]), 207 + j * 10), str(row[0]), row[1], int(row[2]))
+				_text(p + at + Vector2(float(row[3]), 20 + j * 11), str(row[0]), row[1], int(row[2]))
+	if not settings_open:
+		_text(p + Vector2(18, dimensions.y - 12), "D-pad · A выбрать · B назад" if ChoiceInput.pad_mode else "↑ ↓ · Enter выбрать · Esc назад", DIM, 8)
+
 	draw_set_transform(Vector2.ZERO)
 
 
@@ -248,20 +298,20 @@ func _build_rows() -> Array[Array]:
 	var rows: Array[Array] = []
 	if game == null:
 		return rows
-	var rare := Color(0.45, 0.72, 1.0)
+	var rare := Style.RARE
 	for slot: Weapons.Slot in game.weapons.slots:
 		rows.append(["%s · ур. %d" % [WeaponDefs.MODELS[slot.model]["name"], slot.level], WHITE, 8, 0.0])
 		var parts: Array[String] = ["%s %s" % [WeaponDefs.AMMO[slot.ammo]["name"], WeaponDefs.ROMAN[slot.ammo_rank]]]
 		for m: Dictionary in slot.modules:
 			parts.append("%s %s%s" % [WeaponDefs.MODULES[m["id"]]["name"], WeaponDefs.ROMAN[m["rank"]], " (редк.)" if m["rare"] else ""])
-		for line in _wrap(" · ".join(parts), 300.0, 7):
-			rows.append([line, DIM, 7, 8.0])
+		for line in _wrap(" · ".join(parts), 340.0, 8):
+			rows.append([line, DIM, 8, 8.0])
 	var passives: Array[String] = []
 	for id: int in game.progression.passives:
 		passives.append("%s %d" % [WeaponDefs.PASSIVES[id]["name"], game.progression.passives[id]])
 	if not passives.is_empty():
-		for line in _wrap("Пассивки: " + " · ".join(passives), 314.0, 7):
-			rows.append([line, Color(0.55, 0.95, 0.6), 7, 0.0])
+		for line in _wrap("Пассивки: " + " · ".join(passives), 340.0, 8):
+			rows.append([line, Style.BETTER, 8, 0.0])
 	return rows
 
 
@@ -270,7 +320,7 @@ func _wrap(value: String, width: float, fs: int) -> Array[String]:
 	var line := ""
 	for word: String in value.split(" "):
 		var next := word if line.is_empty() else line + " " + word
-		if not line.is_empty() and ThemeDB.fallback_font.get_string_size(next, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > width:
+		if not line.is_empty() and Style.BODY_FONT.get_string_size(next, HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(fs * _ui)).x / _ui > width:
 			lines.append(line)
 			line = word
 		else:
@@ -287,12 +337,20 @@ func _in_operation() -> bool:
 
 func _button(r: Rect2, label: String, index: int) -> void:
 	_rows.append(r)
-	draw_rect(r, Color(0.22, 0.17, 0.09) if _selected == index else Color(0.11, 0.095, 0.075))
-	draw_rect(r, Color(GOLD, 1.0 if _selected == index else 0.4), false)
+	Style.surface(self, r, Style.State.SELECTED if _selected == index else Style.State.NORMAL)
 	_text(r.position + Vector2(10, r.size.y * 0.5 + 4), label, GOLD if _selected == index else WHITE, 10)
 
 
 func _text(p: Vector2, label: String, color: Color, fs: int) -> void:
 	draw_set_transform(Vector2.ZERO)
-	draw_string(ThemeDB.fallback_font, p * _ui, label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs * int(_ui), color)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE * _ui)
+	draw_string(Style.TITLE_FONT if fs >= 13 else Style.BODY_FONT, p * _ui + _offset, label, HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(fs * _ui), color)
+	draw_set_transform(_offset, 0.0, Vector2.ONE * _ui)
+
+
+func _settings_back() -> void:
+	if game == null:
+		close()
+	else:
+		settings_open = false
+		_selected = 1
+		queue_redraw()

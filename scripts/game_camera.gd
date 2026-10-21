@@ -6,6 +6,7 @@ var target: Node2D
 var _shake := 0.0
 var _kick := Vector2.ZERO
 var shake_multiplier := 1.0
+var view_shift := Vector2.ZERO # место слева для открытого авторского пульта
 
 
 func setup(rect: Rect2, follow: Node2D) -> void:
@@ -26,12 +27,17 @@ func shake(amount: float) -> void:
 
 ## Толчок против выстрела; экспонента даёт устойчивый возврат при любом FPS.
 func kick(dir: Vector2, amount: float) -> void:
-	_kick = (_kick - dir.normalized() * amount).limit_length(3.5)
+	# Сила в пикселях экрана; одновременные стволы не складывают толчки.
+	if amount >= _kick.length():
+		_kick = -dir.normalized() * minf(amount, 3.5)
 
 
 func _process(delta: float) -> void:
 	if target:
-		global_position = target.global_position
+		global_position = target.global_position + view_shift
 	_shake = move_toward(_shake, 0.0, delta * 25.0)
+	var tremor := Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * _shake
+	var impulse := _kick * float(Meta.settings["camera_recoil"]) + tremor.limit_length(4.0) * shake_multiplier
+	offset = impulse.limit_length(4.0) / maxf(zoom.x, 0.001)
+	# Первый кадр показывает весь удар; возврат применяется уже после вывода.
 	_kick *= exp(-delta * 30.0)
-	offset = (_kick + Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * _shake) * shake_multiplier

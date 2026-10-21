@@ -1,0 +1,14 @@
+Задача: Q1 (уровень high)
+
+Ты исполнитель в проекте игры на Godot 4.7.2. Рабочая папка — C:\Users\Dev\Desktop\zera-q1 (git worktree, ветка task/q1). Работаешь автономно, вопросов не задаёшь, доводишь до конца.
+
+1. Прочитай целиком: design/tasks/README.md (правила запуска Godot и общей блокировки), свою задачу design/tasks/M9/Q1_bugfix_stage_a.md, design/tasks/GPT_REVIEW_BACKLOG.md (блок A), design/tasks/CONTRACTS.md, design/tasks/reviews/S3.md (baseline производительности на этой машине).
+2. Изучи scripts/sfx.gd, scripts/weapons.gd (выбор цели), scripts/obstacles.gd (line_clear), scripts/level_up.gd, scripts/trader_ui.gd, scripts/progression.gd, scripts/pause_menu.gd, scripts/meta.gd, тестовые режимы в scripts/game.gd и пиши в их стиле (GDScript со статической типизацией, табы, комментарии по-русски кратко, packed-массивы для массовых сущностей).
+3. Трогай только файлы из раздела «Можно трогать». Параллельно в другой ветке идёт задача R1 (gore) — её файлы не трогай, в game.gd правь минимально и локально.
+4. Godot: C:\Users\Dev\Desktop\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64_console.exe. Сначала --headless --path . --import. Python (numpy, Pillow): C:\Users\Dev\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe. Ничего не скачивай из интернета (шаблоны экспорта в том числе).
+5. Каждый оконный запуск — только через bash C:/Users/Dev/Desktop/zera-assets/locks/godot_exclusive.sh (см. README). Не оставляй открытых окон Godot и фоновых циклов.
+6. Сначала воспроизведи каждый баг (запиши вывод «до»), потом чини и покажи вывод «после».
+7. Git-коммиты не делай (песочница не пишет в .git) — коммитит ревьюер.
+8. Главный критерий — каждый из шести багов воспроизводимо закрыт тестом, тесты не врут, FPS не просел.
+9. Отчёт design/tasks/reports/Q1.md по шаблону design/tasks/templates/report.md: что сделано, файлы, вывод проверок дословно (до/после), скриншоты, отступления.
+10. В конце коротко: что сделано и что не получилось.

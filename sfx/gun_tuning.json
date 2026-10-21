@@ -1,0 +1,965 @@
+{
+  "version": 1,
+  "guns": {
+    "pistol": {
+      "volume": 1,
+      "low_cut": 35,
+      "high_cut": 19000,
+      "bass": 2,
+      "mid": 0,
+      "drive": 0.12,
+      "attack": 0.2,
+      "room": 0.65,
+      "wet": 0.12,
+      "shake": 1,
+      "recoil": 1,
+      "flash": 1,
+      "layers": [
+        {
+          "source": "pistol/1911_close_1.wav",
+          "gain": -1,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.42,
+          "fade": 0.045,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "pistol/1911_mid_1.wav",
+          "gain": -13,
+          "pitch": 0.88,
+          "start": 0.006,
+          "length": 0.3,
+          "fade": 0.075,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "pistol/mechanism_1.wav",
+          "gain": -21,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.18,
+          "fade": 0.03,
+          "delay": 0.045,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "pistol/walther_close_1.wav",
+          "gain": -8,
+          "pitch": 1,
+          "start": 0.055,
+          "length": 1.3,
+          "fade": 0.25,
+          "delay": 0.035,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        }
+      ]
+    },
+    "revolver": {
+      "volume": 1,
+      "low_cut": 35,
+      "high_cut": 19000,
+      "bass": 2,
+      "mid": 0,
+      "drive": 0.12,
+      "attack": 0.2,
+      "room": 0.65,
+      "wet": 0.12,
+      "shake": 1,
+      "recoil": 1,
+      "flash": 1,
+      "layers": [
+        {
+          "source": "revolver/sw642_close_1.wav",
+          "gain": -1,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.42,
+          "fade": 0.045,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "revolver/sw642_mid_1.wav",
+          "gain": -13,
+          "pitch": 0.88,
+          "start": 0.006,
+          "length": 0.3,
+          "fade": 0.075,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "revolver/mechanism_1.wav",
+          "gain": -21,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.18,
+          "fade": 0.03,
+          "delay": 0.045,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "revolver/ruger_mid_1.wav",
+          "gain": -8,
+          "pitch": 1,
+          "start": 0.055,
+          "length": 1.3,
+          "fade": 0.25,
+          "delay": 0.035,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        }
+      ]
+    },
+    "smg": {
+      "volume": 1,
+      "low_cut": 35,
+      "high_cut": 19000,
+      "bass": 2,
+      "mid": 0,
+      "drive": 0.12,
+      "attack": 0.2,
+      "room": 0.65,
+      "wet": 0.12,
+      "shake": 1,
+      "recoil": 1,
+      "flash": 1,
+      "layers": [
+        {
+          "source": "smg/ppsh_close_1.wav",
+          "gain": -1,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.18,
+          "fade": 0.045,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "smg/ppsh_mid_1.wav",
+          "gain": -13,
+          "pitch": 0.88,
+          "start": 0.006,
+          "length": 0.14,
+          "fade": 0.075,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "smg/mechanism_1.wav",
+          "gain": -21,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.18,
+          "fade": 0.03,
+          "delay": 0.045,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "smg/m45_mid_1.wav",
+          "gain": -8,
+          "pitch": 1,
+          "start": 0.055,
+          "length": 0.52,
+          "fade": 0.25,
+          "delay": 0.035,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        }
+      ]
+    },
+    "rifle": {
+      "volume": 1,
+      "low_cut": 35,
+      "high_cut": 19000,
+      "bass": 2,
+      "mid": 3,
+      "drive": 0.12,
+      "attack": 0.2,
+      "room": 0.65,
+      "wet": 0.12,
+      "shake": 1,
+      "recoil": 1,
+      "flash": 1,
+      "layers": [
+        {
+          "source": "rifle/ak47_close_1.wav",
+          "gain": -1,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.18,
+          "fade": 0.045,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "rifle/ak47_mid_1.wav",
+          "gain": -13,
+          "pitch": 0.88,
+          "start": 0.006,
+          "length": 0.14,
+          "fade": 0.075,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "rifle/mechanism_1.wav",
+          "gain": -21,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.18,
+          "fade": 0.03,
+          "delay": 0.045,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "rifle/ar15_close_1.wav",
+          "gain": -8,
+          "pitch": 1,
+          "start": 0.055,
+          "length": 0.52,
+          "fade": 0.25,
+          "delay": 0.035,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        }
+      ]
+    },
+    "shotgun": {
+      "volume": 6,
+      "low_cut": 35,
+      "high_cut": 19000,
+      "bass": 5.5,
+      "mid": 0,
+      "drive": 0.22,
+      "attack": 0.35,
+      "room": 0.65,
+      "wet": 0.17,
+      "shake": 1,
+      "recoil": 1,
+      "flash": 1,
+      "layers": [
+        {
+          "source": "shotgun/mossberg_close_1.wav",
+          "gain": -3,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.42,
+          "fade": 0.045,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "shotgun/nova_close_1.wav",
+          "gain": -2,
+          "pitch": 0.82,
+          "start": 0.006,
+          "length": 0.42,
+          "fade": 0.075,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "shotgun/mechanism_1.wav",
+          "gain": -21,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.18,
+          "fade": 0.03,
+          "delay": 0.045,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "shotgun/model12_mid_1.wav",
+          "gain": -8,
+          "pitch": 1,
+          "start": 0.055,
+          "length": 1.3,
+          "fade": 0.25,
+          "delay": 0.035,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        }
+      ]
+    },
+    "sniper": {
+      "volume": 3,
+      "low_cut": 35,
+      "high_cut": 19000,
+      "bass": 5,
+      "mid": 0,
+      "drive": 0.12,
+      "attack": 0.2,
+      "room": 0.65,
+      "wet": 0.12,
+      "shake": 1,
+      "recoil": 1,
+      "flash": 1,
+      "layers": [
+        {
+          "source": "sniper/mosin_close_1.wav",
+          "gain": -1,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.42,
+          "fade": 0.045,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "sniper/mosin_mid_1.wav",
+          "gain": -8,
+          "pitch": 0.72,
+          "start": 0.006,
+          "length": 0.3,
+          "fade": 0.075,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "sniper/mechanism_1.wav",
+          "gain": -21,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.18,
+          "fade": 0.03,
+          "delay": 0.045,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "sniper/springfield_close_1.wav",
+          "gain": -8,
+          "pitch": 1,
+          "start": 0.055,
+          "length": 1.3,
+          "fade": 0.25,
+          "delay": 0.035,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        }
+      ]
+    },
+    "rail": {
+      "volume": 3,
+      "low_cut": 35,
+      "high_cut": 19000,
+      "bass": 5,
+      "mid": 0,
+      "drive": 0.12,
+      "attack": 0.2,
+      "room": 0.65,
+      "wet": 0.12,
+      "shake": 1,
+      "recoil": 1,
+      "flash": 1,
+      "layers": [
+        {
+          "source": "rail/mosin_close_1.wav",
+          "gain": -1,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.42,
+          "fade": 0.045,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "rail/sks_close_1.wav",
+          "gain": -8,
+          "pitch": 0.72,
+          "start": 0.006,
+          "length": 0.3,
+          "fade": 0.075,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "rail/mechanism_1.wav",
+          "gain": -21,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.18,
+          "fade": 0.03,
+          "delay": 0.045,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "rail/springfield_mid_1.wav",
+          "gain": -8,
+          "pitch": 1,
+          "start": 0.055,
+          "length": 1.3,
+          "fade": 0.25,
+          "delay": 0.035,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        }
+      ]
+    },
+    "launcher": {
+      "volume": 3,
+      "low_cut": 35,
+      "high_cut": 19000,
+      "bass": 5,
+      "mid": 0,
+      "drive": 0.12,
+      "attack": 0.2,
+      "room": 0.65,
+      "wet": 0.12,
+      "shake": 1,
+      "recoil": 1,
+      "flash": 1,
+      "layers": [
+        {
+          "source": "launcher/mossberg_close_1.wav",
+          "gain": -1,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.42,
+          "fade": 0.045,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "launcher/model12_close_1.wav",
+          "gain": -8,
+          "pitch": 0.72,
+          "start": 0.006,
+          "length": 0.3,
+          "fade": 0.075,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "launcher/mechanism_1.wav",
+          "gain": -21,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.18,
+          "fade": 0.03,
+          "delay": 0.045,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "launcher/nova_mid_1.wav",
+          "gain": -8,
+          "pitch": 1,
+          "start": 0.055,
+          "length": 1.3,
+          "fade": 0.25,
+          "delay": 0.035,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        }
+      ]
+    },
+    "lmg": {
+      "volume": -4,
+      "low_cut": 35,
+      "high_cut": 19000,
+      "bass": 2,
+      "mid": 3,
+      "drive": 0.12,
+      "attack": 0.2,
+      "room": 0.65,
+      "wet": 0.12,
+      "shake": 0.65,
+      "recoil": 0.65,
+      "flash": 0.65,
+      "layers": [
+        {
+          "source": "rifle/ak47_close_1.wav",
+          "gain": 0,
+          "pitch": 0.86,
+          "start": 0,
+          "length": 0.28,
+          "fade": 0.03,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "rifle/ak47_mid_1.wav",
+          "gain": -15,
+          "pitch": 0.86,
+          "start": 0,
+          "length": 0.28,
+          "fade": 0.03,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "rifle/mechanism_1.wav",
+          "gain": -20,
+          "pitch": 0.731,
+          "start": 0,
+          "length": 0.28,
+          "fade": 0.03,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "rifle/ar15_close_1.wav",
+          "gain": -22,
+          "pitch": 0.86,
+          "start": 0,
+          "length": 0.28,
+          "fade": 0.03,
+          "delay": 0.025,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        }
+      ]
+    },
+    "minigun": {
+      "volume": -8,
+      "low_cut": 35,
+      "high_cut": 19000,
+      "bass": 2,
+      "mid": 3,
+      "drive": 0.12,
+      "attack": 0.2,
+      "room": 0.65,
+      "wet": 0.12,
+      "shake": 0.18,
+      "recoil": 0.18,
+      "flash": 0.65,
+      "layers": [
+        {
+          "source": "rifle/ar15_close_1.wav",
+          "gain": 0,
+          "pitch": 1.2,
+          "start": 0,
+          "length": 0.09,
+          "fade": 0.03,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "rifle/ak47_mid_1.wav",
+          "gain": -15,
+          "pitch": 1.2,
+          "start": 0,
+          "length": 0.09,
+          "fade": 0.03,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "rifle/mechanism_1.wav",
+          "gain": -20,
+          "pitch": 1.02,
+          "start": 0,
+          "length": 0.09,
+          "fade": 0.03,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "rifle/ar15_close_1.wav",
+          "gain": -22,
+          "pitch": 1.2,
+          "start": 0,
+          "length": 0.09,
+          "fade": 0.03,
+          "delay": 0.025,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        }
+      ]
+    },
+    "auto_shotgun": {
+      "volume": -4,
+      "low_cut": 35,
+      "high_cut": 19000,
+      "bass": 5.5,
+      "mid": 0,
+      "drive": 0.22,
+      "attack": 0.35,
+      "room": 0.65,
+      "wet": 0.17,
+      "shake": 0.65,
+      "recoil": 0.65,
+      "flash": 0.65,
+      "layers": [
+        {
+          "source": "shotgun/nova_close_1.wav",
+          "gain": 0,
+          "pitch": 0.94,
+          "start": 0,
+          "length": 0.28,
+          "fade": 0.03,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "shotgun/nova_close_1.wav",
+          "gain": -15,
+          "pitch": 0.94,
+          "start": 0,
+          "length": 0.28,
+          "fade": 0.03,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "shotgun/mechanism_1.wav",
+          "gain": -20,
+          "pitch": 0.7989999999999999,
+          "start": 0,
+          "length": 0.28,
+          "fade": 0.03,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "shotgun/model12_mid_1.wav",
+          "gain": -22,
+          "pitch": 0.94,
+          "start": 0,
+          "length": 0.28,
+          "fade": 0.03,
+          "delay": 0.025,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        }
+      ]
+    },
+    "dmr": {
+      "volume": -2,
+      "low_cut": 35,
+      "high_cut": 19000,
+      "bass": 5,
+      "mid": 0,
+      "drive": 0.12,
+      "attack": 0.2,
+      "room": 0.65,
+      "wet": 0.12,
+      "shake": 0.65,
+      "recoil": 0.65,
+      "flash": 0.65,
+      "layers": [
+        {
+          "source": "rail/sks_close_1.wav",
+          "gain": 0,
+          "pitch": 1.05,
+          "start": 0,
+          "length": 0.28,
+          "fade": 0.03,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "rail/sks_close_1.wav",
+          "gain": -15,
+          "pitch": 1.05,
+          "start": 0,
+          "length": 0.28,
+          "fade": 0.03,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "rail/mechanism_1.wav",
+          "gain": -20,
+          "pitch": 0.8925,
+          "start": 0,
+          "length": 0.28,
+          "fade": 0.03,
+          "delay": 0,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        },
+        {
+          "source": "rail/springfield_mid_1.wav",
+          "gain": -22,
+          "pitch": 1.05,
+          "start": 0,
+          "length": 0.28,
+          "fade": 0.03,
+          "delay": 0.025,
+          "pitch_random": 0.012,
+          "gain_random": 0.5
+        }
+      ]
+    },
+    "flamer": {
+      "volume": -6,
+      "low_cut": 35,
+      "high_cut": 19000,
+      "bass": 2,
+      "mid": 3,
+      "drive": 0.04,
+      "attack": 0.2,
+      "room": 0.12,
+      "wet": 0.06,
+      "shake": 0.05,
+      "recoil": 0.05,
+      "flash": 0.65,
+      "layers": [
+        {
+          "source": "w7/flamer_0.wav",
+          "gain": -1,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.2,
+          "fade": 0.045,
+          "delay": 0,
+          "pitch_random": 0.025,
+          "gain_random": 0.7
+        },
+        {
+          "source": "w7/flamer_1.wav",
+          "gain": -9,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.2,
+          "fade": 0.045,
+          "delay": 0,
+          "pitch_random": 0.025,
+          "gain_random": 0.7
+        },
+        {
+          "source": "w7/flamer_2.wav",
+          "gain": -12,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.2,
+          "fade": 0.045,
+          "delay": 0,
+          "pitch_random": 0.025,
+          "gain_random": 0.7
+        },
+        {
+          "source": "w7/flamer_3.wav",
+          "gain": -14,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.2,
+          "fade": 0.045,
+          "delay": 0,
+          "pitch_random": 0.025,
+          "gain_random": 0.7
+        }
+      ]
+    },
+    "saw": {
+      "volume": -5,
+      "low_cut": 35,
+      "high_cut": 19000,
+      "bass": 2,
+      "mid": 3,
+      "drive": 0.13,
+      "attack": 0.2,
+      "room": 0.12,
+      "wet": 0.06,
+      "shake": 0.25,
+      "recoil": 0.25,
+      "flash": 0,
+      "layers": [
+        {
+          "source": "w7/saw_0.wav",
+          "gain": -1,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.26,
+          "fade": 0.045,
+          "delay": 0,
+          "pitch_random": 0.025,
+          "gain_random": 0.7
+        },
+        {
+          "source": "w7/saw_1.wav",
+          "gain": -9,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.26,
+          "fade": 0.045,
+          "delay": 0,
+          "pitch_random": 0.025,
+          "gain_random": 0.7
+        },
+        {
+          "source": "w7/saw_2.wav",
+          "gain": -12,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.26,
+          "fade": 0.045,
+          "delay": 0,
+          "pitch_random": 0.025,
+          "gain_random": 0.7
+        },
+        {
+          "source": "w7/saw_3.wav",
+          "gain": -14,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.26,
+          "fade": 0.045,
+          "delay": 0,
+          "pitch_random": 0.025,
+          "gain_random": 0.7
+        }
+      ]
+    },
+    "crossbow": {
+      "volume": -1,
+      "low_cut": 35,
+      "high_cut": 19000,
+      "bass": 2,
+      "mid": 3,
+      "drive": 0.04,
+      "attack": 0.2,
+      "room": 0.12,
+      "wet": 0.06,
+      "shake": 0.65,
+      "recoil": 0.65,
+      "flash": 0,
+      "layers": [
+        {
+          "source": "rifle/mechanism_1.wav",
+          "gain": -1,
+          "pitch": 1.6,
+          "start": 0,
+          "length": 0.1,
+          "fade": 0.028,
+          "delay": 0,
+          "pitch_random": 0.025,
+          "gain_random": 0.7
+        },
+        {
+          "source": "w7/crossbow_1.wav",
+          "gain": -9,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.35,
+          "fade": 0.028,
+          "delay": 0,
+          "pitch_random": 0.025,
+          "gain_random": 0.7
+        },
+        {
+          "source": "w7/crossbow_2.wav",
+          "gain": -12,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.35,
+          "fade": 0.028,
+          "delay": 0,
+          "pitch_random": 0.025,
+          "gain_random": 0.7
+        },
+        {
+          "source": "w7/crossbow_3.wav",
+          "gain": -14,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.35,
+          "fade": 0.028,
+          "delay": 0.12,
+          "pitch_random": 0.025,
+          "gain_random": 0.7
+        }
+      ]
+    },
+    "tesla": {
+      "volume": -3,
+      "low_cut": 35,
+      "high_cut": 19000,
+      "bass": 5,
+      "mid": 0,
+      "drive": 0.04,
+      "attack": 0.2,
+      "room": 0.12,
+      "wet": 0.06,
+      "shake": 0.65,
+      "recoil": 0.65,
+      "flash": 0.65,
+      "layers": [
+        {
+          "source": "w7/tesla_0.wav",
+          "gain": -1,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.35,
+          "fade": 0.028,
+          "delay": 0,
+          "pitch_random": 0.025,
+          "gain_random": 0.7
+        },
+        {
+          "source": "w7/tesla_1.wav",
+          "gain": -9,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.35,
+          "fade": 0.028,
+          "delay": 0,
+          "pitch_random": 0.025,
+          "gain_random": 0.7
+        },
+        {
+          "source": "w7/tesla_2.wav",
+          "gain": -12,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.35,
+          "fade": 0.028,
+          "delay": 0,
+          "pitch_random": 0.025,
+          "gain_random": 0.7
+        },
+        {
+          "source": "w7/tesla_3.wav",
+          "gain": -14,
+          "pitch": 1,
+          "start": 0,
+          "length": 0.35,
+          "fade": 0.028,
+          "delay": 0,
+          "pitch_random": 0.025,
+          "gain_random": 0.7
+        }
+      ]
+    }
+  }
+}

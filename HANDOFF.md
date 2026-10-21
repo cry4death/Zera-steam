@@ -2,8 +2,10 @@
 
 - Игра (Godot 4.7.2): корень репозитория, стартовая сцена — база (`scenes/base.tscn`). Дизайн и процесс: `design/`
   (GDD.md, MVP.md, BALANCE.md, `tasks/` — доска BOARD.md, контракты CONTRACTS.md, задачи, отчёты, ревью).
-- Процесс: Opus пишет задачи и проверяет; исполнители — Codex CLI (`gpt-6.1-sol`) и Sonnet 5.5, по лимитам.
+- Процесс: Opus пишет задачи и проверяет; исполнитель — Codex CLI (`gpt-6.1-sol`), правила — `AGENTS.md`.
   Каждая задача — своя ветка `task/<id>` в отдельном worktree `Desktop\zera-<id>`, ревью → слияние в `main`.
+- Проверка проекта: `tools/test_project.ps1 -Suite full` (импорт, GdUnit4 из `tests/`, штатные `--*-test`);
+  живой редактор для Opus — Godot Editor MCP. Подробно: `design/tasks/TOOLING.md`.
 
 ## Готово
 - M1–M5: орда до 500, gore, модульное оружие, 4 типа врагов + элитки, экономика, лавки, кровавая тревога,

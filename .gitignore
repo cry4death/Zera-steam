@@ -7,3 +7,9 @@ __pycache__/
 design/**/*.uid
 design/**/*.import
 design/tasks/reports/*.wav
+
+# результаты проверок и тестов (tools/test_project.ps1, GdUnit4), лог редактора
+/tmp/
+/reports/
+# личные настройки Claude Code
+.claude/settings.local.json

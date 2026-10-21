@@ -1,34 +1,38 @@
-﻿class_name RunResults
+class_name RunResults
 extends Control
 ## Итоги забега. Данные и перезапуск принадлежат игре; чек работает на паузе.
 
 signal restart_requested
 signal base_requested
 
-const GOLD := Color(1.0, 0.82, 0.35)
-const WHITE := Color(0.92, 0.90, 0.85)
-const MUTED := Color(0.65, 0.65, 0.62)
-const RED := Color(0.68, 0.23, 0.21)
+const Style := preload("res://scripts/ui/zera_style.gd")
+const GOLD := Style.ACTION
+const WHITE := Style.TEXT
+const MUTED := Style.MUTED
+const RED := Style.DANGER
 const INPUT_DELAY := 0.25
 # Хронометраж чека: крупные числа считаются с щелчками, затем по очереди появляются значки, ДНК и итог (U3).
-const HERO_TIME := 0.8 # «убито» и «время»
-const CHIP_AT := 0.9 # плашки: элитки, серия, кровь, ящики
-const CHIP_STEP := 0.14
-const GUN_AT := 1.5 # стволы
-const DNA_AT := 1.9 # строки ДНК по 0.2 с, затем множители и итог
-const DNA_STEP := 0.2
-const TOTAL_TIME := 0.7
-const BLOOD := Color(0.85, 0.22, 0.2)
-const GREEN := Color(0.6, 0.9, 0.6)
-const HP_RED := Color(0.9, 0.3, 0.25)
-const RED_UP := Color(1.0, 0.5, 0.4) # заражение выросло
-const ICON_BG := Color(0.04, 0.035, 0.035, 0.9)
+const HERO_TIME := 0.45 # «убито» и «время»
+const CHIP_AT := 0.3 # плашки: элитки, серия, кровь, ящики
+const CHIP_STEP := 0.08
+const GUN_AT := 0.5 # стволы
+const DNA_AT := 0.6 # строки ДНК по 0.2 с, затем множители и итог
+const DNA_STEP := 0.1
+const TOTAL_TIME := 0.35
+const BLOOD := Style.DANGER
+const GREEN := Style.BETTER
+const HP_RED := Style.DANGER
+const RED_UP := Style.DANGER
+const ICON_BG := Style.RECESS
 const GUN_K := 2.0 / 3.0 # масштаб иконки ствола: 2 пикселя экрана на пиксель арта на 1080p
 
 var _stats: Dictionary = {}
 var _report: Dictionary = {}
 var _retry_button := Rect2()
 var sfx: Sfx
+var _offset := Vector2.ZERO
+var _layout: SettingsLayout.Scroll
+var _reveal := true
 var _ui := 1.0
 var _t := 0.0
 var _finished := false
@@ -45,7 +49,10 @@ var _icons := {}
 var _tick_seen := {} # счётчик → сколько щелчков уже сыграно
 
 
+var _choice_input := ChoiceInput.new()
+
 func _ready() -> void:
+	_layout = SettingsLayout.Scroll.new(self)
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -53,17 +60,19 @@ func _ready() -> void:
 
 
 func open(stats: Dictionary) -> void:
+	_reveal = true
 	_stats = stats.duplicate(true)
+	var class_before := Meta.class_level()
 	_report = {}
 	# Итоги забега уходят в мету: ДНК, ящики; сохранение пишется сразу, до нажатия кнопки.
 	var config := Campaign.pending()
 	# Снимок хранится в stats: повторное открытие после снятия pending тоже идемпотентно.
-	if not config.is_empty() and not _stats.has("run_id"):
+	if not _stats.get("endless", false) and not config.is_empty() and not _stats.has("run_id"):
 		for key: String in ["run_id", "operation_id", "region_id", "type"]:
 			_stats[key] = config[key]
 		_stats["outcome"] = "victory" if _stats.get("victory", false) else "defeat"
 		stats.merge(_stats, true)
-	if Campaign.enabled() and (not config.is_empty() or _stats.has("run_id")):
+	if not _stats.get("endless", false) and Campaign.enabled() and (not config.is_empty() or _stats.has("run_id")):
 		var report := Campaign.complete_operation(_stats)
 		_report = report
 		if not _report.is_empty() and not Meta.last_save_ok:
@@ -71,8 +80,12 @@ func open(stats: Dictionary) -> void:
 		if report.has("stats"):
 			_stats = report["stats"].duplicate(true)
 	else:
-		Meta.add_run(_stats)
+		Meta.add_run(stats if _stats.get("endless", false) else _stats)
+		if _stats.get("endless", false):
+			_stats.merge(stats, true)
 	_stats["dna_bank"] = Meta.dna
+	_stats["class_before"] = class_before
+	_stats["class_after"] = Meta.class_level()
 	_t = 0.0
 	_finished = false
 	_requested = false
@@ -135,7 +148,7 @@ func _activate(restart := false) -> void:
 		queue_redraw()
 	else:
 		_requested = true
-		if restart:
+		if restart and not _stats.get("first_run", false):
 			if _report.is_empty():
 				restart_requested.emit()
 			else:
@@ -150,20 +163,23 @@ func _activate(restart := false) -> void:
 func _gui_input(event: InputEvent) -> void:
 	if not visible:
 		return
+	if _layout.pointer(event):
+		accept_event()
+		return
 	var motion := event as InputEventMouseMotion
 	if motion != null:
-		var at := motion.position / _ui
+		var at := (motion.position - _offset) / _ui
 		_hover = 0 if _base_button.has_point(at) else (1 if _button.has_point(at) else -1)
 	var button := event as InputEventMouseButton
 	if button != null and button.pressed:
 		if button.button_index == MOUSE_BUTTON_LEFT:
-			if not _report.is_empty() and _retry_button.has_point(button.position / _ui):
+			if not _report.is_empty() and _retry_button.has_point((button.position - _offset) / _ui):
 				_retry_save()
-			elif not _report.is_empty() and _journal_button.has_point(button.position / _ui):
+			elif not _report.is_empty() and _journal_button.has_point((button.position - _offset) / _ui):
 				_toggle_journal()
-			elif _base_button.has_point(button.position / _ui):
+			elif _base_button.has_point((button.position - _offset) / _ui):
 				_activate()
-			elif _button.has_point(button.position / _ui):
+			elif _button.has_point((button.position - _offset) / _ui):
 				_activate(true)
 		elif button.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			_scroll = minf(_scroll + 22.0, _scroll_max)
@@ -176,14 +192,34 @@ func _gui_input(event: InputEvent) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not visible:
 		return
+	var command := _choice_input.read(event)
+	if command in ["left", "right"] or event is InputEventKey and event.pressed and event.keycode in [KEY_LEFT, KEY_RIGHT]:
+		_reveal = true
+	if event is InputEventJoypadMotion and command != "":
+		match command:
+			"left": _selected = 0
+			"right": _selected = 1
+			"up": _scroll = maxf(_scroll - 33.0, 0.0)
+			"down": _scroll = minf(_scroll + 33.0, _scroll_max)
+		queue_redraw()
+		get_viewport().set_input_as_handled()
+		return
 	var pad := event as InputEventJoypadButton
 	if pad != null and pad.pressed:
+		if command == "":
+			return
 		_hover = -1
 		match pad.button_index:
 			JOY_BUTTON_DPAD_LEFT: _selected = 0
 			JOY_BUTTON_DPAD_RIGHT: _selected = 1
 			JOY_BUTTON_A, JOY_BUTTON_START: _activate(_selected == 1)
 			JOY_BUTTON_X: _activate(true)
+			JOY_BUTTON_B: _activate(false)
+			JOY_BUTTON_DPAD_UP: _scroll = maxf(_scroll - 33.0, 0.0)
+			JOY_BUTTON_DPAD_DOWN: _scroll = minf(_scroll + 33.0, _scroll_max)
+			JOY_BUTTON_BACK: if not _report.is_empty(): _toggle_journal()
+			JOY_BUTTON_Y: if not _report.is_empty(): _retry_save()
+		queue_redraw()
 		get_viewport().set_input_as_handled()
 		return
 	var key := event as InputEventKey
@@ -240,37 +276,43 @@ func _counted(value: int, start: float, span: float) -> int:
 func _draw() -> void:
 	if not visible:
 		return
-	_ui = maxf(1.0, roundf(size.y / 360.0))
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2(_ui, _ui))
-	var view := size / _ui
+	_ui = SettingsLayout.scale_for(size)
+	var virtual_view := _layout.view(size, Vector2(560 if _stats.get("endless", false) else 284, 340), _ui)
+	_offset = _layout.offset
+	draw_set_transform(_offset, 0.0, Vector2(_ui, _ui))
+	var view := virtual_view
 	var panel := Rect2((view - Vector2(260.0, 316.0)) * 0.5, Vector2(260.0, 316.0))
+	if _stats.get("endless", false):
+		panel.position.x = (view.x - 536.0) * 0.5
 	if not _report.is_empty():
 		panel.position.x = (view.x - 536.0) * 0.5
 	var p := panel.position
-	var font := ThemeDB.fallback_font
+	var font := Style.BODY_FONT
 	var victory: bool = _stats.get("victory", false)
-	var accent := GOLD if victory else RED
-	draw_rect(Rect2(Vector2.ZERO, view), Color(0.03, 0.0, 0.0, 0.76))
-	draw_rect(Rect2(p + Vector2(3, 4), panel.size), Color(0, 0, 0, 0.4))
-	draw_rect(panel, Color(0.08, 0.07, 0.07, 0.97))
-	draw_rect(panel, Color(accent, 0.55), false, 1.0)
-	draw_rect(Rect2(p, Vector2(260, 3)), accent)
+	var accent := Style.BETTER if victory else Style.SELECTED
+	draw_rect(Rect2(Vector2.ZERO, view), Color(Style.RECESS, 0.96))
+	Style.cloth(self, panel)
+	Style.reward(self, Rect2(p + Vector2(12, 218), Vector2(236, 42)), 1.0)
 	_text_c(font, p + Vector2(130, 24), "ОПЕРАЦИЯ ВЫПОЛНЕНА" if victory else "ОПЕРАТИВНИК ЭВАКУИРОВАН", accent, 12)
+	if _stats.get("endless", false):
+		_draw_endless_record(font, p + Vector2(276, 0))
 	_draw_receipt(font, p)
 	_base_button = Rect2(p + Vector2(12, 274), Vector2(116, 24))
 	_button = Rect2(p + Vector2(134, 274), Vector2(114, 24))
+	if _reveal:
+		_layout.reveal((_base_button if _selected == 0 else _button).grow(4))
+		_reveal = false
 	for i in 2:
 		var r := _base_button if i == 0 else _button
 		var hot := _hover == i or (_hover < 0 and _selected == i)
 		var c := GOLD if i == 0 else WHITE
-		draw_rect(r, Color(0.19, 0.15, 0.08) if hot else Color(0.10, 0.09, 0.07))
-		draw_rect(r, Color(c, 1.0 if hot else 0.45), false, 1.0)
+		Style.surface(self, r, Style.State.SELECTED if hot else Style.State.NORMAL)
 		var label := "НА БАЗУ" if i == 0 else "ЕЩЁ РАЗ [R]"
 		if not _report.is_empty():
 			label = "К КАРТЕ ОПЕРАЦИЙ" if i == 0 else "БАЗА"
 		_text_c(font, r.get_center() + Vector2(0, 4), label, c, 8 if not _report.is_empty() else 10)
 	if not _finished:
-		_text_c(font, p + Vector2(130, 309), "Enter — пропустить", MUTED, 8)
+		_text_c(font, p + Vector2(130, 309), "Ⓐ" if ChoiceInput.pad_mode else "Enter — пропустить", MUTED, 8)
 	if not _report.is_empty():
 		_draw_consequences(font, Rect2(p + Vector2(272, 0), Vector2(264, 316)))
 
@@ -285,9 +327,7 @@ func _retry_save() -> void:
 ## полный журнал — по кнопке «Журнал [J]».
 func _draw_consequences(font: Font, panel: Rect2) -> void:
 	var p := panel.position
-	draw_rect(panel, Color("0e1514"))
-	draw_rect(panel, Color(GOLD, 0.45), false)
-	draw_rect(Rect2(p, Vector2(panel.size.x, 3)), GOLD)
+	Style.cloth(self, panel)
 	_text(font, p + Vector2(14, 24), "ПОСЛЕДСТВИЯ", GOLD, 14)
 	_journal_button = Rect2(p + Vector2(14, 246), Vector2(236, 18))
 	if _journal:
@@ -302,15 +342,14 @@ func _draw_consequences(font: Font, panel: Rect2) -> void:
 		_text(font, p + Vector2(36, 224), str(int(_report.get("nests_alive", 0))), GOLD, 15)
 		_icon_at("alarm", p + Vector2(132, 217), HP_RED, 1.0)
 		_text(font, p + Vector2(146, 224), str(int(_report.get("critical", 0))), WHITE, 15)
-	draw_rect(_journal_button, Color(0.10, 0.09, 0.07))
-	draw_rect(_journal_button, Color(MUTED, 0.5), false, 1.0)
-	_text_c(font, _journal_button.get_center() + Vector2(0, 3), "К ИТОГАМ [J]" if _journal else "ЖУРНАЛ [J]", MUTED, 8)
+	Style.surface(self, _journal_button, Style.State.NORMAL)
+	_text_c(font, _journal_button.get_center() + Vector2(0, 3), ("К ИТОГАМ [Back]" if _journal else "ЖУРНАЛ [Back]") if ChoiceInput.pad_mode else ("К ИТОГАМ [J]" if _journal else "ЖУРНАЛ [J]"), MUTED, 8)
 	_retry_button = Rect2()
 	if not str(_report.get("save_error", "")).is_empty():
-		_text(font, p + Vector2(14, 285), "НЕТ ЗАПИСИ НА ДИСК. Прогресс в памяти.", Color("ef7770"), 8)
+		_text(font, p + Vector2(14, 285), "НЕТ ЗАПИСИ НА ДИСК. Прогресс в памяти.", Style.DANGER, 8)
 		_retry_button = Rect2(p + Vector2(14, 291), Vector2(236, 18))
-		draw_rect(_retry_button, Color("412824"))
-		_text_c(font, _retry_button.get_center() + Vector2(0, 3), "ПОВТОРИТЬ СОХРАНЕНИЕ [S]", GOLD, 8)
+		draw_rect(_retry_button, Style.HOVER)
+		_text_c(font, _retry_button.get_center() + Vector2(0, 3), "ПОВТОРИТЬ СОХРАНЕНИЕ [Y]" if ChoiceInput.pad_mode else "ПОВТОРИТЬ СОХРАНЕНИЕ [S]", GOLD, 8)
 
 
 ## Событие «Регион: 62 → 48 · Стадия»: название, крупная динамика (падение заражения — зелёным), стадия справа.
@@ -370,6 +409,38 @@ func _wrap_words(font: Font, value: String, width: float, fs: int) -> Array[Stri
 
 
 ## Чек без слов: крупные «убито» и «время», плашки значок+число, стволы иконками, ДНК значками и итог.
+func _draw_endless_record(font: Font, p: Vector2) -> void:
+	Style.cloth(self, Rect2(p, Vector2(260, 316)))
+	var record: Dictionary = _stats.get("endless_record", {})
+	var new_time: bool = record.get("time", false)
+	var new_kills: bool = record.get("kills", false)
+	var map := str(_stats.get("map_id", ""))
+	var kind := str(_stats.get("class_id", ""))
+	var best := Meta.endless_best(map, kind)
+	var label := "НОВЫЙ РЕКОРД" if new_time or new_kills else "БЕСКОНЕЧНАЯ БОЙНЯ"
+	_text_c(font, p + Vector2(130, 25), label, GREEN if new_time or new_kills else WHITE, 14)
+	var index := Meta.ENDLESS_MAPS.find(map)
+	_text(font, p + Vector2(16, 49), Meta.ENDLESS_MAP_NAMES[index] if index >= 0 else map, WHITE, 13)
+	var class_index := ClassTree.CLASSES.find(kind)
+	_text(font, p + Vector2(16, 65), ["Штурмовик", "Пулемётчик", "Инженер"][class_index] if class_index >= 0 else kind, MUTED, 10)
+	for i in 2:
+		var y := 82.0 + i * 80.0
+		if (new_time if i == 0 else new_kills):
+			Style.reward(self, Rect2(p + Vector2(12, y), Vector2(236, 67)), minf(_t, 1.0))
+		_icon_at("clock" if i == 0 else "skull", p + Vector2(29, y + 32), GOLD, 2.0)
+		_text(font, p + Vector2(50, y + 17), ("ВРЕМЯ" if i == 0 else "УБИЙСТВА") + (" · РЕКОРД" if (new_time if i == 0 else new_kills) else " · ЛУЧШЕЕ"), MUTED, 8)
+		var value := int(best["time"] if i == 0 else best["kills"])
+		_text(font, p + Vector2(50, y + 41), "%d:%02d" % [value / 60, value % 60] if i == 0 else str(value), WHITE, 24)
+		var old := int(record.get("previous_time" if i == 0 else "previous_kills", 0))
+		_text(font, p + Vector2(50, y + 57), "Прежний: " + ("%d:%02d" % [old / 60, old % 60] if i == 0 else str(old)), MUTED, 8)
+	for i in 3:
+		var at := p + Vector2(26 + i * 78, 262)
+		var reached: bool = int(best["time"]) >= Meta.ENDLESS_MILESTONES[i]
+		_icon_at("star", at, GOLD if reached else Style.DISABLED, 2.0)
+		_text(font, at + Vector2(12, 4), "%d мин" % (Meta.ENDLESS_MILESTONES[i] / 60), WHITE if reached else Style.DISABLED, 10)
+	_text_c(font, p + Vector2(130, 295), "Рекорды записаны" if Meta.last_save_ok else "Нет записи на диск. Рекорд в памяти.", MUTED if Meta.last_save_ok else RED, 8)
+
+
 func _draw_receipt(font: Font, p: Vector2) -> void:
 	var seconds := maxi(0, int(_stats.get("time", 0.0)))
 	var kills := _counted(int(_stats.get("kills", 0)), 0.0, HERO_TIME)
@@ -377,13 +448,12 @@ func _draw_receipt(font: Font, p: Vector2) -> void:
 	for k in 2:
 		var tile := Rect2(p + Vector2(12 + k * 122, 36), Vector2(114, 42))
 		draw_rect(tile, ICON_BG)
-		draw_rect(tile, Color(MUTED, 0.2), false, 1.0)
 		_icon_at("skull" if k == 0 else "clock", tile.position + Vector2(18, 21), GOLD if k == 0 else WHITE, 2.0)
 		var value := str(kills) if k == 0 else "%d:%02d" % [shown / 60, shown % 60]
 		_text_r(font, tile.position + Vector2(108, 31), value, WHITE, 22)
 	# плашки: элитки, лучшая серия, кровь, ящики и военные ящики
 	var chips: Array = [
-		["skull", Color(1.0, 0.55, 0.2), str(_stats.get("elites", 0))], ["flame", Color(1.0, 0.45, 0.25), str(_stats.get("best_combo", 0))],
+		["star", Style.ACTION, str(_stats.get("elites", 0))], ["flame", Style.SELECTED, str(_stats.get("best_combo", 0))],
 		["drop", BLOOD, "%.1f" % float(_stats.get("blood_liters", 0.0))], ["crate", GOLD, str(_stats.get("crates", 0))],
 		["crate", GREEN, str(_stats.get("military_crates", 0))],
 	]
@@ -393,7 +463,11 @@ func _draw_receipt(font: Font, p: Vector2) -> void:
 		var chip: Array = chips[i]
 		var r := Rect2(p + Vector2(12 + i * 48, 86), Vector2(44, 18))
 		draw_rect(r, ICON_BG)
-		_icon_at(chip[0], r.position + Vector2(10, 9), chip[1])
+		if i >= 3:
+			var crate := _icon("military_crate" if i == 4 else "weapon_crate")
+			draw_texture_rect(crate, Rect2(r.position + Vector2(2, 2), Vector2(16, 14)), false)
+		else:
+			_icon_at(chip[0], r.position + Vector2(10, 9), chip[1])
 		_text_r(font, r.position + Vector2(41, 13), str(chip[2]), WHITE, 10)
 	_draw_guns(font, p + Vector2(12, 112))
 	draw_line(p + Vector2(12, 188), p + Vector2(248, 188), Color(GOLD, 0.25))
@@ -414,11 +488,14 @@ func _draw_receipt(font: Font, p: Vector2) -> void:
 		var pop := clampf((_t - DNA_AT - lines.size() * DNA_STEP) / 0.12, 0.0, 1.0)
 		_text_r(font, p + Vector2(248, 207), factors, Color(GOLD, pop), 12)
 		_icon_at("star", p + Vector2(240 - _width(font, factors, 12), 203), Color(GOLD, pop), 1.0)
-	_icon_at("dna", p + Vector2(28, 232), GOLD, 2.0)
+	_icon_at("dna", p + Vector2(28, 238), GREEN, 2.0)
+	_text(font, p + Vector2(170, 231), "ДНК", GREEN, 10)
 	var total := _counted(int(_stats.get("dna_total", 0)), _total_at(), TOTAL_TIME)
 	_text(font, p + Vector2(48, 244), str(total), GOLD, 26)
 	if _t >= _duration():
-		_text_r(font, p + Vector2(248, 240), "всего %d" % int(_stats.get("dna_bank", 0)), MUTED, 8)
+		_text_r(font, p + Vector2(248, 248), "всего %d" % int(_stats.get("dna_bank", 0)), MUTED, 8)
+
+	_text(font, p + Vector2(12, 269), "ПОДГОТОВКА · ур. %d → %d" % [int(_stats.get("class_before", 1)), int(_stats.get("class_after", 1))], GREEN, 8)
 
 
 ## Стволы забега иконками: ствол, уровень и значок патронов с рангом; до четырёх, сеткой 2×2.
@@ -469,15 +546,16 @@ func _wrap(font: Font, value: String, width: float, fs: int) -> Array[String]:
 
 
 func _width(font: Font, value: String, fs: int) -> float:
-	return font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, fs * int(_ui)).x / _ui
+	font = Style.TITLE_FONT if fs >= 12 else Style.BODY_FONT
+	return font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(fs * _ui)).x / _ui
 
 
 func _text(font: Font, p: Vector2, value: String, color: Color, fs: int) -> void:
+	font = Style.TITLE_FONT if fs >= 12 else Style.BODY_FONT
 	var k := int(_ui)
-	draw_set_transform(Vector2.ZERO)
-	draw_string_outline(font, p * _ui, value, HORIZONTAL_ALIGNMENT_LEFT, -1, fs * k, 2 * k, Color(0, 0, 0, 0.8 * color.a))
-	draw_string(font, p * _ui, value, HORIZONTAL_ALIGNMENT_LEFT, -1, fs * k, color)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2(_ui, _ui))
+	draw_set_transform(_offset)
+	draw_string(font, p * _ui, value, HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(fs * _ui), color)
+	draw_set_transform(_offset, 0.0, Vector2(_ui, _ui))
 
 
 func _text_r(font: Font, p: Vector2, value: String, color: Color, fs: int) -> void:

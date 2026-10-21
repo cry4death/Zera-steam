@@ -52,7 +52,7 @@ func _fill(minutes: float) -> void:
 	var guard := 0
 	while offers.size() < want and guard < 20:
 		guard += 1
-		for card: Dictionary in progression.make_cards(minutes):
+		for card: Dictionary in progression.make_cards(minutes, false):
 			if offers.size() >= want:
 				break
 			if _duplicate(card):
@@ -60,6 +60,9 @@ func _fill(minutes: float) -> void:
 			if card["type"] == "module" or card["type"] == "ammo":
 				card["rare"] = randf() < RARE_CHANCE
 			offers.append({"card": card, "price": _card_price(card), "sold": false})
+	if visit == 0 and progression.focus_overflow and progression.can_offer_link():
+		var directed := {"type": "link", "id": WeaponDefs.Module.LINK, "rare": false}
+		if not _duplicate(directed): offers[0] = {"card": directed, "price": _price(PRICE_COMMON), "sold": false}
 	changed.emit()
 
 
@@ -114,9 +117,13 @@ func buy(i: int, slot := -1) -> bool:
 	var card: Dictionary = offers[i]["card"]
 	if Progression.needs_slot(card) and (slot < 0 or slot >= weapons.slots.size() or progression.slot_status(card, slot) == ""):
 		return false
+	if card["type"] == "link":
+		var partner := weapons.slot_by_uid(int(card.get("partner_uid", 0)))
+		if not weapons.link_available(slot, partner) or partner < 0: return false
+		if not weapons.install_link(slot, partner, card.get("replacement", {})): return false
 	progression.credits -= offers[i]["price"]
 	offers[i]["sold"] = true
-	progression.apply(card, slot, false)
+	if card["type"] != "link": progression.apply(card, slot, false)
 	changed.emit()
 	return true
 
@@ -154,8 +161,6 @@ func move_price() -> int:
 ## Можно ли переставить модуль module_index со ствола from_slot на to_slot.
 ## Если на целевом стволе такой модуль уже есть — ранги складываются (максимум III).
 func can_move(from_slot: int, module_index: int, to_slot: int) -> bool:
-	if from_slot == to_slot or not can_afford(move_price()):
-		return false
 	if from_slot < 0 or from_slot >= weapons.slots.size() or to_slot < 0 or to_slot >= weapons.slots.size():
 		return false
 	var src: Weapons.Slot = weapons.slots[from_slot]
@@ -163,15 +168,30 @@ func can_move(from_slot: int, module_index: int, to_slot: int) -> bool:
 		return false
 	var m: Dictionary = src.modules[module_index]
 	var dst: Weapons.Slot = weapons.slots[to_slot]
+	if int(m["id"]) == WeaponDefs.Module.LINK:
+		return (not m["active"] or can_afford(move_price())) and weapons.link_available(to_slot, -1, m)
+	if from_slot == to_slot or not can_afford(move_price()): return false
+	if not WeaponDefs.supports_module(dst.base, m["id"]): return false
+	if dst.base == WeaponDefs.Base.LAUNCHER and (int(m["id"]) == WeaponDefs.Module.RICOCHET or (int(m["id"]) == WeaponDefs.Module.CHAIN and dst.mod_rank(WeaponDefs.Module.DETONATOR) == 0)): return false
 	var have := dst.module(m["id"])
 	if not have.is_empty():
 		return int(have["rank"]) < WeaponDefs.MAX_RANK
 	return dst.modules.size() < WeaponDefs.module_slots(dst.level)
 
 
-func move_module(from_slot: int, module_index: int, to_slot: int) -> bool:
+func move_module(from_slot: int, module_index: int, to_slot: int, partner := -1, replacement: Dictionary = {}) -> bool:
 	if not can_move(from_slot, module_index, to_slot):
 		return false
+	var link: Dictionary = weapons.slots[from_slot].modules[module_index]
+	if int(link["id"]) == WeaponDefs.Module.LINK:
+		var cost := move_price() if link["active"] else 0
+		if partner < 0: partner = weapons.slot_by_uid(int(link["partner_weapon_uid"]))
+		var was_active: bool = link["active"]
+		if not weapons.rebind_link(link, to_slot, partner, replacement): return false
+		progression.credits -= cost
+		if was_active and free_moves > 0: free_moves -= 1
+		changed.emit()
+		return true
 	progression.credits -= move_price()
 	if free_moves > 0:
 		free_moves -= 1

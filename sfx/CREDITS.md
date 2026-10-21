@@ -5,12 +5,14 @@ Authors: Ben Jaszczak, Brian Nelson, Kevin Heras, Matthew Nanney.
 Source and license: [OpenGameArt — The Free Firearm Sound Library](https://opengameart.org/content/the-free-firearm-sound-library), CC0 1.0.
 All A1 procedural synthesis and edits are also dedicated to CC0 1.0.
 
-Shots/tails: Prepared near recordings; mechanics: Raw master tracks. Originals remain outside this repository.
+Shots/tails: Prepared firearm recordings (original near selections and additional recordings of the same models); mechanics: Raw master tracks. Originals remain outside this repository.
 Times refer to the original file; FIR delay is compensated. Exact edits/seeds and source SHA256 are in manifest.json.
 
 A3: model voices (m4, shkval, guard, cowboy, osa, winchester) use Prepared near shots and Raw mechanics from the same library; spear and hive are synthesized from A1 voices. Edits are CC0 1.0.
 
-W2: all mechanics use a second-order Butterworth high-pass at 80 Hz. Burst tails use attack-free near reflections, 35 ms smooth entry, 160 ms fade out; A1 files unchanged.
+W2: all mechanics use a second-order Butterworth high-pass at 80 Hz.
+
+W4: shots use distinct Prepared takes (including additional recordings of the same model), original attacks and reflections, recorded 60-200 Hz body. Automatic reflections are separate non-retriggered tails, delayed 110 ms. No synthetic pitch variants of recorded shots; linear gain, reconstructed true-peak ceiling -2 dBFS. Special weapons add low body and reflections. Mechanics, casings, gore and other banks retain their previous samples and levels.
 
 A4: [Zombies Sound Pack](https://opengameart.org/content/zombies-sound-pack) — artisticdude, CC0 1.0 (24 recordings).
 [Monster Sound Pack, Volume 1](https://opengameart.org/content/monster-sound-pack-volume-1) — Ogrebane, CC0 1.0 (18 recordings; archive folder Monster-Sounds-Volume-2).
@@ -18,31 +20,31 @@ A4 voice edits, gore/player synthesis and UI edits are dedicated to CC0 1.0. Ori
 
 | Output file | Source / synthesis | Take; original crop; pitch |
 |---|---|---|
-| `weapons/pistol/shot_0.wav` | 1911/A_42P.wav | take 1; 0.939937–1.589938 s; ×1.0 |
-| `weapons/pistol/shot_1.wav` | 1911/A_42P.wav | take 2; 5.000042–5.650042 s; ×1.0 |
-| `weapons/pistol/shot_2.wav` | 1911/A_42P.wav | take 1; 0.939937–1.589938 s; ×0.982 |
-| `weapons/pistol/shot_3.wav` | 1911/A_42P.wav | take 2; 5.000042–5.650042 s; ×1.021 |
-| `weapons/revolver/shot_0.wav` | Smith & Wesson 642/V_27P.wav | take 1; 0.803875–1.653875 s; ×1.0 |
-| `weapons/revolver/shot_1.wav` | Smith & Wesson 642/V_27P.wav | take 2; 6.217167–7.067167 s; ×1.0 |
-| `weapons/revolver/shot_2.wav` | Smith & Wesson 642/V_27P.wav | take 1; 0.803875–1.653875 s; ×0.982 |
-| `weapons/revolver/shot_3.wav` | Smith & Wesson 642/V_27P.wav | take 2; 6.217167–7.067167 s; ×1.021 |
-| `weapons/smg/shot_0.wav` | PPSh/P_30P.wav | take 1; 0.967354–1.167354 s; ×1.0 |
-| `weapons/smg/shot_1.wav` | PPSh/P_30P.wav | take 2; 4.385708–4.585708 s; ×1.0 |
-| `weapons/smg/shot_2.wav` | PPSh/P_30P.wav | take 3; 8.241083–8.441083 s; ×1.0 |
-| `weapons/smg/shot_3.wav` | PPSh/P_30P.wav | take 4; 11.419771–11.619771 s; ×1.0 |
-| `weapons/smg/shot_4.wav` | PPSh/P_30P.wav | take 5; 15.088563–15.288562 s; ×1.0 |
-| `weapons/rifle/shot_0.wav` | AK-47/C_28P.wav | take 1; 0.609667–0.849667 s; ×1.0 |
-| `weapons/rifle/shot_1.wav` | AK-47/C_28P.wav | take 2; 3.255854–3.495854 s; ×1.0 |
-| `weapons/rifle/shot_2.wav` | AK-47/C_28P.wav | take 3; 6.019167–6.259167 s; ×1.0 |
-| `weapons/rifle/shot_3.wav` | AK-47/C_28P.wav | take 4; 9.154687–9.394687 s; ×1.0 |
+| `weapons/pistol/shot_0.wav` | 1911/A_42P.wav | take 1; 0.939937–1.689938 s; ×1.0 |
+| `weapons/pistol/shot_1.wav` | 1911/A_42P.wav | take 2; 5.000042–5.750042 s; ×1.0 |
+| `weapons/pistol/shot_2.wav` | 1911/A_34P.wav | take 1; 1.540667–2.290667 s; ×1.0 |
+| `weapons/pistol/shot_3.wav` | 1911/A_34P.wav | take 7; 6.653542–7.403542 s; ×1.0 |
+| `weapons/revolver/shot_0.wav` | Smith & Wesson 642/V_27P.wav | take 1; 0.803875–1.703875 s; ×1.0 |
+| `weapons/revolver/shot_1.wav` | Smith & Wesson 642/V_27P.wav | take 2; 6.217167–7.117167 s; ×1.0 |
+| `weapons/revolver/shot_2.wav` | Smith & Wesson 642/V_22P.wav | take 1; 0.671396–1.571396 s; ×1.0 |
+| `weapons/revolver/shot_3.wav` | Smith & Wesson 642/V_22P.wav | take 7; 5.504604–6.404604 s; ×1.0 |
+| `weapons/smg/shot_0.wav` | PPSh/P_30P.wav | take 1; 0.967354–1.567354 s; ×1.0 |
+| `weapons/smg/shot_1.wav` | PPSh/P_30P.wav | take 2; 4.385708–4.985708 s; ×1.0 |
+| `weapons/smg/shot_2.wav` | PPSh/P_30P.wav | take 3; 8.241083–8.841083 s; ×1.0 |
+| `weapons/smg/shot_3.wav` | PPSh/P_30P.wav | take 4; 11.419771–12.019771 s; ×1.0 |
+| `weapons/smg/shot_4.wav` | PPSh/P_30P.wav | take 5; 15.088563–15.688562 s; ×1.0 |
+| `weapons/rifle/shot_0.wav` | AK-47/C_28P.wav | take 1; 0.609667–1.359667 s; ×1.0 |
+| `weapons/rifle/shot_1.wav` | AK-47/C_28P.wav | take 2; 3.255854–4.005854 s; ×1.0 |
+| `weapons/rifle/shot_2.wav` | AK-47/C_28P.wav | take 3; 6.019167–6.769167 s; ×1.0 |
+| `weapons/rifle/shot_3.wav` | AK-47/C_28P.wav | take 4; 9.154687–9.904687 s; ×1.0 |
 | `weapons/sniper/shot_0.wav` | Mosin Nagant/M_21P.wav | take 1; 1.032292–2.232292 s; ×1.0 |
 | `weapons/sniper/shot_1.wav` | Mosin Nagant/M_21P.wav | take 2; 5.018271–6.218271 s; ×1.0 |
 | `weapons/sniper/shot_2.wav` | Mosin Nagant/M_21P.wav | take 3; 9.154125–10.354125 s; ×1.0 |
 | `weapons/sniper/shot_3.wav` | Mosin Nagant/M_21P.wav | take 4; 14.135708–15.335708 s; ×1.0 |
-| `weapons/shotgun/shot_0.wav` | Nova/O_21P.wav | take 1; 0.429438–1.479437 s; ×1.0 |
-| `weapons/shotgun/shot_1.wav` | Nova/O_21P.wav | take 2; 3.463958–4.513958 s; ×1.0 |
-| `weapons/shotgun/shot_2.wav` | Nova/O_21P.wav | take 1; 0.429438–1.479437 s; ×0.982 |
-| `weapons/shotgun/shot_3.wav` | Nova/O_21P.wav | take 2; 3.463958–4.513958 s; ×1.021 |
+| `weapons/shotgun/shot_0.wav` | Nova/O_21P.wav | take 1; 0.429438–1.529438 s; ×1.0 |
+| `weapons/shotgun/shot_1.wav` | Nova/O_21P.wav | take 2; 3.463958–4.563958 s; ×1.0 |
+| `weapons/shotgun/shot_2.wav` | Nova/O_17P.wav | take 1; 0.692375–1.792375 s; ×1.0 |
+| `weapons/shotgun/shot_3.wav` | Nova/O_17P.wav | take 6; 3.705583–4.805583 s; ×1.0 |
 | `casings/brass_small_0.wav` | synthesis: brass_small, 5 inharmonic modes, 3 impacts + grit | seed 104729 |
 | `casings/brass_small_1.wav` | synthesis: brass_small, 5 inharmonic modes, 3 impacts + grit | seed 104730 |
 | `casings/brass_small_2.wav` | synthesis: brass_small, 5 inharmonic modes, 3 impacts + grit | seed 104731 |
@@ -71,12 +73,12 @@ A4 voice edits, gore/player synthesis and UI edits are dedicated to CC0 1.0. Ori
 | `explosions/grenade_1.wav` | synthesis: 49-66 Hz sub, filtered blast, rumble, reflections, debris | seed 105730 |
 | `explosions/grenade_2.wav` | synthesis: 49-66 Hz sub, filtered blast, rumble, reflections, debris | seed 105731 |
 | `explosions/grenade_3.wav` | synthesis: 49-66 Hz sub, filtered blast, rumble, reflections, debris | seed 105732 |
-| `weapons/launcher/shot_0.wav` | weapons/shotgun/shot_0.wav + synthesized thump | ×0.57 |
-| `weapons/rail/shot_0.wav` | synthesis: broadband electrical crack + descending whip | seed 106729 |
-| `weapons/launcher/shot_1.wav` | weapons/shotgun/shot_1.wav + synthesized thump | ×0.585 |
-| `weapons/rail/shot_1.wav` | synthesis: broadband electrical crack + descending whip | seed 106730 |
-| `weapons/launcher/shot_2.wav` | weapons/shotgun/shot_2.wav + synthesized thump | ×0.6 |
-| `weapons/rail/shot_2.wav` | synthesis: broadband electrical crack + descending whip | seed 106731 |
+| `weapons/launcher/shot_0.wav` | weapons/shotgun/shot_0.wav + synthesized thump + W4 body/reflections | ×0.57 |
+| `weapons/rail/shot_0.wav` | synthesis: broadband electrical crack + descending whip + W4 body/reflections | seed 106729 |
+| `weapons/launcher/shot_1.wav` | weapons/shotgun/shot_1.wav + synthesized thump + W4 body/reflections | ×0.585 |
+| `weapons/rail/shot_1.wav` | synthesis: broadband electrical crack + descending whip + W4 body/reflections | seed 106730 |
+| `weapons/launcher/shot_2.wav` | weapons/shotgun/shot_2.wav + synthesized thump + W4 body/reflections | ×0.6 |
+| `weapons/rail/shot_2.wav` | synthesis: broadband electrical crack + descending whip + W4 body/reflections | seed 106731 |
 | `weapons/pistol/mag_out_0.wav` | Master Tracks/1911/A_3.wav | take 1; 1.152167–1.423333 s; ×1.0 |
 | `weapons/pistol/mag_out_1.wav` | Master Tracks/1911/A_3.wav | take 1; 1.152167–1.423333 s; ×1.015 |
 | `weapons/pistol/mag_in_0.wav` | Master Tracks/1911/A_4.wav | take 1; 0.895062–0.959688 s; ×1.0 |
@@ -125,36 +127,36 @@ A4 voice edits, gore/player synthesis and UI edits are dedicated to CC0 1.0. Ori
 | `weapons/revolver/cyl_close_1.wav` | Master Tracks/Smith & Wesson 642/V_10.wav | take 1; 1.440438–1.572188 s; ×1.015 |
 | `weapons/revolver/dry_0.wav` | Master Tracks/Smith & Wesson 642/V_5.wav | take 1; 1.544021–1.575125 s; ×1.0 |
 | `weapons/revolver/dry_1.wav` | Master Tracks/Smith & Wesson 642/V_5.wav | take 1; 1.544021–1.575125 s; ×1.015 |
-| `weapons/rifle/tail_0.wav` | AK-47/C_28P.wav | take 1; 0.761167–1.811167 s; ×1.0 |
-| `weapons/rifle/tail_1.wav` | AK-47/C_28P.wav | take 2; 3.407354–4.537354 s; ×1.0 |
-| `weapons/rifle/tail_2.wav` | AK-47/C_28P.wav | take 3; 6.170667–7.380667 s; ×1.0 |
-| `weapons/smg/tail_0.wav` | PPSh/P_30P.wav | take 1; 1.118854–2.168854 s; ×1.0 |
-| `weapons/smg/tail_1.wav` | PPSh/P_30P.wav | take 2; 4.537208–5.667208 s; ×1.0 |
-| `weapons/smg/tail_2.wav` | PPSh/P_30P.wav | take 3; 8.392583–9.602583 s; ×1.0 |
-| `weapons/m4/shot_0.wav` | AR-15/D_32P.wav | take 1; 0.702229–1.002229 s; ×1.0 |
-| `weapons/m4/shot_1.wav` | AR-15/D_32P.wav | take 2; 5.645917–5.945917 s; ×1.0 |
-| `weapons/m4/shot_2.wav` | AR-15/D_32P.wav | take 1; 0.702229–1.002229 s; ×0.982 |
-| `weapons/m4/shot_3.wav` | AR-15/D_32P.wav | take 2; 5.645917–5.945917 s; ×1.021 |
-| `weapons/shkval/shot_0.wav` | Model 12/K_22P.wav | take 1; 0.840625–1.440625 s; ×1.0 |
-| `weapons/shkval/shot_1.wav` | Model 12/K_22P.wav | take 2; 7.443875–8.043875 s; ×1.0 |
-| `weapons/shkval/shot_2.wav` | Model 12/K_22P.wav | take 1; 0.840625–1.440625 s; ×0.982 |
-| `weapons/shkval/shot_3.wav` | Model 12/K_22P.wav | take 2; 7.443875–8.043875 s; ×1.021 |
-| `weapons/guard/shot_0.wav` | Walther PPQ/X_39P.wav | take 1; 1.405417–1.905417 s; ×1.0 |
-| `weapons/guard/shot_1.wav` | Walther PPQ/X_39P.wav | take 2; 6.442792–6.942792 s; ×1.0 |
-| `weapons/guard/shot_2.wav` | Walther PPQ/X_39P.wav | take 3; 10.658729–11.158729 s; ×1.0 |
-| `weapons/guard/shot_3.wav` | Walther PPQ/X_39P.wav | take 1; 1.405417–1.905417 s; ×1.021 |
-| `weapons/cowboy/shot_0.wav` | Ruger Single Six/S_14P.wav | take 1; 0.666063–0.966063 s; ×1.0 |
-| `weapons/cowboy/shot_1.wav` | Ruger Single Six/S_14P.wav | take 3; 5.452958–5.752958 s; ×1.0 |
-| `weapons/cowboy/shot_2.wav` | Ruger Single Six/S_14P.wav | take 1; 0.666063–0.966063 s; ×0.982 |
-| `weapons/cowboy/shot_3.wav` | Ruger Single Six/S_14P.wav | take 3; 5.452958–5.752958 s; ×1.021 |
-| `weapons/osa/shot_0.wav` | Carl Gustav M45/G_31P.wav | take 1; 0.308792–0.508792 s; ×1.0 |
-| `weapons/osa/shot_1.wav` | Carl Gustav M45/G_31P.wav | take 2; 3.499750–3.699750 s; ×1.0 |
-| `weapons/osa/shot_2.wav` | Carl Gustav M45/G_31P.wav | take 3; 6.726229–6.926229 s; ×1.0 |
-| `weapons/osa/shot_3.wav` | Carl Gustav M45/G_31P.wav | take 1; 0.308792–0.508792 s; ×1.021 |
-| `weapons/winchester/shot_0.wav` | Marlin 336/I_22P.wav | take 1; 0.738521–1.638521 s; ×1.0 |
-| `weapons/winchester/shot_1.wav` | Marlin 336/I_22P.wav | take 2; 7.002146–7.902146 s; ×1.0 |
-| `weapons/winchester/shot_2.wav` | Marlin 336/I_22P.wav | take 1; 0.738521–1.638521 s; ×0.982 |
-| `weapons/winchester/shot_3.wav` | Marlin 336/I_22P.wav | take 2; 7.002146–7.902146 s; ×1.021 |
+| `weapons/rifle/tail_0.wav` | AK-47/C_28P.wav | take 1; 0.721167–1.571167 s; ×1.0 |
+| `weapons/rifle/tail_1.wav` | AK-47/C_28P.wav | take 2; 3.367354–4.217354 s; ×1.0 |
+| `weapons/rifle/tail_2.wav` | AK-47/C_28P.wav | take 3; 6.130667–6.980667 s; ×1.0 |
+| `weapons/smg/tail_0.wav` | PPSh/P_30P.wav | take 1; 1.078854–1.728854 s; ×1.0 |
+| `weapons/smg/tail_1.wav` | PPSh/P_30P.wav | take 2; 4.497208–5.147208 s; ×1.0 |
+| `weapons/smg/tail_2.wav` | PPSh/P_30P.wav | take 3; 8.352583–9.002583 s; ×1.0 |
+| `weapons/m4/shot_0.wav` | AR-15/D_32P.wav | take 1; 0.702229–1.502229 s; ×1.0 |
+| `weapons/m4/shot_1.wav` | AR-15/D_32P.wav | take 2; 5.645917–6.445917 s; ×1.0 |
+| `weapons/m4/shot_2.wav` | AR-15/D_24P.wav | take 1; 0.547312–1.347312 s; ×1.0 |
+| `weapons/m4/shot_3.wav` | AR-15/D_24P.wav | take 3; 3.908437–4.708437 s; ×1.0 |
+| `weapons/shkval/shot_0.wav` | Model 12/K_22P.wav | take 1; 0.840625–1.940625 s; ×1.0 |
+| `weapons/shkval/shot_1.wav` | Model 12/K_22P.wav | take 2; 7.443875–8.543875 s; ×1.0 |
+| `weapons/shkval/shot_2.wav` | Model 12/K_17P.wav | take 1; 0.905708–2.005708 s; ×1.0 |
+| `weapons/shkval/shot_3.wav` | Model 12/K_17P.wav | take 5; 7.055542–8.155542 s; ×1.0 |
+| `weapons/guard/shot_0.wav` | Walther PPQ/X_39P.wav | take 1; 1.405417–2.105417 s; ×1.0 |
+| `weapons/guard/shot_1.wav` | Walther PPQ/X_39P.wav | take 2; 6.442792–7.142792 s; ×1.0 |
+| `weapons/guard/shot_2.wav` | Walther PPQ/X_39P.wav | take 3; 10.658729–11.358729 s; ×1.0 |
+| `weapons/guard/shot_3.wav` | Walther PPQ/X_31P.wav | take 1; 1.083792–1.783792 s; ×1.0 |
+| `weapons/cowboy/shot_0.wav` | Ruger Single Six/S_14P.wav | take 1; 0.666063–1.266063 s; ×1.0 |
+| `weapons/cowboy/shot_1.wav` | Ruger Single Six/S_14P.wav | take 3; 5.452958–6.052958 s; ×1.0 |
+| `weapons/cowboy/shot_2.wav` | Ruger Single Six/S_11P.wav | take 1; 0.599083–1.199083 s; ×1.0 |
+| `weapons/cowboy/shot_3.wav` | Ruger Single Six/S_11P.wav | take 4; 4.912083–5.512083 s; ×1.0 |
+| `weapons/osa/shot_0.wav` | Carl Gustav M45/G_31P.wav | take 1; 0.308792–0.958792 s; ×1.0 |
+| `weapons/osa/shot_1.wav` | Carl Gustav M45/G_31P.wav | take 2; 3.499750–4.149750 s; ×1.0 |
+| `weapons/osa/shot_2.wav` | Carl Gustav M45/G_31P.wav | take 3; 6.726229–7.376229 s; ×1.0 |
+| `weapons/osa/shot_3.wav` | Carl Gustav M45/G_20P.wav | take 1; 0.346208–0.996208 s; ×1.0 |
+| `weapons/winchester/shot_0.wav` | Marlin 336/I_22P.wav | take 1; 0.738521–1.838521 s; ×1.0 |
+| `weapons/winchester/shot_1.wav` | Marlin 336/I_22P.wav | take 2; 7.002146–8.102146 s; ×1.0 |
+| `weapons/winchester/shot_2.wav` | Marlin 336/I_17P.wav | take 1; 0.600896–1.700896 s; ×1.0 |
+| `weapons/winchester/shot_3.wav` | Marlin 336/I_17P.wav | take 4; 6.842604–7.942604 s; ×1.0 |
 | `weapons/m4/mag_out_0.wav` | Master Tracks/AR-15/D_5.wav | take 1; 1.200750–1.700000 s; ×1.0 |
 | `weapons/m4/mag_out_1.wav` | Master Tracks/AR-15/D_3.wav | take 2; 3.813938–4.032938 s; ×1.0 |
 | `weapons/m4/mag_in_0.wav` | Master Tracks/AR-15/D_4.wav | take 1; 0.952375–1.400000 s; ×1.0 |
@@ -308,3 +310,8 @@ A4 voice edits, gore/player synthesis and UI edits are dedicated to CC0 1.0. Ori
 | `ui/confirm_1.wav` | weapons/rifle/dry_0.wav + weapons/pistol/dry_0.wav x1.28 (A2 mechanics), two clicks 75 ms apart | ×1.28 |
 | `ui/deny_0.wav` | weapons/revolver/dry_0.wav x0.6 (A2 mechanics), lowpass 1.1 kHz + dull thud, two soft knocks | seed 144229 |
 | `ui/deny_1.wav` | weapons/revolver/dry_0.wav x0.52 (A2 mechanics), lowpass 1.1 kHz + dull thud, two soft knocks | seed 144230 |
+| `weapons/m4/tail_0.wav` | AR-15/D_32P.wav | take 1; 0.813729–1.663729 s; ×1.0 |
+| `weapons/m4/tail_1.wav` | AR-15/D_32P.wav | take 2; 5.757417–6.607417 s; ×1.0 |
+| `weapons/osa/tail_0.wav` | Carl Gustav M45/G_31P.wav | take 1; 0.420292–1.070292 s; ×1.0 |
+| `weapons/osa/tail_1.wav` | Carl Gustav M45/G_31P.wav | take 2; 3.611250–4.261250 s; ×1.0 |
+| `weapons/osa/tail_2.wav` | Carl Gustav M45/G_31P.wav | take 3; 6.837729–7.487729 s; ×1.0 |

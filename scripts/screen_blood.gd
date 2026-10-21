@@ -19,7 +19,7 @@ var _time := 0.0
 
 ## strength 0..1; from — направление события на экране (капли кучнее с той стороны).
 func splash(strength: float, from := Vector2.ZERO) -> void:
-	if gore_multiplier <= 0.18:
+	if not Meta.settings["screen_blood"]:
 		return
 	var n := roundi((4 + strength * 10) * gore_multiplier)
 	var view := size / _ui() # рисуем в «игровых» пикселях, как HUD
@@ -39,7 +39,7 @@ func splash(strength: float, from := Vector2.ZERO) -> void:
 
 
 func _process(delta: float) -> void:
-	if gore_multiplier <= 0.18:
+	if not Meta.settings["screen_blood"]:
 		while not _pos.is_empty():
 			_remove(_pos.size() - 1)
 	_time += delta
@@ -94,7 +94,7 @@ func _draw() -> void:
 			PixelArt.draw_dot(self, p + Vector2(cos(ang), sin(ang)) * r * 1.8, r * 0.18, c)
 	if low_hp > 0.0:
 		# виньетка пульсирует, как сердцебиение
-		var pulse := 0.75 + 0.25 * pow(maxf(sin(_time * 7.0), 0.0), 4.0)
+		var pulse := 1.0 if not Meta.settings["screen_flashes"] else 0.75 + 0.25 * pow(maxf(sin(_time * 7.0), 0.0), 4.0)
 		var a := low_hp * 0.5 * pulse
 		var w := size.x / ui
 		var h := size.y / ui
