@@ -29,8 +29,12 @@ const LIMITS := [
 	["jam_deep_pct", "<=", 3.0, "ZAI4"], # 13,3 / 12,4 → 0 / 0
 	["jam_ovl", "<=", 0.12, "ZAI4"], # 0,189 / 0,181 → 0,093 / 0,074
 	["move_face_bad_pct", "<=", 8.0, "ZAI4"], # 16,6 / 14,5 → 6,3 / 4,5
+	# ZAI5 — видимость в поле, штраф у длинных стен (до ZAI5 → после)
+	["move_mode_back_pct", "<=", 0.3, "ZAI5"], # 0,19 / 0,55 → 0,06 / 0,17 (смена режима, отменённая за 0,5 с)
+	["far_mode_back_pct", "<=", 0.3, "ZAI5"], # 0,17 / 0,29 → 0,14 / 0,07
+	["start_long_x", "<=", 1.5, "ZAI5"], # 0 / 0 → 0 / 0 (у домов и заборов к равномерной толпе; машины — PF1, вплотную)
 ]
-const ACTIVE := ["ZAI2", "ZAI3", "ZAI4"]
+const ACTIVE := ["ZAI2", "ZAI3", "ZAI4", "ZAI5"]
 
 var game
 var horde: Horde
@@ -102,6 +106,8 @@ func _scenario_run(map_id: String, scenario: String) -> void:
 	_follow()
 	game._pathing_warm(5.0, player.position)
 	M = {}
+	_modes = {}
+	_mode_flip_t = {}
 	_counting = false
 	_tick = 0
 	var duration := 50.0
@@ -142,6 +148,8 @@ func _scenario_run(map_id: String, scenario: String) -> void:
 			_follow()
 		obstacles.navigation_step(DT, player.position)
 		horde._physics_process(DT)
+		if tick % 6 == 5:
+			_mode_sample()
 		if tick % 30 == 29:
 			_slow_sample(t)
 			for i in horde.count:
@@ -296,7 +304,41 @@ func _fast_sample() -> void:
 			_w_n[i] = 0
 
 
+var _modes := {} # uid → режим прошлого замера (1 — прямо, 2 — по полю)
+var _mode_flip_t := {} # uid → время последней смены режима
 var _p05 := {}
+
+
+## ZAI5: режим «прямо / по полю» раз в 0,1 с у особей дальше 90 px — доля смен между соседними замерами.
+func _mode_sample() -> void:
+	var pp := player.global_position
+	var cur := {}
+	for i in horde.count:
+		if horde.dead[i] == 1 or horde.pos[i].distance_to(pp) <= 90.0:
+			continue
+		var u: int = horde.uid[i]
+		var m := 1 if horde.steer[i] == Vector2.ZERO else 2
+		cur[u] = m
+		if _counting and _modes.has(u):
+			_add("mode_n", 1.0)
+			if int(_modes[u]) != m:
+				_add("mode_flip", 1.0)
+				# Мельтешение: смена режима, отменённая быстрее 0,5 с.
+				if _mode_flip_t.has(u) and _tick * DT - float(_mode_flip_t[u]) < 0.5:
+					_add("mode_back", 1.0)
+				_mode_flip_t[u] = _tick * DT
+				if OS.get_cmdline_user_args().has("--crowd-debug"):
+					var q: Vector2 = horde.pos[i]
+					var c := obstacles.cell_at(q)
+					_add("dbg_flip_d%d" % mini(int(q.distance_to(pp) / 100.0), 7), 1.0)
+					_add("dbg_flip_od%d" % mini(int(obstacles.obstacle_distance[c] / 4.0), 5), 1.0)
+					_add("dbg_flip_to%d" % m, 1.0)
+					var k := obstacles.radius_class(horde.radius[i])
+					var los: PackedByteArray = obstacles._nav_layers[k]["los"]
+					_add("dbg_flip_los%d" % (los[c] if c < los.size() else 9), 1.0)
+					var dist: PackedInt32Array = obstacles._nav_layers[k]["distance"]
+					_add("dbg_flip_nopath", 1.0 if c >= dist.size() or dist[c] == Obstacles.NO_PATH else 0.0)
+	_modes = cur
 
 
 func _slow_sample(t: float) -> void:
@@ -365,6 +407,7 @@ func _slow_sample(t: float) -> void:
 			var c := obstacles.cell_at(q)
 			if obstacles.obstacle_distance[c] < 16.0 and obstacles.obstacle_distance[obstacles.cell_at(q + obstacles.wall_normal[c] * 24.0)] >= 28.0:
 				_add("wall_hug", 1.0)
+				_add("wall_hug_long", float(obstacles.long_wall[c]))
 		if d < 200.0:
 			for j in horde.query_radius(q, horde.radius[i]):
 				if j == i:
@@ -396,6 +439,7 @@ func _slow_sample(t: float) -> void:
 			_add("area_n", 1.0)
 			if obstacles.obstacle_distance[c] < 16.0 and obstacles.obstacle_distance[obstacles.cell_at(q + obstacles.wall_normal[c] * 24.0)] >= 28.0:
 				_add("area_hug", 1.0)
+				_add("area_hug_long", float(obstacles.long_wall[c]))
 
 
 func _quant(key: String, q: float) -> float:
@@ -428,19 +472,24 @@ func _report() -> void:
 		"move":
 			var r := {"move_stall_pct": snappedf(_ratio("stall", "stall_n", 100.0), 0.1), "move_face_bad_pct": snappedf(_ratio("face_bad", "face_n", 100.0), 0.1),
 				"move_cover": snappedf(_ratio("cover_sum", "samples"), 0.01), "move_tan_rad": snappedf(_ratio("ring_tan", "ring_rad"), 0.01),
-				"move_runner_eff": snappedf(_ratio("runner_eff", "runner_n"), 0.01), "move_turn_deg": snappedf(_ratio("turn_sum", "turn_n"), 0.1)}
+				"move_runner_eff": snappedf(_ratio("runner_eff", "runner_n"), 0.01), "move_turn_deg": snappedf(_ratio("turn_sum", "turn_n"), 0.1),
+				"move_mode_flip_pct": snappedf(_ratio("mode_flip", "mode_n", 100.0), 0.01),
+				"move_mode_back_pct": snappedf(_ratio("mode_back", "mode_n", 100.0), 0.01)}
 			line = JSON.stringify(r)
 			for key in r:
 				_check(key, r[key])
 		"start":
 			var r := {"spawn_view": float(M.get("spawn_view", 0.0)), "spawn_n": float(M.get("spawn_n", 0.0)),
 				"start_spawn_d_p50": snappedf(_quant("spawn_d", 0.5), 1.0), "start_ttc_p50": snappedf(_quant("ttc", 0.5), 0.1),
-				"start_ttc_n": float(_list("ttc").size()), "start_wall_x": snappedf(_ratio("wall_hug", "wall_n") / maxf(_ratio("area_hug", "area_n"), 0.0001), 0.01)}
+				"start_ttc_n": float(_list("ttc").size()), "start_wall_x": snappedf(_ratio("wall_hug", "wall_n") / maxf(_ratio("area_hug", "area_n"), 0.0001), 0.01),
+				"start_long_x": snappedf(_ratio("wall_hug_long", "wall_n") / maxf(_ratio("area_hug_long", "area_n"), 0.0001), 0.01)}
 			line = JSON.stringify(r)
 			for key in r:
 				_check(key, r[key])
 		"far":
-			var r := {"far_pct": snappedf(_ratio("far_sum", "alive_sum", 100.0), 0.1), "spawn_view": float(M.get("spawn_view", 0.0))}
+			var r := {"far_pct": snappedf(_ratio("far_sum", "alive_sum", 100.0), 0.1), "spawn_view": float(M.get("spawn_view", 0.0)),
+				"far_mode_flip_pct": snappedf(_ratio("mode_flip", "mode_n", 100.0), 0.01),
+				"far_mode_back_pct": snappedf(_ratio("mode_back", "mode_n", 100.0), 0.01)}
 			line = JSON.stringify(r)
 			for key in r:
 				_check(key, r[key])

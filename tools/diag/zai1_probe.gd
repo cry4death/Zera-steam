@@ -401,7 +401,8 @@ func _wall_sample() -> void:
 	var pp: Vector2 = game.player.global_position
 	if WL.is_empty():
 		for key in ["n_direct", "n_field", "near_direct", "near_field", "hug_direct", "hug_field", "par_direct", "par_field",
-				"area_n", "area_near", "area_hug", "nb_hug", "nb_hug_n", "nb_open", "nb_open_n", "samples"]:
+				"area_n", "area_near", "area_hug", "nb_hug", "nb_hug_n", "nb_open", "nb_open_n", "samples",
+				"hugL_direct", "hugL_field", "area_hugL"]:
 			WL[key] = 0.0
 	var cur := {}
 	var counting := _t >= _warm
@@ -428,6 +429,7 @@ func _wall_sample() -> void:
 			var normal: Vector2 = ob.wall_normal[c]
 			if ob.obstacle_distance[ob.cell_at(q + normal * 24.0)] >= 28.0:
 				WL["hug_" + m] += 1.0
+				WL["hugL_" + m] += _long(ob, c) # ZAI5: у длинной стены (дом, забор) против машин и блоков
 				WL["nb_hug"] += nb
 				WL["nb_hug_n"] += 1.0
 				if absf(v.normalized().dot(normal)) < 0.4:
@@ -452,6 +454,37 @@ func _wall_sample() -> void:
 			WL["area_near"] += 1.0
 			if ob.obstacle_distance[ob.cell_at(q + ob.wall_normal[c] * 24.0)] >= 28.0:
 				WL["area_hug"] += 1.0
+				WL["area_hugL"] += _long(ob, c)
+
+
+var _long_cache := {}
+
+
+## Ближайшее препятствие клетки — дом или забор. В ZAI5 это obstacles.long_wall; до ZAI5 считаем так же сами.
+func _long(ob, c: int) -> int:
+	if "long_wall" in ob:
+		return ob.long_wall[c]
+	if _long_cache.has(c):
+		return _long_cache[c]
+	var center: Vector2 = ob.cell_center(c)
+	var gap := 40.0
+	var nearest := -1
+	var link: int = ob.near_head[c]
+	while link != -1:
+		var i: int = ob._link_obj[link]
+		link = ob._link_next[link]
+		if ob.state[i] == Obstacles.State.GONE:
+			continue
+		var q: Vector2 = ob._local(i, center)
+		var hv: Vector2 = ob.half[i]
+		var v := q.abs() - hv
+		var d := q.length() - hv.x if ob.round_shape[i] == 1 else v.max(Vector2.ZERO).length() + minf(maxf(v.x, v.y), 0.0)
+		if d < gap:
+			gap = d
+			nearest = i
+	var res := 1 if nearest >= 0 and (ob.kind[nearest] == Obstacles.Kind.STRUCTURE or ob.kind[nearest] == Obstacles.Kind.FENCE) else 0
+	_long_cache[c] = res
+	return res
 
 
 func _wall_summary() -> void:
@@ -468,6 +501,13 @@ func _wall_summary() -> void:
 	var all_n: float = maxf(WL["n_direct"] + WL["n_field"], 1.0)
 	out["all_hug_x_area"] = snappedf((WL["hug_direct"] + WL["hug_field"]) / all_n / maxf(area_hug, 0.0001), 0.01)
 	out["field_share_pct"] = snappedf(100.0 * WL["n_field"] / all_n, 0.1)
+	# ZAI5: отдельно длинные стены (дом, забор — штраф пути) и машины с блоками (PF1 — обход вплотную)
+	var area_l: float = WL["area_hugL"] / maxf(WL["area_n"], 1.0)
+	var area_c: float = (WL["area_hug"] - WL["area_hugL"]) / maxf(WL["area_n"], 1.0)
+	out["long_x_area"] = snappedf((WL["hugL_direct"] + WL["hugL_field"]) / all_n / maxf(area_l, 0.0001), 0.01)
+	out["car_x_area"] = snappedf((WL["hug_direct"] + WL["hug_field"] - WL["hugL_direct"] - WL["hugL_field"]) / all_n / maxf(area_c, 0.0001), 0.01)
+	out["field_long_x_area"] = snappedf(WL["hugL_field"] / maxf(WL["n_field"], 1.0) / maxf(area_l, 0.0001), 0.01)
+	out["area_long_pct"] = snappedf(100.0 * area_l, 0.1)
 	out["neighbors10_hug"] = snappedf(WL["nb_hug"] / maxf(WL["nb_hug_n"], 1.0), 0.01)
 	out["neighbors10_open"] = snappedf(WL["nb_open"] / maxf(WL["nb_open_n"], 1.0), 0.01)
 	print("ZAI1P wall ", JSON.stringify(out))

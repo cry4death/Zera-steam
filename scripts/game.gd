@@ -7380,12 +7380,12 @@ func _run_pathing_test() -> void:
 	for spacing in [74.0, 78.0]:
 		var row := _pathing_row_flow(spacing)
 		checks += 1
-		# ZAI2: прямой подход пока пускает луч не чаще раза в 4 тика на агента (ZAI5 вернёт ноль).
-		var flow_ok: bool = row["queries"] <= row["query_budget"] and row["penetrations"] == 0 and row["oversized"] == 0 and row["left"] >= (1 if spacing < 75 else 10) and row["right"] >= (1 if spacing < 75 else 10) and row["inner"] >= (row["eligible"] * 0.6 if spacing < 75 else 30)
+		# ZAI5: видимость цели считает поле — агенты лучей не пускают.
+		var flow_ok: bool = row["queries"] == 0 and row["penetrations"] == 0 and row["oversized"] == 0 and row["left"] >= (1 if spacing < 75 else 10) and row["right"] >= (1 if spacing < 75 else 10) and row["inner"] >= (row["eligible"] * 0.6 if spacing < 75 else 30)
 		if not flow_ok:
 			failed += 1
 		print("PATHINGTEST row spacing=%.1f gap=%.3f eligible=%d left=%d right=%d inner=%d outer=%d oversized=%d penetrations=%d ok=%s" % [spacing, spacing * cos(0.12) - 64.0, row["eligible"], row["left"], row["right"], row["inner"], row["outer"], row["oversized"], row["penetrations"], flow_ok])
-		print("PATHINGTEST shared layers=%d agent_queries=%d budget=%d" % [obstacles._nav_layers.size(), row["queries"], row["query_budget"]])
+		print("PATHINGTEST shared layers=%d agent_queries=%d" % [obstacles._nav_layers.size(), row["queries"]])
 	for map_id: String in MapLoader.IDS:
 		var data := MapLoader.load_map(map_id)
 		var rect := Rect2(Vector2.ZERO, data["size"])
@@ -7478,7 +7478,6 @@ func _pathing_row_flow(spacing: float) -> Dictionary:
 				else:
 					result["outer"] += 1
 	result["queries"] = obstacles.path_calls + obstacles.body_calls + obstacles.ray_calls
-	result["query_budget"] = 65 * 600 / 4
 	obstacles.profile_enabled = false
 	return result
 

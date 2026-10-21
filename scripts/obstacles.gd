@@ -15,6 +15,14 @@ const FLOW_BUDGET := 600 # было 200: поле на большой карте
 const CLASS_RADII := [4.6, 5.4, 7.95]
 const STEPS := [Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, -1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(1, 1)]
 const NO_PATH := 2147483647
+# ZAI5: поле путей v2. Штраф у стен в весах — путь идёт серединой прохода, а не цепочкой вдоль домов (З4).
+# Только у длинных стен (дома, заборы): машины, блоки и бочки огибаются вплотную, как требует PF1.
+const WALL_PEN_R := 24.0
+const WALL_PEN_MAX := 10.0
+# Видимость цели считается в самом поле (флаг клетки «видит игрока» для класса) — лучей у агентов нет (R10).
+const LOS_RANGE := 700.0 # как Horde.DIRECT_RANGE
+const LOS_MARGIN := 4.0 # запас к радиусу класса: прямая проходит не через центр клетки
+const FLOW_BOUND_MARGIN := 400 # R11: волна Дейкстры — до самой дальней особи/входа + запас (стоимость)
 ## Частый пересчёт основного класса — только в окрестности игрока (≈720 px пути); дальше остаются прежние
 ## направления, их обновляет полный пересчёт раз в три цикла.
 const LOCAL_COST := 900
@@ -66,6 +74,7 @@ var _task_ids := PackedInt64Array()
 var _task_out: Array[Dictionary] = []
 var _task_target := -1
 var _task_generation := 0
+var _task_seeds := PackedInt32Array([-1, -1, -1]) # клетка цели по классам — для видимости у стены
 var _nav_generation := 0
 var _unbounded := true # текущий цикл пересчитывает всю карту
 var _pending_target := -1
@@ -73,6 +82,7 @@ var nav_revision := 0
 var _nav_layers: Dictionary = {}
 var _clearance := PackedFloat32Array()
 var obstacle_distance := PackedFloat32Array()
+var long_wall := PackedByteArray() # ближайшее препятствие клетки — длинная стена (дом, забор): штраф пути (ZAI5)
 var wall_normal := PackedVector2Array()
 var _solid_state := PackedByteArray()
 var _buckets: Array[Array] = []
@@ -90,6 +100,8 @@ var _sample_capacity := INF
 var _offsets := PackedInt32Array()
 var _dirty := true
 var _next_flow := PackedVector2Array()
+var _next_los := PackedByteArray() # пошаговый расчёт: флаг видимости цели (R10)
+var _build_seed := -1
 var _adjacency := PackedInt32Array()
 var _building := false
 var _target_cell := -1
@@ -304,6 +316,8 @@ func setup(rect: Rect2, layout: Array[Dictionary]) -> void:
 	_adjacency.resize(n * 4)
 	_clearance.resize(n)
 	obstacle_distance.resize(n)
+	long_wall.resize(n)
+	long_wall.fill(0)
 	wall_normal.resize(n)
 	_next_anchor.resize(n)
 	_next_capacity.resize(n)
@@ -400,7 +414,7 @@ func rebuild_grid(removed_only := false, added := -1) -> void:
 			capacity.resize(blocked.size())
 			var weights := PackedByteArray()
 			weights.resize(blocked.size() * 8)
-			_nav_layers[k] = {"points": points, "valid": valid, "edges": edges, "weights": weights, "capacity": capacity, "ready": false, "flow": PackedVector2Array(), "anchor": PackedVector2Array(), "distance": PackedInt32Array(), "path_capacity": PackedFloat32Array()}
+			_nav_layers[k] = {"points": points, "valid": valid, "edges": edges, "weights": weights, "capacity": capacity, "ready": false, "flow": PackedVector2Array(), "anchor": PackedVector2Array(), "distance": PackedInt32Array(), "path_capacity": PackedFloat32Array(), "los": PackedByteArray()}
 	# Усечённое поле расстояния: точная граница OBB/кругов в полосе 40 ед.
 	# В дальней зоне расстояние насыщено; разрушение обновляет только эту полосу.
 	for y in range(dirty_rect.position.y, dirty_rect.end.y):
@@ -409,6 +423,7 @@ func rebuild_grid(removed_only := false, added := -1) -> void:
 			var center := cell_center(c)
 			var gap := 40.0
 			var normal := Vector2.ZERO
+			var nearest := -1
 			var link := near_head[c]
 			while link != -1:
 				var i := _link_obj[link]
@@ -420,11 +435,13 @@ func rebuild_grid(removed_only := false, added := -1) -> void:
 				var d := q.length() - half[i].x if round_shape[i] == 1 else v.max(Vector2.ZERO).length() + minf(maxf(v.x, v.y), 0.0)
 				if d < gap:
 					gap = d
+					nearest = i
 					var n := q.normalized() if round_shape[i] == 1 else (q - q.clamp(-half[i], half[i])).normalized()
 					if n == Vector2.ZERO:
 						n = Vector2(signf(q.x), 0) if v.x > v.y else Vector2(0, signf(q.y))
 					normal = axis[i] * n.x + axis[i].orthogonal() * n.y
 			obstacle_distance[c] = gap
+			long_wall[c] = 1 if nearest >= 0 and (kind[nearest] == Kind.STRUCTURE or kind[nearest] == Kind.FENCE) else 0
 			wall_normal[c] = normal
 			_clearance[c] = gap - CELL * 0.707107 - 0.025
 	for k in 3:
@@ -472,7 +489,8 @@ func rebuild_grid(removed_only := false, added := -1) -> void:
 					# Запас покрывает выход уточнённых точек за исходную клетку.
 					if minf(_clearance[c], _clearance[next]) >= r + CELL * 1.5 or _body_clear(points[c], points[next], r):
 						edges[c] |= 1 << d
-						weights[c * 8 + d] = maxi(1, roundi(points[c].distance_to(points[next]) * 1.25))
+						var wall := clampf((WALL_PEN_R - obstacle_distance[next]) / WALL_PEN_R, 0.0, 1.0) * long_wall[next]
+						weights[c * 8 + d] = maxi(1, roundi(points[c].distance_to(points[next]) * 1.25 + wall * WALL_PEN_MAX))
 		layer["points"] = points
 		layer["valid"] = valid
 		layer["edges"] = edges
@@ -778,8 +796,10 @@ func steering(p: Vector2, direct: Vector2, r := 5.0, _target := Vector2.INF) -> 
 	if p.distance_squared_to(_flow_target) < CELL * CELL * 2.0:
 		return slide_wall(p, direct, r)
 	var direction := dirs[c]
-	if near_head[c] != -1:
-		# Уточнённая точка ведёт в щель; толпа не тянет тело к центру кузова.
+	var gap_capacity: PackedFloat32Array = layer["capacity"]
+	if near_head[c] != -1 and gap_capacity[c] < r * 2.0:
+		# Уточнённая точка ведёт в щель (уже двух диаметров); толпа не тянет тело к центру кузова.
+		# Вне щелей притяжения к отрезку нет — иначе толпа строилась цепочкой вдоль стен (З4, ZAI5).
 		var on_path := Geometry2D.get_closest_point_to_segment(p, points[c], anchors[c])
 		direction = (direction + (on_path - p) * 0.25).normalized()
 	else:
@@ -792,6 +812,37 @@ func steering(p: Vector2, direct: Vector2, r := 5.0, _target := Vector2.INF) -> 
 		if smooth.dot(direction) > 0.0:
 			direction = smooth.normalized()
 	return slide_wall(p, direction, r, true)
+
+
+## Клетка видит цель поля по прямой для тела радиуса r (флаг считается вместе с полем, R10).
+## Клетка у стены (уже радиуса класса + запас) флага не получает; она видит цель, если видна клетка на шаг ближе
+## к цели и тело туда проходит — иначе прижатые к стене шли бы по полю вдоль неё, хотя игрок на виду.
+func sees_target(p: Vector2, r: float) -> bool:
+	var layer: Dictionary = _nav_layers[radius_class(r)]
+	if not layer["ready"]:
+		return false
+	var los: PackedByteArray = layer["los"]
+	var c := cell_at(p)
+	if c >= los.size():
+		return false
+	if los[c] == 1:
+		return true
+	var seed_cell: int = layer.get("los_seed", -1)
+	if seed_cell < 0:
+		return false
+	var dx := signi(seed_cell % grid_w - c % grid_w)
+	var dy := signi(seed_cell / grid_w - c / grid_w)
+	var adx := absi(seed_cell % grid_w - c % grid_w)
+	var ady := absi(seed_cell / grid_w - c / grid_w)
+	if adx > ady * 2:
+		dy = 0
+	elif ady > adx * 2:
+		dx = 0
+	var d := STEPS.find(Vector2i(dx, dy))
+	if d < 0:
+		return false
+	var edges: PackedByteArray = layer["edges"]
+	return edges[c] & (1 << d) != 0 and los[c + _offsets[d]] == 1
 
 
 func slide_wall(p: Vector2, direction: Vector2, r: float, hold_contour := false) -> Vector2:
@@ -834,6 +885,10 @@ func _begin_class() -> void:
 	if valid[c] == 0:
 		c = cell_at(free_point(cell_center(c), CLASS_RADII[_build_class] + 0.1))
 	_distance_build.fill(NO_PATH)
+	_next_los.resize(blocked.size())
+	_next_los.fill(0)
+	_next_los[c] = 1
+	_build_seed = c
 	_local_build = layer["ready"] and not _unbounded
 	if _local_build:
 		_next_flow = (layer["flow"] as PackedVector2Array).duplicate()
@@ -856,6 +911,25 @@ func _begin_class() -> void:
 	_bucket_cost = 0
 	_bucket_count = 0
 	_heap_push(c)
+
+
+## Пошаговый расчёт: тот же флаг видимости, что в _flow_layer (клетка уже финальна при снятии из очереди).
+func _los_step(at: int, los_r: float) -> void:
+	if at == _build_seed or obstacle_distance[at] < los_r:
+		return
+	var dx := _build_seed % grid_w - at % grid_w
+	var dy := _build_seed / grid_w - at / grid_w
+	if dx * dx + dy * dy > int(LOS_RANGE * LOS_RANGE / (CELL * CELL)):
+		return
+	var adx := absi(dx)
+	var ady := absi(dy)
+	var step := signi(dx) + signi(dy) * grid_w
+	if adx > ady * 2:
+		step = signi(dx)
+	elif ady > adx * 2:
+		step = signi(dy) * grid_w
+	if _next_los[at + step] == 1:
+		_next_los[at] = 1
 
 
 ## Dijkstra общий на цель и класс; старые поля работают до атомарной смены слоя.
@@ -898,6 +972,7 @@ func navigation_step(delta: float, target: Vector2) -> void:
 			if _local_build and cost > LOCAL_COST:
 				_bucket_count = 0
 				break
+			_los_step(at, CLASS_RADII[_build_class] + LOS_MARGIN)
 			for d in 8:
 				if edges[at] & (1 << d) == 0:
 					continue
@@ -911,6 +986,8 @@ func navigation_step(delta: float, target: Vector2) -> void:
 					_next_capacity[next] = minf(_next_capacity[at], minf(capacity[at], capacity[next]))
 					_heap_push(nd * n + next)
 		if _bucket_count == 0:
+			layer["los"] = _next_los.duplicate()
+			layer["los_seed"] = _build_seed
 			layer["flow"] = _next_flow.duplicate()
 			layer["anchor"] = _next_anchor.duplicate()
 			layer["distance"] = _out_distance.duplicate()
@@ -953,12 +1030,16 @@ func _navigation_threaded(delta: float, target: Vector2) -> void:
 		_task_ids.clear()
 		if _task_generation == _nav_generation:
 			for k in 3:
-				var layer: Dictionary = _nav_layers[k]
 				var out: Dictionary = _task_out[k]
+				if not out.has("flow"):
+					continue # класс не считался: живых этого размера нет (R11)
+				var layer: Dictionary = _nav_layers[k]
 				layer["flow"] = out["flow"]
 				layer["anchor"] = out["anchor"]
 				layer["distance"] = out["distance"]
 				layer["path_capacity"] = out["path_capacity"]
+				layer["los"] = out["los"]
+				layer["los_seed"] = _task_seeds[k]
 				layer["ready"] = true
 				_nav_layers[k] = layer
 			flow = _nav_layers[1]["flow"]
@@ -969,20 +1050,30 @@ func _navigation_threaded(delta: float, target: Vector2) -> void:
 			nav_completed += 1
 	var c := cell_at(target)
 	if _nav_cd <= 0.0 and (_dirty or _target_cell < 0 or c != _target_cell):
+		var full := _dirty or not _flow_ready
 		_dirty = false
-		_nav_cd = 0.05
+		_nav_cd = 0.15 # R11: было 0,05 — три полных Дейкстры почти без перерыва при беге
 		_task_target = c
 		_task_generation = _nav_generation
 		_task_out = []
+		var need := _classes_needed()
+		# R11: мелкий и крупный классы — раз в три цикла (класс 1 — каждый); крупный — только при живых крупных.
+		var minor := full or _rebuild_serial % 3 == 0
+		_rebuild_serial += 1
 		for k in 3:
+			var out := {}
+			_task_out.append(out)
 			var layer: Dictionary = _nav_layers[k]
+			if layer["ready"] and (need[k] == 0 or (k != 1 and not minor)):
+				continue
+			var bound := NO_PATH if full else _flow_bound(target, k)
 			var valid: PackedByteArray = layer["valid"]
 			var seed_cell := c
 			if valid[seed_cell] == 0:
 				seed_cell = cell_at(free_point(cell_center(seed_cell), CLASS_RADII[k] + 0.1))
-			var out := {}
-			_task_out.append(out)
-			var job := _flow_layer.bind(layer["edges"], layer["weights"], layer["points"], layer["capacity"], _offsets, seed_cell, cell_center(seed_cell), out)
+			_task_seeds[k] = seed_cell
+			var job := _flow_layer.bind(layer["edges"], layer["weights"], layer["points"], layer["capacity"], _offsets, seed_cell, cell_center(seed_cell), out,
+				obstacle_distance, grid_w, CLASS_RADII[k] + LOS_MARGIN, bound)
 			_task_ids.append(WorkerThreadPool.add_task(job, false, "flow field"))
 	_note_nav_time(start)
 
@@ -994,10 +1085,64 @@ func _note_nav_time(start: int) -> void:
 	nav_calls += 1
 
 
+## R11: класс 2 (крупные) считаем, только пока живы крупные; классы 0 и 1 нужны всегда — класс 1 берёт
+## поле класса 0 в узких местах (steering). extra_class2 — для боссов (ZAI6).
+var extra_class2 := false
+
+
+func _classes_needed() -> PackedByteArray:
+	var need := PackedByteArray([1, 1, 1 if extra_class2 else 0])
+	if horde == null:
+		need[2] = 1
+		return need
+	for i in horde.count:
+		if horde.dead[i] == 0 and horde.radius[i] > CLASS_RADII[1] - 0.025:
+			need[2] = 1
+			break
+	return need
+
+
+## R11: волна Дейкстры класса k — до самой дальней живой особи этого класса (по прошлому полю класса) + запас.
+## Для класса 1 ещё и до входов, откуда может выйти пачка: ближайший вход за экраном + 400 px на «по ходу» и
+## разброс выбора (approach_point идёт по полю класса 1). Особь или вход вне прошлого поля — полный расчёт.
+func _flow_bound(center: Vector2, k: int) -> int:
+	var layer: Dictionary = _nav_layers[k]
+	var dist: PackedInt32Array = layer["distance"]
+	if horde == null or not layer["ready"] or dist.size() != blocked.size():
+		return NO_PATH
+	var top := 0
+	var big: float = CLASS_RADII[1] + 0.025
+	for i in horde.count:
+		# Классы 0 и 1 — все обычные (класс 1 берёт поле класса 0 в щелях), класс 2 — только крупные.
+		if horde.dead[i] == 1 or (horde.radius[i] > big) != (k == 2):
+			continue
+		var cost := dist[cell_at(horde.pos[i])]
+		if cost == NO_PATH:
+			return NO_PATH
+		top = maxi(top, cost)
+	if k == 1:
+		var view := PixelArt.view_rect(horde, 88.0)
+		var reach := INF
+		for e: Vector2 in horde.map_entries:
+			if not view.has_point(e):
+				reach = minf(reach, center.distance_to(e))
+		reach += 400.0
+		for e: Vector2 in horde.map_entries:
+			if center.distance_to(e) <= reach:
+				var cost := dist[cell_at(e)]
+				if cost == NO_PATH:
+					return NO_PATH
+				top = maxi(top, cost)
+	return top + FLOW_BOUND_MARGIN
+
+
 ## Чистая функция для потока: только аргументы, без узлов и полей объекта. Повторяет пошаговый Дейкстра
-## (кольцевая очередь Дайла на 97 корзин; вес ребра ≤ 80) целиком за один вызов.
+## (кольцевая очередь Дайла на 97 корзин в packed-массивах; вес ребра ≤ 80) целиком за один вызов.
+## Вместе с полем считает флаг «клетка видит цель» для тела радиуса los_r (R10): клетка видна, если сама
+## свободна с запасом и видна соседняя клетка на шаг ближе по прямой к цели. bound — предел стоимости (R11).
 static func _flow_layer(edges: PackedByteArray, weights: PackedByteArray, points: PackedVector2Array, capacity: PackedFloat32Array,
-		offsets: PackedInt32Array, seed_cell: int, seed_point: Vector2, out: Dictionary) -> void:
+		offsets: PackedInt32Array, seed_cell: int, seed_point: Vector2, out: Dictionary,
+		clear := PackedFloat32Array(), gw := 0, los_r := 0.0, bound := NO_PATH) -> void:
 	var n := edges.size()
 	var dist := PackedInt32Array()
 	dist.resize(n)
@@ -1010,22 +1155,50 @@ static func _flow_layer(edges: PackedByteArray, weights: PackedByteArray, points
 	var caps := PackedFloat32Array()
 	caps.resize(n)
 	caps.fill(INF)
-	var buckets: Array[Array] = []
-	for j in 97:
-		buckets.append([])
+	var los := PackedByteArray()
+	los.resize(n)
+	var head := PackedInt32Array()
+	head.resize(97)
+	head.fill(-1)
+	var ent := PackedInt32Array([seed_cell])
+	var nxt := PackedInt32Array([-1])
+	head[0] = 0
 	dist[seed_cell] = 0
-	buckets[0].append(seed_cell)
+	var with_los := gw > 0 and clear.size() == n
+	var sx := seed_cell % gw if gw > 0 else 0
+	var sy := seed_cell / gw if gw > 0 else 0
+	var range2 := int(LOS_RANGE * LOS_RANGE / (CELL * CELL))
 	var count := 1
 	var cost := 0
 	while count > 0:
-		var bucket: Array = buckets[cost % 97]
-		if bucket.is_empty():
+		var b := cost % 97
+		var e := head[b]
+		if e == -1:
 			cost += 1
 			continue
-		var at: int = bucket.pop_back()
+		head[b] = nxt[e]
 		count -= 1
+		var at := ent[e]
 		if dist[at] != cost:
 			continue
+		if cost > bound:
+			break
+		if with_los:
+			if at == seed_cell:
+				los[at] = 1
+			elif clear[at] >= los_r:
+				var dx := sx - at % gw
+				var dy := sy - at / gw
+				if dx * dx + dy * dy <= range2:
+					var adx := absi(dx)
+					var ady := absi(dy)
+					var step := signi(dx) + signi(dy) * gw
+					if adx > ady * 2:
+						step = signi(dx)
+					elif ady > adx * 2:
+						step = signi(dy) * gw
+					if los[at + step] == 1:
+						los[at] = 1
 		var mask := edges[at]
 		for d in 8:
 			if mask & (1 << d) == 0:
@@ -1037,12 +1210,16 @@ static func _flow_layer(edges: PackedByteArray, weights: PackedByteArray, points
 				dirs[next] = (points[at] - points[next]).normalized()
 				anchors[next] = points[at]
 				caps[next] = minf(caps[at], minf(capacity[at], capacity[next]))
-				buckets[nd % 97].append(next)
+				var slot := nd % 97
+				ent.append(next)
+				nxt.append(head[slot])
+				head[slot] = ent.size() - 1
 				count += 1
 	out["flow"] = dirs
 	out["anchor"] = anchors
 	out["distance"] = dist
 	out["path_capacity"] = caps
+	out["los"] = los
 
 
 func _exit_tree() -> void:

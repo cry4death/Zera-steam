@@ -80,6 +80,7 @@ const OVERTAKE_RATIO := 1.3
 const OVERTAKE_COS := 0.8
 const OVERTAKE_SIDE := 0.6 # доля разницы скоростей, с которой быстрый уходит вбок
 const LOD_R := 420.0 # дальше (за экраном) пары считаются через тик
+const MODE_HOLD := 4 # ZAI5: смена «прямо ↔ по полю» — после стольких решений подряд (решение раз в 4 тика, ~0,27 с)
 const CONTACT_GAP := 1.0 # зомби встаёт на кольцо касания игрока с этим зазором
 const ARRIVE := 6.0 # торможение перед кольцом касания
 const SECTOR_R := 30.0 # сектора окружения у игрока (16 штук)
@@ -121,6 +122,7 @@ var knock := PackedVector2Array()
 var steer := PackedVector2Array() # кэш направления обхода (O1), ZERO — прямо
 var _progress_pos := PackedVector2Array()
 var _stuck_time := PackedFloat32Array()
+var _mode_hold := PackedByteArray() # решений подряд против текущего режима (ZAI5)
 var _far_time := PackedFloat32Array() # сколько секунд особь дальше far_distance (R4)
 var _last_player := Vector2.INF
 var player_velocity := Vector2.ZERO # сглаженная скорость игрока: перенос отставших «по ходу»
@@ -227,6 +229,7 @@ func _ready() -> void:
 	pos.resize(MAX_ENEMIES)
 	knock.resize(MAX_ENEMIES)
 	steer.resize(MAX_ENEMIES)
+	_mode_hold.resize(MAX_ENEMIES)
 	_progress_pos.resize(MAX_ENEMIES)
 	_stuck_time.resize(MAX_ENEMIES)
 	_far_time.resize(MAX_ENEMIES)
@@ -394,6 +397,7 @@ func spawn(p: Vector2, k := Kind.SHAMBLER, is_elite := false) -> int:
 		pos[i] = obstacles.free_point(pos[i], radius[i])
 	knock[i] = Vector2.ZERO
 	steer[i] = Vector2.ZERO
+	_mode_hold[i] = 0
 	_progress_pos[i] = pos[i]
 	_stuck_time[i] = 0.0
 	_far_time[i] = 0.0
@@ -955,6 +959,7 @@ func _move(delta: float) -> void:
 				_far_time[i] = 0.0
 				knock[i] = Vector2.ZERO
 				steer[i] = Vector2.ZERO
+				_mode_hold[i] = 0
 				_progress_pos[i] = p
 				_stuck_time[i] = 0.0
 		else:
@@ -983,12 +988,19 @@ func _move(delta: float) -> void:
 		if obstacles and (d > 90.0 or near[obstacles.cell_at(p)] != -1):
 			# Запрос обхода распределён между четырьмя тиками орды.
 			if (i + _frame) & 3 == 0:
-				# Видно игрока — идём прямо к нему. Поле путей пересчитывается секундами и ведёт к точке,
-				# где игрок был раньше: толпа копилась там и у стен (плейтест автора 2026-10-20).
-				if d < DIRECT_RANGE and obstacles.body_clear(p, ppos, radius[i]):
-					steer[i] = Vector2.ZERO
+				# Видно игрока — идём прямо к нему. Видимость считает само поле (флаг клетки для класса, ZAI5/R10):
+				# луча у каждого агента больше нет. Режим меняется после MODE_HOLD решений подряд (~0,27 с): у границы
+				# тени угла зомби не мечется «прямо ↔ по полю».
+				var sees := d < DIRECT_RANGE and obstacles.sees_target(p, radius[i])
+				var direct := steer[i] == Vector2.ZERO
+				if sees == direct:
+					_mode_hold[i] = 0
 				else:
-					steer[i] = obstacles.steering(p, dir, radius[i])
+					_mode_hold[i] += 1
+					if _mode_hold[i] >= MODE_HOLD:
+						_mode_hold[i] = 0
+						direct = sees
+				steer[i] = Vector2.ZERO if direct else obstacles.steering(p, dir, radius[i])
 			if steer[i] != Vector2.ZERO:
 				move_dir = steer[i]
 		if obstacles and not frozen and d > 80.0 and (i + _frame) & 15 == 0:
@@ -1248,6 +1260,7 @@ func _compact() -> void:
 				pos[i] = pos[count]
 				knock[i] = knock[count]
 				steer[i] = steer[count]
+				_mode_hold[i] = _mode_hold[count]
 				_progress_pos[i] = _progress_pos[count]
 				_stuck_time[i] = _stuck_time[count]
 				_far_time[i] = _far_time[count]
