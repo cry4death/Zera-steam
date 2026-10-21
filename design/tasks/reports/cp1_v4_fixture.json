@@ -1,0 +1,333 @@
+{
+	"campaign": {
+		"campaign_id": "earth-20261017",
+		"completed_reports": {},
+		"last_completed_run_id": "",
+		"last_report": {},
+		"nests": {
+			"general": {
+				"alive": true,
+				"discovered": false
+			},
+			"hive_heart": {
+				"alive": true,
+				"discovered": false
+			},
+			"meat_mountain": {
+				"alive": true,
+				"discovered": false
+			},
+			"mother": {
+				"alive": true,
+				"discovered": false
+			},
+			"object_7": {
+				"alive": true,
+				"discovered": true
+			}
+		},
+		"offers": [
+			{
+				"arena": "quarantine",
+				"briefing": "Диспетчер: узел заражения на 10:00. Уничтожьте его.",
+				"effects": {
+					"loss": {
+						"infection": 7,
+						"neighbors": 0,
+						"suppression": 0
+					},
+					"win": {
+						"infection": -28,
+						"neighbors": -3,
+						"suppression": 2
+					}
+				},
+				"id": "clearance-north_america-0-0",
+				"modifiers": [],
+				"name": "Зачистка периметра",
+				"objective": "destroy_node",
+				"offered_turn": 0,
+				"region_id": "north_america",
+				"reward": {
+					"dna_mul": 1.05,
+					"extra_crate_chance": 0.05
+				},
+				"seed": 1461607753,
+				"supports_partial": false,
+				"threat": 2,
+				"type": "clearance"
+			},
+			{
+				"arena": "quarantine",
+				"briefing": "Диспетчер: заберите контейнер и удержите площадку эвакуации. Борт на 5:00.",
+				"effects": {
+					"loss": {
+						"infection": 7,
+						"neighbors": 0,
+						"suppression": 0
+					},
+					"win": {
+						"infection": -10,
+						"neighbors": 0,
+						"suppression": 1
+					}
+				},
+				"id": "extract-east_asia-0-1",
+				"modifiers": [
+					"runner_surge",
+					"acid_rain"
+				],
+				"name": "Извлечение образца",
+				"objective": "extract_sample",
+				"offered_turn": 0,
+				"region_id": "east_asia",
+				"reward": {
+					"dna_mul": 1.15,
+					"extra_crate_chance": 0.35
+				},
+				"seed": 1869756907,
+				"supports_partial": false,
+				"threat": 3,
+				"type": "extract"
+			},
+			{
+				"arena": "quarantine",
+				"briefing": "Диспетчер: уничтожьте Объект-7. Это ослабит заражение в регионе и у соседей.",
+				"effects": {
+					"loss": {
+						"infection": 7,
+						"neighbors": 0,
+						"suppression": 0
+					},
+					"win": {
+						"infection": -40,
+						"neighbors": -8,
+						"suppression": 3
+					}
+				},
+				"id": "nest-east_europe-0-2",
+				"modifiers": [
+					"acid_rain",
+					"runner_surge"
+				],
+				"name": "Ликвидация Объекта-7",
+				"objective": "kill_boss",
+				"offered_turn": 0,
+				"region_id": "east_europe",
+				"reward": {
+					"dna_mul": 1.4,
+					"extra_crate_chance": 0.15
+				},
+				"seed": 1493510390,
+				"supports_partial": false,
+				"threat": 4,
+				"type": "nest"
+			}
+		],
+		"pending_operation": {},
+		"phase": "active",
+		"recent_events": [],
+		"regions": {
+			"east_asia": {
+				"discovered": true,
+				"infection": 47,
+				"last_changed_turn": 0,
+				"suppressed_turns": 0
+			},
+			"east_europe": {
+				"discovered": true,
+				"infection": 64,
+				"last_changed_turn": 0,
+				"suppressed_turns": 0
+			},
+			"middle_east": {
+				"discovered": true,
+				"infection": 43,
+				"last_changed_turn": 0,
+				"suppressed_turns": 0
+			},
+			"north_africa": {
+				"discovered": true,
+				"infection": 22,
+				"last_changed_turn": 0,
+				"suppressed_turns": 0
+			},
+			"north_america": {
+				"discovered": true,
+				"infection": 12,
+				"last_changed_turn": 0,
+				"suppressed_turns": 0
+			},
+			"siberia": {
+				"discovered": true,
+				"infection": 52,
+				"last_changed_turn": 0,
+				"suppressed_turns": 0
+			},
+			"south_asia": {
+				"discovered": true,
+				"infection": 35,
+				"last_changed_turn": 0,
+				"suppressed_turns": 0
+			},
+			"west_europe": {
+				"discovered": true,
+				"infection": 28,
+				"last_changed_turn": 0,
+				"suppressed_turns": 0
+			}
+		},
+		"run_serial": 2,
+		"schema_version": 2,
+		"seed": 20261017,
+		"turn": 0
+	},
+	"crates": 17,
+	"dna": 5000,
+	"dna_earned": 2160,
+	"favorite": {
+		"0": "m4"
+	},
+	"military_crates": 8,
+	"owned": [
+		"ak_s",
+		"butcher",
+		"needle",
+		"grom",
+		"colt",
+		"bulldog",
+		"ppsh",
+		"mosin",
+		"m4",
+		"shkval",
+		"spear",
+		"hive",
+		"guard",
+		"cowboy",
+		"osa",
+		"winchester"
+	],
+	"runs": 3,
+	"settings": {
+		"auto_fire": false,
+		"fullscreen": true,
+		"gore": 2,
+		"master": 1.0,
+		"music": 1.0,
+		"reduce_motion": false,
+		"shake": 1.0,
+		"ui": 1.0,
+		"weapons": 1.0,
+		"world": 0.37
+	},
+	"tree": {
+		"fire_1": true,
+		"fire_2": true,
+		"fire_3": true,
+		"mag_1": true,
+		"mag_2": true,
+		"mag_3": true,
+		"surv_1": true,
+		"surv_2": true,
+		"surv_3": true
+	},
+	"version": 4,
+	"workshop": {
+		"ak_s": {
+			"damage": 5,
+			"mag": 5,
+			"rate": 5,
+			"reload": 5
+		},
+		"bulldog": {
+			"damage": 5,
+			"mag": 5,
+			"rate": 5,
+			"reload": 5
+		},
+		"butcher": {
+			"damage": 5,
+			"mag": 5,
+			"rate": 5,
+			"reload": 5
+		},
+		"colt": {
+			"damage": 5,
+			"mag": 5,
+			"rate": 5,
+			"reload": 5
+		},
+		"cowboy": {
+			"damage": 5,
+			"mag": 5,
+			"rate": 5,
+			"reload": 5
+		},
+		"grom": {
+			"damage": 5,
+			"mag": 5,
+			"rate": 5,
+			"reload": 5
+		},
+		"guard": {
+			"damage": 5,
+			"mag": 5,
+			"rate": 5,
+			"reload": 5
+		},
+		"hive": {
+			"damage": 5,
+			"mag": 5,
+			"rate": 5,
+			"reload": 5
+		},
+		"m4": {
+			"damage": 5,
+			"mag": 5,
+			"rate": 5,
+			"reload": 5
+		},
+		"mosin": {
+			"damage": 5,
+			"mag": 5,
+			"rate": 5,
+			"reload": 5
+		},
+		"needle": {
+			"damage": 5,
+			"mag": 5,
+			"rate": 5,
+			"reload": 5
+		},
+		"osa": {
+			"damage": 5,
+			"mag": 5,
+			"rate": 5,
+			"reload": 5
+		},
+		"ppsh": {
+			"damage": 5,
+			"mag": 5,
+			"rate": 5,
+			"reload": 5
+		},
+		"shkval": {
+			"damage": 5,
+			"mag": 5,
+			"rate": 5,
+			"reload": 5
+		},
+		"spear": {
+			"damage": 5,
+			"mag": 5,
+			"rate": 5,
+			"reload": 5
+		},
+		"winchester": {
+			"damage": 5,
+			"mag": 5,
+			"rate": 5,
+			"reload": 5
+		}
+	}
+}
