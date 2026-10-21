@@ -64,6 +64,27 @@ const RADIUS := 5.0
 const SPAWN_EDGE := 40.0 # ZAI3/R5: появление сразу за краем экрана, по пути от входа к игроку
 const FAR_GRACE := 4.0 # ZAI3/R4: столько секунд отставший дальше far_distance, прежде чем его перенесут
 const FAR_MOVES_PER_TICK := 4
+# ZAI4: движение толпы v2 — скорость с инерцией, мягкое разделение с массой по роли, остановка на кольце касания,
+# торможение за медленным соседом впереди, обход к свободному сектору у игрока. Индексы — Kind.
+const ACCEL: Array[float] = [150.0, 420.0, 90.0, 170.0, 150.0, 120.0, 90.0] # px/с²: шаркун — шаг за ~0,2 с
+const MASS: Array[float] = [1.0, 0.6, 2.4, 1.0, 1.3, 1.7, 3.0] # лёгкий уступает тяжёлому в разделении
+const SLIP: Array[float] = [0.4, 1.0, 0.15, 0.4, 0.3, 0.2, 0.1] # доля обхода соседа вбок вместо торможения
+const SEP_GAP := 1.5 # мягкое разделение начинается чуть раньше касания тел
+const SEP_SPEED := 110.0 # px/с расталкивания при полном перекрытии
+const DEEP_OVERLAP := 0.25 # глубже этой доли диаметра — жёсткая поправка позиции (до шага тика)
+const BLOCK_GAP := 2.5 # сосед ближе этого зазора и впереди по курсу — мешает
+const BLOCK_COS := 0.7
+const QUEUE_MAX_R := 160.0 # дальше от игрока очереди нет: толпа течёт
+const OVERTAKE_R := 22.0 # быстрый видит медленного впереди на этом расстоянии
+const OVERTAKE_RATIO := 1.3
+const OVERTAKE_COS := 0.8
+const OVERTAKE_SIDE := 0.6 # доля разницы скоростей, с которой быстрый уходит вбок
+const LOD_R := 420.0 # дальше (за экраном) пары считаются через тик
+const CONTACT_GAP := 1.0 # зомби встаёт на кольцо касания игрока с этим зазором
+const ARRIVE := 6.0 # торможение перед кольцом касания
+const SECTOR_R := 30.0 # сектора окружения у игрока (16 штук)
+const TURN_RATE := 7.0 # рад/с: курс обычных ролей сглажен
+const QUEUE_R := 60.0 # ближе к игроку обход идёт к менее занятому соседнему сектору
 const CELL := 16.0
 const MAX_COLLISION_RADIUS := RADIUS * ELITE_SCALE * 1.06
 const SPRITE_SIZE := 16.0
@@ -103,7 +124,17 @@ var _stuck_time := PackedFloat32Array()
 var _far_time := PackedFloat32Array() # сколько секунд особь дальше far_distance (R4)
 var _last_player := Vector2.INF
 var player_velocity := Vector2.ZERO # сглаженная скорость игрока: перенос отставших «по ходу»
+var vel := PackedVector2Array() # скорость шага особи (ZAI4)
+var want_dir := PackedVector2Array() # желаемое направление прошлого тика: «сосед впереди» в проходе по парам
+var want_v := PackedVector2Array() # итоговое намерение прошлого тика (после остановки и торможения), px/с
+var queued := PackedByteArray() # стоит в очереди к игроку: у кольца касания или за стоящим в очереди
+var walk := PackedFloat32Array() # пройденный путь — фаза шагов анимации (R3)
+var mass := PackedFloat32Array() # MASS[kind] на особь: в проходе по парам без обращений к константному списку
+var _sep_v := PackedVector2Array() # мягкое разделение этого тика, px/с
+var _block := PackedFloat32Array() # допустимая скорость вперёд из-за соседа впереди
+var _sectors := PackedInt32Array() # занятость 16 секторов у игрока
 var separation_usec := 0
+var move_usec := 0 # профиль (--profile): _move за всё время
 var collision_usec := 0
 var profile_ticks := 0
 var group_id := PackedInt32Array() # жетон события строя: участник пачки до конца окна (маршрутов нет)
@@ -198,6 +229,15 @@ func _ready() -> void:
 	_progress_pos.resize(MAX_ENEMIES)
 	_stuck_time.resize(MAX_ENEMIES)
 	_far_time.resize(MAX_ENEMIES)
+	vel.resize(MAX_ENEMIES)
+	want_dir.resize(MAX_ENEMIES)
+	want_v.resize(MAX_ENEMIES)
+	queued.resize(MAX_ENEMIES)
+	walk.resize(MAX_ENEMIES)
+	mass.resize(MAX_ENEMIES)
+	_sep_v.resize(MAX_ENEMIES)
+	_block.resize(MAX_ENEMIES)
+	_sectors.resize(16)
 	group_id.resize(MAX_ENEMIES)
 	_group_serial.resize(GROUP_CAPACITY)
 	_group_until.resize(GROUP_CAPACITY)
@@ -355,6 +395,12 @@ func spawn(p: Vector2, k := Kind.SHAMBLER, is_elite := false) -> int:
 	_progress_pos[i] = pos[i]
 	_stuck_time[i] = 0.0
 	_far_time[i] = 0.0
+	vel[i] = Vector2.ZERO
+	want_dir[i] = Vector2.ZERO
+	want_v[i] = Vector2.ZERO
+	queued[i] = 0
+	walk[i] = 0.0
+	mass[i] = MASS[k]
 	group_id[i] = 0
 	hp[i] = (1.0 + body * 0.16 + noise * 0.04) * KINDS[k]["hp"] * (1.0 + hp_growth_per_min * minutes) * (ELITE_HP if is_elite else 1.0)
 	max_hp[i] = hp[i]
@@ -804,22 +850,35 @@ func _physics_process(delta: float) -> void:
 	var probing := tick_probe.is_valid()
 	if probing:
 		tick_probe.call(0)
+	var profile_start := Time.get_ticks_usec() if obstacles and obstacles.profile_enabled else 0
+	_rebuild_grid()
+	_neighbors()
+	var neighbor_usec := Time.get_ticks_usec() - profile_start if profile_start else 0
+	var move_start := Time.get_ticks_usec() if profile_start else 0
 	_move(delta)
+	if profile_start:
+		move_usec += Time.get_ticks_usec() - move_start
 	if probing:
 		tick_probe.call(1)
 	_rebuild_grid()
 	var before_separation := pos
-	var profile_start := Time.get_ticks_usec() if obstacles and obstacles.profile_enabled else 0
-	_separate()
 	if probing:
 		tick_probe.call(2)
 	if profile_start:
-		separation_usec += Time.get_ticks_usec() - profile_start
+		separation_usec += neighbor_usec
 		profile_start = Time.get_ticks_usec()
-	if obstacles:
-		var near := obstacles.near_head
-		for i in count:
-			var p := pos[i]
+	# Игрок «тяжёлый»: выталкивание из него — после разделения, в одном месте с препятствиями. Разделение и
+	# выталкивание больше не перекидывают тело туда-обратно каждый тик (пинг-понг ZAI1).
+	var ppos := player.global_position
+	var near := obstacles.near_head if obstacles else PackedInt32Array()
+	for i in count:
+		var p := pos[i]
+		var away := p - ppos
+		var touch_r := Player.RADIUS + radius[i]
+		var ad2 := away.length_squared()
+		if ad2 < touch_r * touch_r:
+			p = ppos + (away / sqrt(ad2) if ad2 > 0.0001 else Vector2.from_angle(seed_value[i] * TAU)) * touch_r
+		if obstacles:
 			# Ограничиваем суммарный сдвиг толпы один раз на тело, а не каждую пару.
 			if before_separation[i].distance_squared_to(p) > 16.0:
 				p = obstacles.move_actor(obstacles.resolve(before_separation[i], radius[i]), p, radius[i])
@@ -827,7 +886,7 @@ func _physics_process(delta: float) -> void:
 				var c := obstacles.cell_at(p)
 				if near[c] != -1 and obstacles._clearance[c] < radius[i]:
 					p = obstacles.resolve(p, radius[i])
-			pos[i] = p.clamp(arena.position + Vector2.ONE * radius[i], arena.end - Vector2.ONE * radius[i])
+		pos[i] = p.clamp(arena.position + Vector2.ONE * radius[i], arena.end - Vector2.ONE * radius[i])
 	if profile_start:
 		collision_usec += Time.get_ticks_usec() - profile_start
 		profile_ticks += 1
@@ -862,6 +921,13 @@ func _move(delta: float) -> void:
 	_last_player = ppos
 	var spit_view := PixelArt.view_rect(self, 16.0)
 	var far_moves := 0
+	var contacts := 0
+	_sectors.fill(0)
+	for i in count:
+		if dead[i] == 0:
+			var off := pos[i] - ppos
+			if off.length_squared() < SECTOR_R * SECTOR_R:
+				_sectors[int(fposmod(off.angle(), TAU) / TAU * 16.0) % 16] += 1
 	for i in count:
 		if dead[i] == 1:
 			continue
@@ -924,12 +990,11 @@ func _move(delta: float) -> void:
 			if steer[i] != Vector2.ZERO:
 				move_dir = steer[i]
 		if obstacles and not frozen and d > 80.0 and (i + _frame) & 15 == 0:
-			var progress_goal := ppos
-			# Считаем приближение к цели: бег на месте вокруг угла тоже застревание.
-			var progressed := p.distance_to(progress_goal) + 1.0 < _progress_pos[i].distance_to(progress_goal)
-			_stuck_time[i] = 0.0 if progressed else _stuck_time[i] + delta * 16.0
-			if progressed:
-				_progress_pos[i] = p
+			# Застревание — тело стоит, хотя хочет идти и сосед впереди не мешает (З6). Раньше прогресс мерили
+			# к текущей позиции игрока: при его беге обходящие угол считались застрявшими и дёргались.
+			var stalled := spd > 0.0 and p.distance_to(_progress_pos[i]) < 1.0 and _block[i] >= spd * 0.5
+			_stuck_time[i] = _stuck_time[i] + delta * 16.0 if stalled else 0.0
+			_progress_pos[i] = p
 			if _stuck_time[i] > 0.5:
 				var normal := obstacles.wall_normal[obstacles.cell_at(p)]
 				p += normal * 2.0
@@ -949,39 +1014,72 @@ func _move(delta: float) -> void:
 					spit_windup[i] = SPIT_WINDUP
 					spit_cd[i] = SPIT_COOLDOWN
 					move_dir = Vector2.ZERO
-		p += move_dir * spd * delta + k * delta
+		var touch_r := Player.RADIUS + radius[i]
+		var want := move_dir * spd
+		# Прибытие: у игрока встаём на кольцо касания, а не давим в его точку (ZAI4).
+		var stop := touch_r + CONTACT_GAP
+		var in_queue := false
+		if d < stop + ARRIVE and kind[i] != Kind.SPITTER:
+			want *= clampf((d - stop) / ARRIVE, 0.0, 1.0)
+			in_queue = true
+		# Сосед впереди медленнее — тормозим до его скорости; бегун и лёгкие уходят вбок, у игрока — к менее
+		# занятому соседнему сектору (окружение без давки).
+		var allowed := _block[i] if d < QUEUE_MAX_R else INF
+		if allowed < spd * 0.5:
+			in_queue = true
+		if allowed < spd and want != Vector2.ZERO:
+			var side := move_dir.orthogonal()
+			var keep := maxf(allowed, 0.0) / spd
+			if d < QUEUE_R:
+				# У игрока — очередь: не давим передних, а смещаемся к менее занятому соседнему сектору.
+				var sector := int(fposmod((p - ppos).angle(), TAU) / TAU * 16.0) % 16
+				var ahead := _sectors[(sector + 1) % 16]
+				var behind := _sectors[(sector + 15) % 16]
+				side = (p - ppos).rotated(PI * 0.5) / maxf(d, 0.001)
+				if ahead > behind or (ahead == behind and seed_value[i] < 0.5):
+					side = -side
+			elif seed_value[i] < 0.5:
+				side = -side
+			want = want * keep + side * (spd * (1.0 - keep) * SLIP[kind[i]])
+		want_dir[i] = move_dir if not frozen else Vector2.ZERO
+		want_v[i] = want if not frozen else Vector2.ZERO
+		queued[i] = 1 if in_queue and not frozen else 0
+		var v := Vector2.ZERO if frozen else vel[i].move_toward(want, ACCEL[kind[i]] * delta)
+		vel[i] = v
+		p += (v + _sep_v[i]) * delta + k * delta
 		# Обычный шаг разрешается один раз после расталкивания; быстрый отброс — со свипом.
 		if obstacles and old.distance_squared_to(p) > 16.0:
 			p = obstacles.move_actor(old, p, radius[i])
 		knock[i] = k * decay
-		# игрок «тяжёлый»: выталкивает зомби из себя
-		var away := p - ppos
-		var ad2 := away.length_squared()
-		var touch_r := Player.RADIUS + radius[i]
-		if ad2 < (touch_r + 1.0) * (touch_r + 1.0):
-			if touch_cd[i] <= 0.0 and not frozen:
+		# Касание: урон (одно окно неуязвимости игрока) и число касаний для замедления в давке (2Б).
+		var reach := touch_r + CONTACT_GAP + 1.0
+		if (p - ppos).length_squared() < reach * reach and not frozen:
+			contacts += 1
+			if touch_cd[i] <= 0.0:
 				var hit_damage: float = KINDS[kind[i]]["damage"] * damage_mult[i] * damage_scale * (ELITE_DAMAGE if elite[i] == 1 else 1.0)
 				touch_damage = maxf(touch_damage, hit_damage)
 				touch_cd[i] = TOUCH_COOLDOWN
-			if ad2 > 0.0001 and ad2 < touch_r * touch_r:
-				p = ppos + away / sqrt(ad2) * touch_r
 		p = p.clamp(arena.position + Vector2.ONE * radius[i], arena.end - Vector2.ONE * radius[i])
 		pos[i] = p
-		var a := dir.angle() if freeze_t[i] <= 0.0 else angle[i]
-		if group_id[i] != 0 and freeze_t[i] <= 0.0 and move_dir != Vector2.ZERO:
-			a = move_dir.angle()
-		if stage[i] == 3 and freeze_t[i] <= 0.0:
-			a += sin(_time * 7.0 + seed_value[i] * 20.0) * 0.35 # еле живые шатаются
-		angle[i] = rotate_toward(angle[i], a, delta * (0.85 if kind[i] == Kind.RIOT else 1.2)) if kind[i] >= Kind.INFANTRY else a
+		var moved := p.distance_to(old)
+		walk[i] += moved
+		# Курс (R3): вблизи — на игрока, в пути — по скорости, а не «сквозь стену» на игрока.
+		var a := angle[i]
+		if not frozen:
+			a = dir.angle() if d < 40.0 or v.length_squared() < spd * spd * 0.0625 else v.angle()
+			if stage[i] == 3:
+				a += sin(_time * 7.0 + seed_value[i] * 20.0) * 0.35 # еле живые шатаются
+		angle[i] = rotate_toward(angle[i], a, delta * (0.85 if kind[i] == Kind.RIOT else (1.2 if kind[i] >= Kind.INFANTRY else TURN_RATE)))
 		flash[i] = maxf(flash[i] - delta * 10.0, 0.0)
 		# следы и капли: функцию зовём только когда что-то нужно (раньше — 500 вызовов за тик впустую)
 		if floor_decals != null:
-			var sa := step_acc[i] + p.distance_to(old)
+			var sa := step_acc[i] + moved
 			if sa >= STEP_LENGTH or stage[i] > 0 or (i + _frame) & 3 == 0:
 				step_acc[i] = sa
 				_feet_and_drips(i, p, a)
 			else:
 				step_acc[i] = sa
+	player.crowd_contacts = contacts
 	if touch_damage > 0.0:
 		player_touched.emit(touch_damage)
 
@@ -1010,17 +1108,38 @@ func _rebuild_grid() -> void:
 		_head[c] = i
 
 
-func _separate() -> void:
-	# Каждая пара обходится один раз: хвост своей ячейки + четыре «передние» соседки (E, SW, S, SE).
-	# Раньше обходили все 9 ячеек с проверкой j > i и границ — вдвое больше проходов по спискам.
+## Проход по парам (ZAI4): мягкое разделение как скорость с массой по роли, жёсткая поправка глубоких перекрытий
+## и «сосед впереди по курсу».
+## Каждая пара обходится один раз: хвост своей ячейки + четыре «передние» соседки (E, SW, S, SE).
+func _neighbors() -> void:
 	var gw := _grid_w - 1
 	var gh := _grid_h - 1
 	var stride := _stride
+	var far2 := OVERTAKE_R * OVERTAKE_R
+	var ppos := player.global_position
+	var lod2 := LOD_R * LOD_R
+	var odd := _frame & 1
+	_sep_v.fill(Vector2.ZERO)
+	_block.fill(INF)
 	for i in count:
 		if dead[i] == 1:
 			continue
 		var p := pos[i]
+		# За экраном толкотня не видна: пары такой особи считаются через тик с двойной силой.
+		var gain := 1.0
+		if p.distance_squared_to(ppos) > lod2:
+			if (i & 1) != odd:
+				continue
+			gain = 2.0
 		var ri := radius[i]
+		var mi := mass[i]
+		var si := speed[i]
+		var wi := want_dir[i]
+		var qi := queued[i] == 1
+		var wvi := want_v[i]
+		# Своё разделение и торможение копим локально: вклады от пар, где i был вторым, уже лежат в массивах.
+		var sv := _sep_v[i]
+		var bi := _block[i]
 		var base := clampi(int(p.x / CELL), 0, gw) + 1 + (clampi(int(p.y / CELL), 0, gh) + 1) * stride
 		var j := _next[i]
 		var k := 0
@@ -1030,21 +1149,76 @@ func _separate() -> void:
 					var q := pos[j]
 					var dv := p - q
 					var d2 := dv.length_squared()
-					var min_d := ri + radius[j]
-					if d2 < min_d * min_d:
-						if d2 < 0.0001:
-							dv = Vector2.from_angle(fposmod(seed_value[i] * 31.0 + seed_value[j] * 17.0, TAU)) * 0.1
-							d2 = 0.01
-						var d := sqrt(d2)
-						var push := dv * ((min_d - d) / d * 0.5)
-						p += push
-						pos[j] = q - push
+					if d2 < far2:
+						var rj := radius[j]
+						var reach := ri + rj + SEP_GAP
+						var sj := speed[j]
+						if d2 >= reach * reach:
+							if si > sj * OVERTAKE_RATIO or sj > si * OVERTAKE_RATIO:
+								sv = _overtake(i, j, dv, d2, sv)
+						else:
+							var d := sqrt(d2)
+							var n := dv / d if d > 0.001 else Vector2.from_angle(fposmod(seed_value[i] * 31.0 + seed_value[j] * 17.0, TAU))
+							var mj := mass[j]
+							var msum := mi + mj
+							# Глубокое перекрытие (> DEEP_OVERLAP диаметра) — жёсткая поправка избытка, по массе.
+							var deep := (ri + rj) * (1.0 - DEEP_OVERLAP)
+							if d < deep:
+								var fix := n * ((deep - d) / msum)
+								p += fix * mj
+								pos[j] = q - fix * mi
+							var push := n * (SEP_SPEED * gain * (reach - d) / reach * 2.0 / msum)
+							var push_i := push * mj
+							var push_j := push * -mi
+							# Быстрый догоняет медленного сзади: разделение не тормозит его, только уводит вбок —
+							# бегун расталкивает толпу, а не отскакивает от неё (роль «ломает позицию»).
+							if si > sj * OVERTAKE_RATIO:
+								if wi.dot(n) < -0.5:
+									push_i -= wi * minf(0.0, push_i.dot(wi))
+							elif sj > si * OVERTAKE_RATIO:
+								var wj := want_dir[j]
+								if wj.dot(n) > 0.5:
+									push_j -= wj * minf(0.0, push_j.dot(wj))
+							sv += push_i
+							_sep_v[j] += push_j
+							# Сосед впереди по курсу стоит в очереди (сам не продвигается к цели) — встаём за ним, а не
+							# давим. Идущий сосед не тормозит: в пути толпа течёт, разделение её расталкивает.
+							# Очередь начинается только у кольца касания игрока: плевальщик и замороженный её не запускают.
+							var qj := queued[j] == 1
+							if (qi or qj) and d < ri + rj + BLOCK_GAP:
+								if qj and wi.dot(n) < -BLOCK_COS:
+									bi = minf(bi, maxf(0.0, want_v[j].dot(wi)))
+								if qi:
+									var wj := want_dir[j]
+									if wj.dot(n) > BLOCK_COS:
+										_block[j] = minf(_block[j], maxf(0.0, wvi.dot(wj)))
 				j = _next[j]
 			if k == 4:
 				break
 			j = _head[base + _noff[k]]
 			k += 1
 		pos[i] = p
+		_sep_v[i] = sv
+		_block[i] = bi
+
+
+## Обгон (ZAI4): быстрый уходит вбок от медленного впереди заранее, ещё до касания. dv — от j к i.
+## sv — накопленное разделение i (пишется вызывающим); вклад в j пишется сразу.
+func _overtake(i: int, j: int, dv: Vector2, d2: float, sv: Vector2) -> Vector2:
+	var n := dv / sqrt(d2)
+	var wi := want_dir[i]
+	var wj := want_dir[j]
+	if speed[i] > speed[j] * OVERTAKE_RATIO and wi.dot(n) < -OVERTAKE_COS:
+		var side := wi.orthogonal()
+		if side.dot(n) < 0.0:
+			side = -side
+		return sv + side * ((speed[i] - speed[j]) * OVERTAKE_SIDE)
+	if speed[j] > speed[i] * OVERTAKE_RATIO and wj.dot(n) > OVERTAKE_COS:
+		var side := wj.orthogonal()
+		if side.dot(n) > 0.0:
+			side = -side
+		_sep_v[j] += side * ((speed[j] - speed[i]) * OVERTAKE_SIDE)
+	return sv
 
 
 ## Убираем мёртвых: последний живой переезжает на место убитого.
@@ -1060,6 +1234,12 @@ func _compact() -> void:
 				_progress_pos[i] = _progress_pos[count]
 				_stuck_time[i] = _stuck_time[count]
 				_far_time[i] = _far_time[count]
+				vel[i] = vel[count]
+				want_dir[i] = want_dir[count]
+				want_v[i] = want_v[count]
+				queued[i] = queued[count]
+				walk[i] = walk[count]
+				mass[i] = mass[count]
 				group_id[i] = group_id[count]
 				hp[i] = hp[count]
 				max_hp[i] = max_hp[count]
@@ -1183,7 +1363,7 @@ func _render() -> void:
 		_buf[o + 8] = flash[i] * 0.99 + (2.0 if freeze_t[i] > 0.0 else 0.0) + (4.0 if burn_t[i] > 0.0 else 0.0) + (8.0 if elite[i] == 1 else 0.0)
 		if _burn_started[i] > -999.0: _buf[o + 8] += float(clampi(int((_time - _burn_started[i]) * 1.5), 0, 3)) * 16.0
 		if shock_until[i] > _time: _buf[o + 8] += 64.0
-		var anim := int(_time * speed[i] * (0.13 if quirk[i] == Trait.LIMP else 0.2) + seed_value[i] * 4.0) % PixelArt.ANIM_FRAMES # шаги
+		var anim := int(walk[i] * (0.13 if quirk[i] == Trait.LIMP else 0.2) + seed_value[i] * 4.0) % PixelArt.ANIM_FRAMES # шаги по пройденному пути (R3)
 		_buf[o + 9] = wounds[i] + 16 * (variant[i] * PixelArt.ANIM_FRAMES + anim) # кадр атласа
 		if kind[i] >= Kind.INFANTRY:
 			_buf[o + 8] += 128.0

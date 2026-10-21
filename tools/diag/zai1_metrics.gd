@@ -400,6 +400,8 @@ func _summary(h, ob) -> void:
 		var ticks := maxf(h.profile_ticks, 1.0)
 		out["sep_us"] = int(h.separation_usec / ticks)
 		out["col_us"] = int(h.collision_usec / ticks)
+		if "move_usec" in h:
+			out["move_us"] = int(h.move_usec / ticks)
 		out["body_us_tick"] = int(ob.body_usec / maxf(_tick, 1.0))
 		out["body_calls_tick"] = snappedf(ob.body_calls / maxf(_tick, 1.0), 0.1)
 		out["resolve_calls_tick"] = snappedf(ob.resolve_calls / maxf(_tick, 1.0), 0.1)

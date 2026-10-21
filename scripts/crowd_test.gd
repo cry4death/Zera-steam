@@ -19,8 +19,18 @@ const LIMITS := [
 	["move_stall_pct", "<=", 12.0, "ZAI2"], # 9,3 / 5,8 — защита от регресса до ZAI4
 	["start_ttc_p50", "<=", 10.0, "ZAI3"], # 20,1 / 27,5
 	["far_pct", "<=", 5.0, "ZAI3"], # 4,7 / 7,7
+	# ZAI4 — давка у стоящего игрока без оружия (до ZAI4 → после, open_perimeter / old_town)
+	["jam_dv_p90", "<=", 1.5, "ZAI4"], # 4,4 / 4,1 → 0,18 / 0,17 px
+	["jam_path_net_p50", "<=", 1.3, "ZAI4"], # 2,46 / 2,53 → 1,04 / 1,03
+	["jam_inner_flip_pct", "<=", 10.0, "ZAI4"], # 49,9 / 51,0 → 1,2 / 0,5 (пинг-понг у героя)
+	["jam_inner_step_p90", "<=", 2.0, "ZAI4"], # 7,3 / 6,9 → 0,5 шага
+	["jam_rev_pct", "<=", 3.0, "ZAI4"], # 38,4 / 39,1 → 1,7 / 1,3
+	["jam_turn_deg", "<=", 30.0, "ZAI4"], # 94 / 95 → 24 / 23
+	["jam_deep_pct", "<=", 5.0, "ZAI4"], # 13,3 / 12,4 → 3,6 / 4,2
+	["jam_ovl", "<=", 0.18, "ZAI4"], # 0,189 / 0,181 → 0,152 / 0,154
+	["move_face_bad_pct", "<=", 8.0, "ZAI4"], # 16,6 / 14,5 → 7,3 / 4,9
 ]
-const ACTIVE := ["ZAI2", "ZAI3"]
+const ACTIVE := ["ZAI2", "ZAI3", "ZAI4"]
 
 var game
 var horde: Horde
@@ -59,9 +69,15 @@ func run(owner_game) -> int:
 	obstacles = game.obstacles
 	player = game.player
 	horde.tick_probe = _probe
+	# --crowd-only=<сценарий> — для итераций; проверка в full гоняет все.
+	var only := ""
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--crowd-only="):
+			only = arg.trim_prefix("--crowd-only=")
 	for map_id: String in MAPS:
 		for scenario in ["jam", "move", "start", "far"]:
-			await _scenario_run(map_id, scenario)
+			if only == "" or only == scenario:
+				await _scenario_run(map_id, scenario)
 	horde.tick_probe = Callable()
 	_check("penetrations", penetrations)
 	print("CROWDTEST checks=%d failed=%d penetrations=%d active=%s ok=%s" % [checks, failed, penetrations, ",".join(ACTIVE), failed == 0])
@@ -315,9 +331,31 @@ func _slow_sample(t: float) -> void:
 			_add("stall_n", 1.0)
 			if v.dot(to) < 5.0:
 				_add("stall", 1.0)
+				if OS.get_cmdline_user_args().has("--crowd-debug"):
+					_add("dbg_blocked" if horde._block[i] < horde.speed[i] * 0.5 else "dbg_free", 1.0)
+					_add("dbg_d%d" % mini(int(d / 50.0), 9), 1.0)
+					_add("dbg_vlen%d" % mini(int(v.length() / 5.0), 9), 1.0)
+					_add("dbg_kind%d" % horde.kind[i], 1.0)
+					_add("dbg_sum_block", minf(horde._block[i], 100.0))
+					_add("dbg_sum_want", horde.want_v[i].length())
+					_add("dbg_sum_wantdot", horde.want_v[i].dot(to))
+					_add("dbg_sum_vel", horde.vel[i].length())
+					_add("dbg_sum_veldot", horde.vel[i].dot(to))
+					_add("dbg_sum_sep", horde._sep_v[i].length())
+					_add("dbg_sum_sepdot", horde._sep_v[i].dot(to))
+					_add("dbg_sum_spd", horde.speed[i])
+					_add("dbg_steer", 1.0 if horde.steer[i] != Vector2.ZERO else 0.0)
 			if horde.kind[i] == Horde.Kind.RUNNER:
 				_add("runner_n", 1.0)
 				_add("runner_eff", v.dot(to) / nominal)
+				if OS.get_cmdline_user_args().has("--crowd-debug"):
+					var b := "dbg_r_d%d" % mini(int(d / 100.0), 4)
+					_add(b + "_n", 1.0)
+					_add(b + "_eff", v.dot(to) / nominal)
+					_add(b + "_spd", v.length() / nominal)
+					_add(b + "_steer", 1.0 if horde.steer[i] != Vector2.ZERO else 0.0)
+					_add(b + "_sepdot", horde._sep_v[i].dot(to) / nominal)
+					_add(b + "_wantdot", horde.want_v[i].dot(to) / nominal)
 		if d >= 12.0 and d < 80.0:
 			_add("ring_n", 1.0)
 			_add("ring_rad", absf(v.dot(to)))
@@ -407,6 +445,12 @@ func _report() -> void:
 			for key in r:
 				_check(key, r[key])
 	print("CROWDTEST map=%s scenario=%s %s" % [_map, _scenario, line])
+	if OS.get_cmdline_user_args().has("--crowd-debug"):
+		var dbg := {}
+		for key in M:
+			if str(key).begins_with("dbg_"):
+				dbg[key] = M[key]
+		print("CROWDDEBUG ", JSON.stringify(dbg))
 
 
 func _check(key: String, value: float) -> void:

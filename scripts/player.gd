@@ -129,6 +129,12 @@ func _ready() -> void:
 
 
 var weapon_speed_mul := 1.0
+## Давка (ZAI4, решение автора 2Б): орда ставит число касаний за тик; при ≥3 касаниях боец замедляется на 15 % за
+## касание сверх двух, не больше −45 %. Рывок проходит сквозь толпу без замедления.
+var crowd_contacts := 0
+var crowd_slow := 0.0
+const CROWD_SLOW_STEP := 0.15
+const CROWD_SLOW_MAX := 0.45
 
 
 func _physics_process(delta: float) -> void:
@@ -171,7 +177,9 @@ func _physics_process(delta: float) -> void:
 		if effects:
 			effects.ghost(position, sprite.rotation, sprite.texture)
 	else:
-		position += input * move_speed * tree_speed_multiplier() * weapon_speed_mul * delta
+		var want_slow := clampf(float(crowd_contacts - 2) * CROWD_SLOW_STEP, 0.0, CROWD_SLOW_MAX)
+		crowd_slow = move_toward(crowd_slow, want_slow, delta * 3.0)
+		position += input * move_speed * tree_speed_multiplier() * weapon_speed_mul * (1.0 - crowd_slow) * delta
 	if obstacles:
 		position = obstacles.move_actor(before, position, RADIUS)
 	_walk += position.distance_to(before)
