@@ -209,6 +209,11 @@ func advance(now: float, delta: float, shares: Array, exclusive: bool) -> float:
 	return 1.0 + (float(PACE[phase]) * NORMALIZE - 1.0) * contrast
 
 
+## Внешнее событие (зов узла, ZAI3/R8): ближайший слот строя пропускается, чтобы две волны не легли друг на друга.
+func external_event(now: float) -> void:
+	_event_slot = maxi(_event_slot, floori((now + EVENT_DURATION - EVENT_FIRST) / EVENT_PERIOD))
+
+
 func select_pattern(now: float, shares: Array) -> void:
 	_choose.seed = run_seed + floori(now / 80.0) * 7919
 	var weights := [1.2, 1.0, 2.0 if map_id == "old_town" else 1.0, 0.8, 0.8, 1.0, 1.3 if moving else 0.8]

@@ -142,7 +142,9 @@ func _physics_process(delta: float) -> void:
 	var shares: Array = row[3]
 	curve_budget += rate * delta
 	if director:
-		var exclusive := director_exclusive or alarm or not _objective_row.is_empty()
+		# Узел (NP1) — множитель поверх цикла режиссёра (ZAI3, R8, решение автора 1А): строка узла не выключает
+		# фазы и события строя. Прочие цели (извлечение и т. п.) по-прежнему имеют приоритет.
+		var exclusive := director_exclusive or alarm or (not _objective_row.is_empty() and node_pressure <= 0.0)
 		if exclusive != _was_exclusive:
 			_budget = 0.0
 			_was_exclusive = exclusive
@@ -397,6 +399,8 @@ func node_call(step: int) -> int:
 		if horde.spawn(origin + Vector2.from_angle(TAU * float(j) / 3.0) * 24.0, Horde.Kind.RUNNER, true) >= 0:
 			elites_spawned += 1
 			made += 1
+	if director:
+		director.external_event(time) # зов — событие цикла: обычный строй не накладывается на всплеск
 	node_calls += 1
 	node_called += made
 	total_spawned += made
@@ -418,6 +422,8 @@ func _node_call_point(node_at: Vector2) -> Vector2:
 				best = entry
 				best_distance = d
 		if best != Vector2.INF:
+			# Вход задаёт сторону зова; всплеск выходит у края экрана по пути к игроку (ZAI3, R5).
+			best = horde.approach_point(best, PixelArt.view_rect(horde, Horde.SPAWN_EDGE))
 			return horde.obstacles.free_point(best, Horde.RADIUS * 2.0) if horde.obstacles else best
 	return horde.spawn_point(player.global_position)
 

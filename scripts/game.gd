@@ -2716,7 +2716,8 @@ func _physics_process(delta: float) -> void:
 	spawner.time = time
 	if spawner.director:
 		spawner.director.sample(time, kills)
-		spawner.director_exclusive = (activities != null and activities.phase == Activities.Phase.ACTIVE) or blood_alarm.phase in [BloodAlarm.Phase.WARN, BloodAlarm.Phase.ACTIVE] or boss.is_alive() or (Spawner.storm_pending(time) if endless else ((time >= 285.0 and time < 315.0) or time >= 535.0))
+		# Узел кампании — не босс для режиссёра: его давление ложится поверх цикла (ZAI3, R8).
+		spawner.director_exclusive = (activities != null and activities.phase == Activities.Phase.ACTIVE) or blood_alarm.phase in [BloodAlarm.Phase.WARN, BloodAlarm.Phase.ACTIVE] or (boss.is_alive() and not boss is CampaignNode) or (Spawner.storm_pending(time) if endless else ((time >= 285.0 and time < 315.0) or time >= 535.0))
 		if _sim and time >= _director_log_at:
 			_director_log_at = time + 5.0
 			var d := spawner.director

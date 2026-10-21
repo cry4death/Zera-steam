@@ -61,6 +61,9 @@ const SPIT_WINDUP := 0.3
 
 const MAX_ENEMIES := 2000
 const RADIUS := 5.0
+const SPAWN_EDGE := 40.0 # ZAI3/R5: появление сразу за краем экрана, по пути от входа к игроку
+const FAR_GRACE := 4.0 # ZAI3/R4: столько секунд отставший дальше far_distance, прежде чем его перенесут
+const FAR_MOVES_PER_TICK := 4
 const CELL := 16.0
 const MAX_COLLISION_RADIUS := RADIUS * ELITE_SCALE * 1.06
 const SPRITE_SIZE := 16.0
@@ -97,6 +100,9 @@ var knock := PackedVector2Array()
 var steer := PackedVector2Array() # кэш направления обхода (O1), ZERO — прямо
 var _progress_pos := PackedVector2Array()
 var _stuck_time := PackedFloat32Array()
+var _far_time := PackedFloat32Array() # сколько секунд особь дальше far_distance (R4)
+var _last_player := Vector2.INF
+var player_velocity := Vector2.ZERO # сглаженная скорость игрока: перенос отставших «по ходу»
 var separation_usec := 0
 var collision_usec := 0
 var profile_ticks := 0
@@ -191,6 +197,7 @@ func _ready() -> void:
 	steer.resize(MAX_ENEMIES)
 	_progress_pos.resize(MAX_ENEMIES)
 	_stuck_time.resize(MAX_ENEMIES)
+	_far_time.resize(MAX_ENEMIES)
 	group_id.resize(MAX_ENEMIES)
 	_group_serial.resize(GROUP_CAPACITY)
 	_group_until.resize(GROUP_CAPACITY)
@@ -347,6 +354,7 @@ func spawn(p: Vector2, k := Kind.SHAMBLER, is_elite := false) -> int:
 	steer[i] = Vector2.ZERO
 	_progress_pos[i] = pos[i]
 	_stuck_time[i] = 0.0
+	_far_time[i] = 0.0
 	group_id[i] = 0
 	hp[i] = (1.0 + body * 0.16 + noise * 0.04) * KINDS[k]["hp"] * (1.0 + hp_growth_per_min * minutes) * (ELITE_HP if is_elite else 1.0)
 	max_hp[i] = hp[i]
@@ -463,21 +471,24 @@ func despawn_far(center: Vector2, r: float) -> int:
 	return removed
 
 
-## Точка на кольце за краем экрана, внутри арены.
-func spawn_point(center: Vector2) -> Vector2:
+## Точка появления за краем экрана, внутри арены. На карте со входами вход задаёт направление (ZAI3, R5):
+## ближайший к center + ahead вход за экраном, затем шаги по полю путей к игроку до края экрана + SPAWN_EDGE.
+func spawn_point(center: Vector2, ahead := Vector2.ZERO) -> Vector2:
 	if not benchmark_spawn and not map_entries.is_empty():
 		var view := PixelArt.view_rect(self, 88.0)
 		var best := Vector2.INF
 		var best_distance := INF
+		var pick := center + ahead
 		# Ближайший вход за экраном; небольшой разброс сохраняет несколько направлений.
 		for entry in map_entries:
 			if view.has_point(entry):
 				continue
-			var d := center.distance_squared_to(entry) * randf_range(0.85, 1.15)
+			var d := pick.distance_squared_to(entry) * randf_range(0.85, 1.15)
 			if d < best_distance:
 				best = entry
 				best_distance = d
 		if best != Vector2.INF:
+			best = approach_point(best, PixelArt.view_rect(self, SPAWN_EDGE))
 			return obstacles.free_point(best, RADIUS * 2.0) if obstacles else best
 	var inner := arena.grow(-RADIUS * 2.0)
 	for attempt in 12:
@@ -485,6 +496,28 @@ func spawn_point(center: Vector2) -> Vector2:
 		if inner.has_point(p):
 			return p
 	return (center + Vector2.from_angle(randf() * TAU) * spawn_ring).clamp(inner.position, inner.end)
+
+
+## Шаги по готовому полю путей (класс 1, якорь клетки — следующая точка к игроку), пока следующая точка
+## не войдёт в view. Поле ещё не готово или путь не найден — точка остаётся на месте.
+func approach_point(from: Vector2, view: Rect2) -> Vector2:
+	if obstacles == null or not obstacles._nav_layers.has(1) or not obstacles._nav_layers[1]["ready"]:
+		return from
+	var layer: Dictionary = obstacles._nav_layers[1]
+	var anchors: PackedVector2Array = layer["anchor"]
+	var costs: PackedInt32Array = layer["distance"]
+	if anchors.size() != obstacles.blocked.size() or costs.size() != anchors.size():
+		return from
+	var p := from
+	for step in 512:
+		var c := obstacles.cell_at(p)
+		if costs[c] == Obstacles.NO_PATH or costs[c] == 0:
+			break
+		var next := anchors[c]
+		if view.has_point(next) or next == p:
+			break
+		p = next
+	return p
 
 
 func spawn_group(center: Vector2, n: int, k := Kind.SHAMBLER) -> void:
@@ -824,6 +857,11 @@ func _move(delta: float) -> void:
 	var touch_damage := 0.0
 	var damage_scale := 1.0 + damage_growth_per_min * minutes
 	var near := obstacles.near_head if obstacles else PackedInt32Array()
+	if _last_player.is_finite() and delta > 0.0:
+		player_velocity = player_velocity.lerp((ppos - _last_player) / delta, minf(1.0, delta * 2.0))
+	_last_player = ppos
+	var spit_view := PixelArt.view_rect(self, 16.0)
+	var far_moves := 0
 	for i in count:
 		if dead[i] == 1:
 			continue
@@ -833,14 +871,26 @@ func _move(delta: float) -> void:
 		var old := p
 		var to := ppos - p
 		var d := to.length()
-		if d > far_distance and (benchmark_spawn or map_entries.is_empty()):
-			# отставших возвращаем в кольцо, чтобы орда не терялась позади
-			p = spawn_point(ppos)
-			if obstacles:
-				p = obstacles.free_point(p, radius[i])
-			old = p
-			to = ppos - p
-			d = to.length()
+		if d > far_distance:
+			_far_time[i] += delta
+			# Отставший вне кадра дольше FAR_GRACE переносится к краю экрана по ходу игрока (R4, BALANCE §7.2):
+			# роль, HP и черты остаются, лимит работает на экране, а не бредёт через карту.
+			var instant := benchmark_spawn or map_entries.is_empty()
+			if instant or (_far_time[i] >= FAR_GRACE and far_moves < FAR_MOVES_PER_TICK):
+				far_moves += 0 if instant else 1
+				p = spawn_point(ppos, player_velocity * 2.0)
+				if obstacles:
+					p = obstacles.free_point(p, radius[i])
+				old = p
+				to = ppos - p
+				d = to.length()
+				_far_time[i] = 0.0
+				knock[i] = Vector2.ZERO
+				steer[i] = Vector2.ZERO
+				_progress_pos[i] = p
+				_stuck_time[i] = 0.0
+		else:
+			_far_time[i] = 0.0
 		var dir := to / d if d > 0.001 else Vector2.ZERO
 		var k := knock[i]
 		var spd := speed[i] * (1.0 - chill[i])
@@ -892,9 +942,10 @@ func _move(delta: float) -> void:
 					spit_windup[i] = maxf(spit_windup[i] - delta, 0.0)
 					move_dir = Vector2.ZERO
 					if spit_windup[i] == 0.0:
-						if d >= 90.0 and d <= 260.0 and (obstacles == null or obstacles.line_clear(p, ppos)):
+						# Плевок только из кадра: кислота не прилетает из-за края экрана (ZAI3, М2).
+						if d >= 90.0 and d <= 260.0 and spit_view.has_point(p) and (obstacles == null or obstacles.line_clear(p, ppos)):
 							spit_fired.emit(p, ppos, 10.0 * damage_mult[i] * damage_scale * (ELITE_DAMAGE if elite[i] == 1 else 1.0))
-				elif spit_cd[i] <= 0.0 and d >= 90.0 and d <= 260.0:
+				elif spit_cd[i] <= 0.0 and d >= 90.0 and d <= 260.0 and spit_view.has_point(p):
 					spit_windup[i] = SPIT_WINDUP
 					spit_cd[i] = SPIT_COOLDOWN
 					move_dir = Vector2.ZERO
@@ -1008,6 +1059,7 @@ func _compact() -> void:
 				steer[i] = steer[count]
 				_progress_pos[i] = _progress_pos[count]
 				_stuck_time[i] = _stuck_time[count]
+				_far_time[i] = _far_time[count]
 				group_id[i] = group_id[count]
 				hp[i] = hp[count]
 				max_hp[i] = max_hp[count]

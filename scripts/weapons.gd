@@ -17,6 +17,7 @@ const OVERFLOW_SHARE := 0.75
 const OVERFLOW_CAP := 1.0
 const OVERFLOW_MAX := 80.0
 const LINK_TIME := 6.0
+const AIM_MARGIN := -4.0 # ZAI3/R14: автоогонь берёт только цели на экране; −4 — цель видна хотя бы наполовину
 
 ## Один расход патрона; потомки делят корень, но не получают его права.
 class ShotRoot:
@@ -127,6 +128,8 @@ class Slot:
 
 var player: Player
 var camera: GameCamera
+## Видимая часть мира для автоогня; пустой прямоугольник — без ограничения (тесты без тика оружия).
+var aim_view := Rect2()
 var explosions: Explosions
 var obstacles: Obstacles
 var horde: Horde
@@ -705,6 +708,7 @@ func _class_turret(delta: float) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	aim_view = PixelArt.view_rect(self, AIM_MARGIN)
 	_update_links(delta)
 	_update_contact_fire(delta)
 	_class_turret(delta)
@@ -749,7 +753,7 @@ func _update_slot(i: int, delta: float) -> void:
 	if not valid and s.target != -1:
 		s.target_t = 0.0 # смерть позволяет немедленно искать новую цель
 	if valid and s.target_t <= 0.0:
-		valid = origin.distance_squared_to(_target_position(s.target)) <= float(s.stats["range"]) * float(s.stats["range"])
+		valid = origin.distance_squared_to(_target_position(s.target)) <= float(s.stats["range"]) * float(s.stats["range"]) and _on_screen(s.target)
 		if valid and needs_line and obstacles != null:
 			valid = obstacles.line_clear(origin, _target_position(s.target))
 	if player.manual_aim:
@@ -1290,9 +1294,20 @@ func _target_position(target: int) -> Vector2:
 	return boss.global_position if target == BOSS_TARGET else horde.pos[target]
 
 
+## Цель автоогня в кадре: зомби — точкой, босс/узел — с запасом на тело.
+func _on_screen(target: int) -> bool:
+	if not aim_view.has_area():
+		return true
+	if target == BOSS_TARGET:
+		return boss != null and aim_view.grow(boss.body_radius()).has_point(boss.global_position)
+	return target >= 0 and target < horde.count and aim_view.has_point(horde.pos[target])
+
+
 func _nearest_target(at: Vector2, radius: float, exclude := PackedInt32Array(), needs_line := true) -> int:
 	# Сетка даёт кандидатов; трассируем ближайшие восемь, затем расширяем пакет.
 	var nearby := horde.query_radius(at, radius)
+	# Автоогонь не стреляет за край экрана: толпа умирает в кадре (ZAI3, R14). Ручной прицел сюда не ходит.
+	var screen := aim_view.has_area()
 	var skipped := exclude.duplicate()
 	var target := -1
 	var best_distance := radius * radius
@@ -1301,7 +1316,7 @@ func _nearest_target(at: Vector2, radius: float, exclude := PackedInt32Array(), 
 		var indices := PackedInt32Array()
 		var distances := PackedFloat64Array()
 		for j in nearby:
-			if skipped.has(horde.uid[j]):
+			if skipped.has(horde.uid[j]) or screen and not aim_view.has_point(horde.pos[j]):
 				continue
 			var distance := at.distance_squared_to(horde.pos[j])
 			if distance > radius * radius:
@@ -1323,7 +1338,7 @@ func _nearest_target(at: Vector2, radius: float, exclude := PackedInt32Array(), 
 		if target != -1 or indices.size() < batch:
 			break
 		batch *= 2
-	if _boss_active and not exclude.has(BOSS_TARGET):
+	if _boss_active and not exclude.has(BOSS_TARGET) and _on_screen(BOSS_TARGET):
 		var distance := at.distance_squared_to(boss.global_position)
 		if distance <= radius * radius and (target == -1 or distance < best_distance * 2.25):
 			if not needs_line or obstacles == null or obstacles.line_clear(at, boss.global_position):

@@ -20,7 +20,7 @@ const LIMITS := [
 	["start_ttc_p50", "<=", 10.0, "ZAI3"], # 20,1 / 27,5
 	["far_pct", "<=", 5.0, "ZAI3"], # 4,7 / 7,7
 ]
-const ACTIVE := ["ZAI2"]
+const ACTIVE := ["ZAI2", "ZAI3"]
 
 var game
 var horde: Horde
