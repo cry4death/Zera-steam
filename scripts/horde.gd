@@ -17,7 +17,6 @@ signal armor_hit(at: Vector2, dir: Vector2)
 signal armor_detached(at: Vector2, dir: Vector2, facing: float, code: int, part: int)
 
 enum Kind { SHAMBLER, RUNNER, FAT, SPITTER, INFANTRY, RIOT, JUGGERNAUT }
-enum GroupMode { APPROACH, FLANK, PASS, RING }
 const GROUP_CAPACITY := 64
 
 const KINDS := [
@@ -101,13 +100,12 @@ var _stuck_time := PackedFloat32Array()
 var separation_usec := 0
 var collision_usec := 0
 var profile_ticks := 0
-var group_id := PackedInt32Array()
-var group_step := PackedInt32Array()
+var group_id := PackedInt32Array() # жетон события строя: участник пачки до конца окна (маршрутов нет)
 var _group_serial := PackedInt32Array()
 var _group_until := PackedFloat32Array()
-var _group_mode := PackedByteArray()
-var _group_paths: Array[PackedVector2Array] = []
 var _next_group_id := 1
+## Тесты (--crowd-test): снимки внутри тика — 0 до шага, 1 после шага, 2 после разделения, 3 итог.
+var tick_probe := Callable()
 var hp := PackedFloat32Array()
 var max_hp := PackedFloat32Array()
 var speed := PackedFloat32Array()
@@ -194,11 +192,8 @@ func _ready() -> void:
 	_progress_pos.resize(MAX_ENEMIES)
 	_stuck_time.resize(MAX_ENEMIES)
 	group_id.resize(MAX_ENEMIES)
-	group_step.resize(MAX_ENEMIES)
 	_group_serial.resize(GROUP_CAPACITY)
 	_group_until.resize(GROUP_CAPACITY)
-	_group_mode.resize(GROUP_CAPACITY)
-	_group_paths.resize(GROUP_CAPACITY)
 	hp.resize(MAX_ENEMIES)
 	max_hp.resize(MAX_ENEMIES)
 	speed.resize(MAX_ENEMIES)
@@ -353,7 +348,6 @@ func spawn(p: Vector2, k := Kind.SHAMBLER, is_elite := false) -> int:
 	_progress_pos[i] = pos[i]
 	_stuck_time[i] = 0.0
 	group_id[i] = 0
-	group_step[i] = 0
 	hp[i] = (1.0 + body * 0.16 + noise * 0.04) * KINDS[k]["hp"] * (1.0 + hp_growth_per_min * minutes) * (ELITE_HP if is_elite else 1.0)
 	max_hp[i] = hp[i]
 	var spread := 1.0 - body * (0.17 if k == Kind.RUNNER else 0.08) + noise * (0.05 if k == Kind.RUNNER else 0.03)
@@ -428,21 +422,18 @@ func reset_variety_seed(value: int) -> void:
 	_variety_seeded = true
 
 
-## Пул маршрутов общий для пачек; полный id защищает от повторного использования слота.
-func make_group(path: PackedVector2Array, mode: int, lifetime: float) -> int:
+## Жетон пачки события: только срок жизни. Полный id защищает от повторного использования слота пула.
+func make_group(lifetime: float) -> int:
 	var id := _next_group_id
 	_next_group_id += 1
 	var slot := id % GROUP_CAPACITY
 	_group_serial[slot] = id
 	_group_until[slot] = _time + lifetime
-	_group_mode[slot] = mode
-	_group_paths[slot] = path
 	return id
 
 
 func attach_group(i: int, id: int) -> void:
 	group_id[i] = id
-	group_step[i] = 1
 	steer[i] = Vector2.ZERO
 
 
@@ -450,15 +441,13 @@ func release_groups() -> void:
 	_group_until.fill(-1.0)
 
 
+## Форма задаёт стороны появления, а не маршрут: участник идёт к игроку как все. Истёкший жетон снимается.
 func _group_direction(i: int, direct: Vector2) -> Vector2:
 	var id := group_id[i]
 	var slot := id % GROUP_CAPACITY
 	if _group_serial[slot] != id or _time >= _group_until[slot]:
 		group_id[i] = 0
 		steer[i] = Vector2.ZERO
-		return direct
-	# Форма задаёт стороны появления, а не общие точки удержания/отхода.
-	# Каждый участник идёт к текущей позиции игрока через штатное поле путей.
 	return direct
 
 
@@ -779,11 +768,18 @@ func _physics_process(delta: float) -> void:
 	_time += delta
 	_run_shatter()
 	_compact()
+	var probing := tick_probe.is_valid()
+	if probing:
+		tick_probe.call(0)
 	_move(delta)
+	if probing:
+		tick_probe.call(1)
 	_rebuild_grid()
 	var before_separation := pos
 	var profile_start := Time.get_ticks_usec() if obstacles and obstacles.profile_enabled else 0
 	_separate()
+	if probing:
+		tick_probe.call(2)
 	if profile_start:
 		separation_usec += Time.get_ticks_usec() - profile_start
 		profile_start = Time.get_ticks_usec()
@@ -802,6 +798,8 @@ func _physics_process(delta: float) -> void:
 	if profile_start:
 		collision_usec += Time.get_ticks_usec() - profile_start
 		profile_ticks += 1
+	if probing:
+		tick_probe.call(3)
 	_render()
 	queue_redraw()
 	update_ms = (Time.get_ticks_usec() - t0) / 1000.0
@@ -1011,7 +1009,6 @@ func _compact() -> void:
 				_progress_pos[i] = _progress_pos[count]
 				_stuck_time[i] = _stuck_time[count]
 				group_id[i] = group_id[count]
-				group_step[i] = group_step[count]
 				hp[i] = hp[count]
 				max_hp[i] = max_hp[count]
 				speed[i] = speed[count]

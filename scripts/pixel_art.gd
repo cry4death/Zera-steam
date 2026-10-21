@@ -74,9 +74,21 @@ static func draw_dot(ci: CanvasItem, p: Vector2, r: float, color: Color) -> void
 	ci.draw_texture_rect(dot(), Rect2(p - Vector2(r, r), Vector2(r, r) * 2.0), false, color)
 
 
+## Без окна (headless) окно 64×64, а логика (зум, кольцо и точки появления орды, «в кадре») должна видеть
+## экран живой игры 1080p — иначе тесты и --sim считают иную геометрию (ZAI2, R2).
+const HEADLESS_SCREEN := Vector2(1920, 1080)
+
+
+static func screen_size(vp: Viewport) -> Vector2:
+	return HEADLESS_SCREEN if DisplayServer.get_name() == "headless" else vp.get_visible_rect().size
+
+
 ## Видимая часть мира в локальных координатах узла (с запасом): всё, что вне её, не рисуем (P1).
+## В headless — виртуальный экран 1080p с тем же центром, что у камеры.
 static func view_rect(ci: CanvasItem, margin := 16.0) -> Rect2:
-	var screen := Rect2(Vector2.ZERO, ci.get_viewport().get_visible_rect().size)
+	var real := ci.get_viewport().get_visible_rect().size
+	var size := screen_size(ci.get_viewport())
+	var screen := Rect2((real - size) * 0.5, size)
 	return (ci.get_global_transform_with_canvas().affine_inverse() * screen).grow(margin)
 
 

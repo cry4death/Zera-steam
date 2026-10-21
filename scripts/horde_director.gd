@@ -58,6 +58,7 @@ var _plan_rng := RandomNumberGenerator.new()
 var _origins := PackedVector2Array()
 var _groups := PackedInt32Array()
 var _center := Vector2.INF
+var _min_distance := 0.0 # ближе к игроку пачка события не появляется (1,5 кольца; запасной вход — кольцо)
 var _plan_at := -100.0
 var _lane := 0
 var _announced := false
@@ -317,6 +318,7 @@ func prepare(now: float) -> void:
 	_groups.clear()
 	_center = player.position
 	_plan_at = now
+	_min_distance = horde.spawn_ring * 1.5
 	if pattern == Pattern.REST:
 		return
 	var obs := horde.obstacles
@@ -359,40 +361,15 @@ func prepare(now: float) -> void:
 		var source := _hidden_point(want, a, distance, view)
 		if source == Vector2.INF:
 			continue
-		var goal := _center + dir * 100.0 + dir.orthogonal() * lateral
-		var mode := Horde.GroupMode.APPROACH
-		if pattern == Pattern.RUSH:
-			goal = _center - dir * 160.0 + dir.orthogonal() * 110.0
-			mode = Horde.GroupMode.PASS
-		elif pattern == Pattern.FLANK and lane == 1:
-			goal = _center + dir.orthogonal() * 160.0
-			mode = Horde.GroupMode.FLANK
-		elif pattern == Pattern.RING:
-			goal = _center + dir * 150.0
-			mode = Horde.GroupMode.RING
-		if obs:
-			goal = obs.free_point(goal, 19.0)
-		var path := route(source, goal)
-		if pattern == Pattern.RUSH:
-			var shoulder := _center + dir * 150.0 + dir.orthogonal() * 110.0
-			if obs:
-				shoulder = obs.free_point(shoulder, 22.0)
-			path = route(source, shoulder)
-			var exit_path := route(shoulder, goal)
-			if not path.is_empty() and not exit_path.is_empty():
-				path.append_array(exit_path.slice(1))
-			else:
-				path.clear()
-		if path.is_empty():
-			continue
+		# Плечо — только точка появления: участники идут к игроку по общему полю путей (PT1b), маршрутов нет.
 		_origins.append(source)
-		_groups.append(horde.make_group(path, mode, WARNING + EVENT_DURATION))
-	# Если сектор закрыт домом, не спавним в стену и не копим невыданное.
-	if _origins.is_empty() and entry != Vector2.INF and entry.distance_to(_center) >= horde.spawn_ring * 1.5:
-		var path := route(entry, _center)
-		if not path.is_empty():
+		_groups.append(horde.make_group(WARNING + EVENT_DURATION))
+	# Если сектор закрыт домом или краем карты, берём ближайший вход за экраном; в стену не спавним.
+	if _origins.is_empty() and entry != Vector2.INF and entry.distance_to(_center) >= horde.spawn_ring:
+		if obs == null or obs.distance[obs.cell_at(entry)] != Obstacles.NO_PATH:
 			_origins.append(entry)
-			_groups.append(horde.make_group(path, Horde.GroupMode.APPROACH, WARNING + EVENT_DURATION))
+			_groups.append(horde.make_group(WARNING + EVENT_DURATION))
+			_min_distance = horde.spawn_ring
 
 
 func _escape_angle() -> float:
@@ -449,62 +426,6 @@ func _hidden_point(want: Vector2, a: float, distance: float, view: Rect2) -> Vec
 	return Vector2.INF
 
 
-## BFS один на маршрут группы; путь сжимаем до поворотов и отрезков не длиннее 64 ед.
-func route(from: Vector2, to: Vector2) -> PackedVector2Array:
-	var obs := horde.obstacles
-	if obs == null:
-		return PackedVector2Array([from, to])
-	# Ограничения кольца/стада сохраняются; остальные группы используют контурный маршрут.
-	if pattern not in [Pattern.RING, Pattern.RUSH]:
-		var contour := obs.body_path(from, to, Horde.MAX_COLLISION_RADIUS)
-		if not contour.is_empty():
-			var precise := PackedVector2Array([from])
-			precise.append_array(contour)
-			return precise
-	to = obs.free_point(to, 32.0)
-	var layer: Dictionary = obs._nav_layers[obs.radius_class(Horde.MAX_COLLISION_RADIUS)]
-	var points: PackedVector2Array = layer["points"]
-	var edges: PackedByteArray = layer["edges"]
-	var first := obs.cell_at(from)
-	var last := obs.cell_at(to)
-	var parents := PackedInt32Array()
-	parents.resize(obs.blocked.size())
-	parents.fill(-1)
-	parents[first] = first
-	var todo := PackedInt32Array([first])
-	var read := 0
-	while read < todo.size() and parents[last] == -1:
-		var c := todo[read]
-		read += 1
-		for d in 4:
-			var next := c + obs._offsets[d] if edges[c] & (1 << d) else -1
-			if next >= 0 and parents[next] == -1:
-				if pattern in [Pattern.RING, Pattern.RUSH] and points[next].distance_squared_to(_center) < (16900.0 if pattern == Pattern.RING else 12100.0):
-					continue
-				if pattern == Pattern.RING:
-					var offset := points[next] - _center
-					if offset.length_squared() < 57600.0 and absf(angle_difference(gap_angle, offset.angle())) < PI * 0.25:
-						continue
-				parents[next] = c
-				todo.append(next)
-	if parents[last] == -1:
-		return PackedVector2Array()
-	var reverse := PackedVector2Array([to])
-	var c := last
-	while c != first:
-		reverse.append(points[c])
-		c = parents[c]
-	reverse.append(from)
-	reverse.reverse()
-	var path := PackedVector2Array([from])
-	for j in range(1, reverse.size() - 1):
-		var turn := (reverse[j] - reverse[j - 1]).normalized() != (reverse[j + 1] - reverse[j]).normalized()
-		if turn or path[path.size() - 1].distance_squared_to(reverse[j]) >= 4096.0:
-			path.append(reverse[j])
-	path.append(to)
-	return path
-
-
 func spawn_group(n: int, shares: Array, runner_pack: bool, now: float) -> int:
 	_now = now
 	if pattern == Pattern.REST or now >= _event_until:
@@ -549,13 +470,13 @@ func spawn_group(n: int, shares: Array, runner_pack: bool, now: float) -> int:
 		# Не стягиваем пачку в одну точку, если первый разброс попал в машину.
 		for attempt in 12:
 			var candidate := _origins[lane] + inward.orthogonal() * _rng.randf_range(-width, width) - inward * _rng.randf_range(0.0, 72.0)
-			if view.has_point(candidate) or not horde.arena.grow(-24.0).has_point(candidate) or candidate.distance_to(player.position) + 0.01 < horde.spawn_ring * 1.5:
+			if view.has_point(candidate) or not horde.arena.grow(-24.0).has_point(candidate) or candidate.distance_to(player.position) + 0.01 < _min_distance:
 				continue
 			if horde.obstacles and (horde.obstacles.contains(candidate, 23.0) or horde.obstacles.distance[horde.obstacles.cell_at(candidate)] == Obstacles.NO_PATH):
 				continue
 			at = candidate
 			break
-		if view.has_point(at) or at.distance_to(player.position) + 0.01 < horde.spawn_ring * 1.5:
+		if view.has_point(at) or at.distance_to(player.position) + 0.01 < _min_distance:
 			continue
 		var i := horde.spawn(at, k)
 		if i >= 0:

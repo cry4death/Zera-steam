@@ -87,7 +87,9 @@ Zera — top-down шутер на выживание против орд зом�
 ## Проверки перед сдачей (код выхода 0; тесты возвращают 1 при любой ошибке)
 Одной командой из корня worktree: `powershell -NoProfile -ExecutionPolicy Bypass -File tools/test_project.ps1 -Suite full`.
 Она делает `--import`, юнит-тесты GdUnit4 из `tests/` и `--meta-test`, `--campaign-test`, `--q1-test --fresh-save`,
-`--fresh-save --gore-checks`, `--obstacles-test --fresh-save`, `--activities-test --fresh-save`, `--sim=600 --fresh-save`.
+`--fresh-save --gore-checks`, `--obstacles-test --fresh-save`, `--activities-test --fresh-save`, `--sim=600 --fresh-save`,
+`--pathing-test --fresh-save`, `--director-test --fresh-save`, `--crowd-test --fresh-save` (поведение толпы, пороги —
+`scripts/crowd_test.gd`). Без окна логика видит экран 1920×1080 (`PixelArt.screen_size`), как живая игра в 1080p.
 Во время итераций — `-Suite fast`. В отчёт — строку `ZERA_TEST …` и строки `[OK]/[FAIL]` дословно.
 Плюс тесты, которые добавила твоя задача. Меняешь чистую логику (кампания, оружие, сохранения) — добавь или поправь
 тест в `tests/<система>/` (эту папку можно трогать в любой задаче; правила — TOOLING.md).

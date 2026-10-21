@@ -1270,6 +1270,8 @@ func _ready() -> void:
 		_run_pathing_shots.call_deferred()
 	if director_args.has("--pathing-test"):
 		_run_pathing_test.call_deferred()
+	if director_args.has("--crowd-test"):
+		_run_crowd_test.call_deferred()
 
 
 var _arsenal_checks := 0
@@ -3288,7 +3290,7 @@ func _on_prototype(_slot: int, proto_name: String) -> void:
 ## оставались квадратными: зум кратен плотности арта (1080p → ×3, 1440p → ×4, 4K → ×6),
 ## пиксель арта при этом не меньше пикселя экрана; орда спавнится за краем.
 func _update_view() -> void:
-	var vs := get_viewport().get_visible_rect().size
+	var vs := PixelArt.screen_size(get_viewport())
 	var z := maxf(1.0, roundf(vs.y / 360.0)) * _zoom
 	camera.zoom = Vector2(z, z)
 	horde.spawn_ring = (vs / (2.0 * z)).length() + 30.0
@@ -4001,7 +4003,7 @@ func _boss_timeline() -> void:
 	var dir := -player.facing.normalized()
 	if dir == Vector2.ZERO:
 		dir = Vector2.LEFT
-	var half := get_viewport().get_visible_rect().size / camera.zoom * 0.5
+	var half := PixelArt.screen_size(get_viewport()) / camera.zoom * 0.5
 	var edge := minf(half.x / maxf(absf(dir.x), 0.0001), half.y / maxf(absf(dir.y), 0.0001))
 	var at := camera.get_screen_center_position() + dir * (edge + Boss.RADIUS + 16.0)
 	if boss is BossHive or boss is BossGeneral:
@@ -6210,17 +6212,6 @@ func _run_director_test() -> void:
 				var initial := PackedVector2Array()
 				for i in horde.count:
 					initial.append(horde.pos[i])
-				var paths_clear := true
-				var gap_clear := true
-				for token in d._groups:
-					var path := horde._group_paths[token % Horde.GROUP_CAPACITY]
-					for step in range(1, path.size()):
-						paths_clear = paths_clear and obstacles.move_actor(path[step - 1], path[step], 8.0).distance_to(path[step]) < 1.0
-						if pattern == HordeDirector.Pattern.RING:
-							var offset := path[step] - player.position
-							gap_clear = gap_clear and (offset.length() >= 240.0 or absf(angle_difference(d.gap_angle, offset.angle())) >= PI * 0.25)
-				failures += _director_check(paths_clear, "routes_%s_%d_%s" % [id, place, HordeDirector.NAMES[pattern]])
-				failures += _director_check(gap_clear, "gap_route_%s_%d" % [id, place])
 				var moved := 0
 				var closure := 0.0
 				for frame in 720:
@@ -6235,8 +6226,8 @@ func _run_director_test() -> void:
 					if horde.pos[i].distance_to(initial[i]) > 30.0:
 						moved += 1
 					elif pattern != HordeDirector.Pattern.REST:
-						print("DIRECTORTEST stopped map=%s place=%d pattern=%s i=%d from=%s at=%s radius=%.3f step=%d group=%d" % [id, place, HordeDirector.NAMES[pattern], i, initial[i], horde.pos[i], horde.radius[i], horde.group_step[i], horde.group_id[i]])
-						print("DIRECTORTEST stopped goal=%s path=%s normal=%s stuck=%.3f" % [player.position, horde._group_paths[horde.group_id[i] % Horde.GROUP_CAPACITY], obstacles.wall_normal[obstacles.cell_at(horde.pos[i])], horde._stuck_time[i]])
+						print("DIRECTORTEST stopped map=%s place=%d pattern=%s i=%d from=%s at=%s radius=%.3f group=%d" % [id, place, HordeDirector.NAMES[pattern], i, initial[i], horde.pos[i], horde.radius[i], horde.group_id[i]])
+						print("DIRECTORTEST stopped goal=%s normal=%s stuck=%.3f" % [player.position, obstacles.wall_normal[obstacles.cell_at(horde.pos[i])], horde._stuck_time[i]])
 				if pattern in [HordeDirector.Pattern.PINCER, HordeDirector.Pattern.RING]:
 					failures += _director_check(closure / maxf(made, 1.0) > 20.0, "compression_%s_%d_%s" % [id, place, HordeDirector.NAMES[pattern]])
 				failures += _director_check(moved == made and (made == 60 or pattern == HordeDirector.Pattern.REST), "movement_%s_%d_%s moved=%d/%d" % [id, place, HordeDirector.NAMES[pattern], moved, made])
@@ -6309,16 +6300,16 @@ func _run_director_test() -> void:
 	horde.count = 0
 	var first := horde.spawn(player.position + Vector2(200, 0))
 	var second := horde.spawn(player.position + Vector2(220, 0))
-	var token := horde.make_group(PackedVector2Array([player.position + Vector2(220, 0), player.position]), Horde.GroupMode.FLANK, 20.0)
+	var token := horde.make_group(20.0)
 	horde.attach_group(second, token)
 	horde.dead[first] = 1
 	horde._compact()
-	failures += _director_check(horde.group_id[0] == token and horde.group_step[0] == 1, "compact")
+	failures += _director_check(horde.group_id[0] == token, "compact")
 	var fresh := horde.spawn(player.position + Vector2(230, 0))
 	failures += _director_check(horde.group_id[fresh] == 0, "spawn_reset")
 	# Старый id не наследует маршрут при обороте фиксированного пула.
 	for j in Horde.GROUP_CAPACITY:
-		horde.make_group(PackedVector2Array([player.position, player.position + Vector2(0, 100)]), Horde.GroupMode.PASS, 20.0)
+		horde.make_group(20.0)
 	horde._group_direction(0, Vector2.RIGHT)
 	failures += _director_check(horde.group_id[0] == 0, "group_generation")
 	spawner.director._roles.fill(0)
@@ -7268,6 +7259,15 @@ func _pathing_shot(label: String) -> void:
 	print("PATHINGSHOT path=%s error=%d" % [path, err])
 
 
+## --crowd-test (ZAI2): метрики поведения толпы на картах; пороги — в CrowdTest.LIMITS.
+func _run_crowd_test() -> void:
+	_director_freeze()
+	seed(81073)
+	var crowd := CrowdTest.new()
+	var failed: int = await crowd.run(self)
+	Meta.finish_test(0 if failed == 0 else 1)
+
+
 func _pathing_warm(_r: float, target: Vector2) -> void:
 	for tick in 10000:
 		obstacles.navigation_step(1.0 / 60.0, target)
@@ -7377,11 +7377,12 @@ func _run_pathing_test() -> void:
 	for spacing in [74.0, 78.0]:
 		var row := _pathing_row_flow(spacing)
 		checks += 1
-		var flow_ok: bool = row["queries"] == 0 and row["penetrations"] == 0 and row["oversized"] == 0 and row["left"] >= (1 if spacing < 75 else 10) and row["right"] >= (1 if spacing < 75 else 10) and row["inner"] >= (row["eligible"] * 0.6 if spacing < 75 else 30)
+		# ZAI2: прямой подход пока пускает луч не чаще раза в 4 тика на агента (ZAI5 вернёт ноль).
+		var flow_ok: bool = row["queries"] <= row["query_budget"] and row["penetrations"] == 0 and row["oversized"] == 0 and row["left"] >= (1 if spacing < 75 else 10) and row["right"] >= (1 if spacing < 75 else 10) and row["inner"] >= (row["eligible"] * 0.6 if spacing < 75 else 30)
 		if not flow_ok:
 			failed += 1
 		print("PATHINGTEST row spacing=%.1f gap=%.3f eligible=%d left=%d right=%d inner=%d outer=%d oversized=%d penetrations=%d ok=%s" % [spacing, spacing * cos(0.12) - 64.0, row["eligible"], row["left"], row["right"], row["inner"], row["outer"], row["oversized"], row["penetrations"], flow_ok])
-		print("PATHINGTEST shared layers=%d agent_queries=%d" % [obstacles._nav_layers.size(), row["queries"]])
+		print("PATHINGTEST shared layers=%d agent_queries=%d budget=%d" % [obstacles._nav_layers.size(), row["queries"], row["query_budget"]])
 	for map_id: String in MapLoader.IDS:
 		var data := MapLoader.load_map(map_id)
 		var rect := Rect2(Vector2.ZERO, data["size"])
@@ -7474,6 +7475,7 @@ func _pathing_row_flow(spacing: float) -> Dictionary:
 				else:
 					result["outer"] += 1
 	result["queries"] = obstacles.path_calls + obstacles.body_calls + obstacles.ray_calls
+	result["query_budget"] = 65 * 600 / 4
 	obstacles.profile_enabled = false
 	return result
 

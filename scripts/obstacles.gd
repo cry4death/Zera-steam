@@ -340,7 +340,8 @@ func add_body(at: Vector2, radius: float) -> int:
 	_art_slot.append(-1)
 	_art_dirty.append(0)
 	count += 1
-	rebuild_grid()
+	# Только область вокруг нового тела: слои путей не сбрасываются (полная перестройка стоила 2–8 с).
+	rebuild_grid(false, i)
 	return i
 
 
@@ -359,10 +360,19 @@ func cell_center(c: int) -> Vector2:
 	return arena.position + Vector2(float(c % grid_w) + 0.5, float(c / grid_w) + 0.5) * CELL
 
 
-func rebuild_grid(removed_only := false) -> void:
+func rebuild_grid(removed_only := false, added := -1) -> void:
 	nav_revision += 1
+	# Поле, начатое до перестройки, считает по старой геометрии: его результат не подменяет слои.
+	_nav_generation += 1
 	var dirty_rect := Rect2i(0, 0, grid_w, grid_h)
-	if removed_only:
+	var local := removed_only or added >= 0
+	if added >= 0:
+		var extent := _extent[added] + Vector2.ONE * 48.0
+		var lo := Vector2i((pos[added] - extent - arena.position) / CELL).max(Vector2i.ZERO)
+		var hi := Vector2i((pos[added] + extent - arena.position) / CELL).min(Vector2i(grid_w - 1, grid_h - 1))
+		dirty_rect = Rect2i(lo, hi - lo + Vector2i.ONE)
+		_link_body(added)
+	elif removed_only:
 		dirty_rect = Rect2i()
 		for i in count:
 			if _solid_state[i] != state[i] and state[i] == State.GONE:
@@ -372,23 +382,13 @@ func rebuild_grid(removed_only := false) -> void:
 				var area := Rect2i(lo, hi - lo + Vector2i.ONE)
 				dirty_rect = area if not dirty_rect.has_area() else dirty_rect.merge(area)
 	_solid_state = state.duplicate()
-	if not removed_only:
+	if not local:
 		near_head.fill(-1)
 		_link_obj.clear()
 		_link_next.clear()
 		_nav_layers.clear()
 		for i in count:
-			if (kind[i] >= Kind.TIRES and kind[i] != Kind.STRUCTURE) or state[i] == State.GONE:
-				continue
-			var extent := _extent[i] + Vector2.ONE * 42.0
-			var lo := Vector2i((pos[i] - extent - arena.position) / CELL).max(Vector2i.ZERO)
-			var hi := Vector2i((pos[i] + extent - arena.position) / CELL).min(Vector2i(grid_w - 1, grid_h - 1))
-			for y in range(lo.y, hi.y + 1):
-				for x in range(lo.x, hi.x + 1):
-					var c := x + y * grid_w
-					_link_obj.append(i)
-					_link_next.append(near_head[c])
-					near_head[c] = _link_obj.size() - 1
+			_link_body(i)
 		for k in 3:
 			var points := PackedVector2Array()
 			points.resize(blocked.size())
@@ -496,6 +496,21 @@ func rebuild_grid(removed_only := false) -> void:
 	_building = false
 	_dirty = true
 	queue_redraw()
+
+
+## Тело попадает в списки клеток вокруг себя (с запасом 42 на поле расстояний и проверку щелей).
+func _link_body(i: int) -> void:
+	if (kind[i] >= Kind.TIRES and kind[i] != Kind.STRUCTURE) or state[i] == State.GONE:
+		return
+	var extent := _extent[i] + Vector2.ONE * 42.0
+	var lo := Vector2i((pos[i] - extent - arena.position) / CELL).max(Vector2i.ZERO)
+	var hi := Vector2i((pos[i] + extent - arena.position) / CELL).min(Vector2i(grid_w - 1, grid_h - 1))
+	for y in range(lo.y, hi.y + 1):
+		for x in range(lo.x, hi.x + 1):
+			var c := x + y * grid_w
+			_link_obj.append(i)
+			_link_next.append(near_head[c])
+			near_head[c] = _link_obj.size() - 1
 
 
 ## Баланс двух встречных стенок считается только при перестройке клетки.

@@ -56,10 +56,10 @@ func test_ordinary_runners_do_not_cancel_warned_slow_front() -> void:
 	assert_int(_director.shape_count(8, 117.0)).is_zero()
 
 
-func test_all_group_modes_follow_player_and_dissolve_after_event() -> void:
+func test_group_members_follow_player_and_dissolve_after_event() -> void:
 	var i := _horde.spawn(Vector2(2400, 2000))
-	for mode in Horde.GroupMode.values():
-		var token := _horde.make_group(PackedVector2Array([_horde.pos[i], Vector2(2600, 2200)]), mode, 30.0)
+	for _attempt in 3:
+		var token := _horde.make_group(30.0)
 		_horde.attach_group(i, token)
 		assert_vector(_horde._group_direction(i, Vector2.LEFT)).is_equal(Vector2.LEFT)
 		_player.position = Vector2(2500, 2000)

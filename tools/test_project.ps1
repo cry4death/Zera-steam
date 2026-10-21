@@ -124,7 +124,8 @@ if ($Suite -eq "bench") {
 	$legacy = @("--meta-test", "--fresh-save --gore-checks")
 	if ($Suite -eq "full") {
 		$legacy = @("--meta-test", "--campaign-test", "--q1-test --fresh-save", "--fresh-save --gore-checks",
-			"--obstacles-test --fresh-save", "--activities-test --fresh-save", "--sim=600 --fresh-save")
+			"--obstacles-test --fresh-save", "--activities-test --fresh-save", "--sim=600 --fresh-save",
+			"--pathing-test --fresh-save", "--director-test --fresh-save", "--crowd-test --fresh-save")
 	}
 	if ($Suite -ne "gdunit") {
 		foreach ($flags in $legacy) {
