@@ -381,10 +381,12 @@ func _run_obstacles_test() -> void:
 			await get_tree().process_frame
 	var arrived := 0
 	for i in horde.count:
-		if horde.pos[i].y > 750.0:
+		# Центр за дальней гранью стены (y 725): обошёл. С очередью ZAI4 толпа у игрока — плотный диск радиусом
+		# ~150 px; он упирается в стену, и внешний слой ждёт в очереди прямо под ней (раньше считали y > 750).
+		if horde.pos[i].y > 725.0:
 			arrived += 1
 		else:
-			print("OBSTEST stuck i=%d pos=%s elite=%d steer=%s" % [i, horde.pos[i], horde.elite[i], horde.steer[i]])
+			print("OBSTEST stuck i=%d pos=%s elite=%d steer=%s queued=%d d=%.0f" % [i, horde.pos[i], horde.elite[i], horde.steer[i], horde.queued[i], horde.pos[i].distance_to(player.position)])
 	ok = _obstacle_check(penetrations == 0, "500_no_penetrations_60s") and ok
 	ok = _obstacle_check(arrived == 500, "500_long_wall_arrived") and ok
 	print("OBSTEST wall arrived=%d/500 nav_worst_us=%d" % [arrived, obstacles.nav_worst_usec])
