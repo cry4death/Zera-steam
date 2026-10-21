@@ -132,6 +132,7 @@ var walk := PackedFloat32Array() # пройденный путь — фаза ш
 var mass := PackedFloat32Array() # MASS[kind] на особь: в проходе по парам без обращений к константному списку
 var _sep_v := PackedVector2Array() # мягкое разделение этого тика, px/с
 var _block := PackedFloat32Array() # допустимая скорость вперёд из-за соседа впереди
+var _side_busy := PackedByteArray() # бит 1 — слева по курсу вплотную сосед, бит 2 — справа (обход только в свободную)
 var _sectors := PackedInt32Array() # занятость 16 секторов у игрока
 var separation_usec := 0
 var move_usec := 0 # профиль (--profile): _move за всё время
@@ -237,6 +238,7 @@ func _ready() -> void:
 	mass.resize(MAX_ENEMIES)
 	_sep_v.resize(MAX_ENEMIES)
 	_block.resize(MAX_ENEMIES)
+	_side_busy.resize(MAX_ENEMIES)
 	_sectors.resize(16)
 	group_id.resize(MAX_ENEMIES)
 	_group_serial.resize(GROUP_CAPACITY)
@@ -1040,6 +1042,14 @@ func _move(delta: float) -> void:
 					side = -side
 			elif seed_value[i] < 0.5:
 				side = -side
+			# Сбоку вплотную занято — пробуем другую сторону; заняты обе — ждём в очереди, а не кружим.
+			var busy := _side_busy[i]
+			var bit := 1 if move_dir.cross(side) < 0.0 else 2
+			if busy & bit:
+				side = -side
+				bit = 3 - bit
+			if busy & bit:
+				side = Vector2.ZERO
 			want = want * keep + side * (spd * (1.0 - keep) * SLIP[kind[i]])
 		want_dir[i] = move_dir if not frozen else Vector2.ZERO
 		want_v[i] = want if not frozen else Vector2.ZERO
@@ -1121,6 +1131,7 @@ func _neighbors() -> void:
 	var odd := _frame & 1
 	_sep_v.fill(Vector2.ZERO)
 	_block.fill(INF)
+	_side_busy.fill(0)
 	for i in count:
 		if dead[i] == 1:
 			continue
@@ -1186,6 +1197,12 @@ func _neighbors() -> void:
 							# Очередь начинается только у кольца касания игрока: плевальщик и замороженный её не запускают.
 							var qj := queued[j] == 1
 							if (qi or qj) and d < ri + rj + BLOCK_GAP:
+								# Кто сбоку вплотную: обход в занятую сторону не толкает толпу по кругу.
+								var wj2 := want_dir[j]
+								if absf(wi.dot(n)) < 0.6:
+									_side_busy[i] |= 1 if wi.cross(-n) < 0.0 else 2
+								if absf(wj2.dot(n)) < 0.6:
+									_side_busy[j] |= 1 if wj2.cross(n) < 0.0 else 2
 								if qj and wi.dot(n) < -BLOCK_COS:
 									bi = minf(bi, maxf(0.0, want_v[j].dot(wi)))
 								if qi:

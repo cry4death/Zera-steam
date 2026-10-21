@@ -21,13 +21,8 @@ func _move(delta: float) -> void:
 	super._move(delta)
 	if probe_on:
 		a1 = pos.duplicate()
+		c1 = a1 # ZAI4: отдельного прохода разделения нет — оно внутри шага (скорость) и до него (глубокие)
 		_last_delta = delta
-
-
-func _separate() -> void:
-	super._separate()
-	if probe_on:
-		c1 = pos.duplicate()
 
 
 var _last_delta := 0.0
