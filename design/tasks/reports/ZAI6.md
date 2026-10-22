@@ -1,7 +1,7 @@
 # Отчёт ZAI6 — Роли поведением, боссы в обход домов, щит обходится, группы и сигнализация (4В)
 
 **Исполнитель:** Claude Opus 5.5 (облачная сессия; ответы автора 2Б, 4В) · **Ветка:** `claude/great-rubin-vhn9o1` ·
-**Статус: ПРИОСТАНОВЛЕНА (WIP) по просьбе автора.** Full 11/12: `--q1-test` красный — PACKTEST не знает новые звуки `sfx/world/car_alarm_*`. Остальные проверки зелёные, `CROWDTEST checks=46 failed=0`.
+**Статус: сделана, влита в main (2026-10-22).** Full 12/12: PACKTEST теперь ждёт 93 звука (+ `world/car_alarm`).
 
 ## Сделано
 - **Боссы в обход домов (З5).**
@@ -55,7 +55,22 @@
 | `tools/diag/zai1_probe.gd` | стенд shield: бессмертный щитовик со стволами |
 
 ## Проверка
-FULL_SUITE
+Полный набор (bash-повтор `-Suite full`, облако): 11/12 до правки PACKTEST, после — `--q1-test` перепроверен
+отдельно (`Q1TEST checks=25 failed=0`), правка касается только этой проверки.
+```
+[OK  ] import  exit=0 script_errors=0
+[OK  ] gdunit  exit=0 tests=117 failed=0
+[OK  ] --meta-test  exit=0 METATEST ok=true
+[OK  ] --campaign-test  exit=0 CAMPAIGNTEST ok=true
+[OK  ] --q1-test --fresh-save  exit=0 Q1TEST checks=25 failed=0 ok=true   (после правки: bank=93)
+[OK  ] --fresh-save --gore-checks  exit=0 R1CHECK ok=true remains_peak=200 stamps_queue=416 particles=0
+[OK  ] --obstacles-test --fresh-save  exit=0 OBSTEST ok=true penetrations=0 arrived=500 detonations=3 blood_events=2
+[OK  ] --activities-test --fresh-save  exit=0 ACTIVITIESTEST checks=149 failures=0 rewards=6 ok=true
+[OK  ] --sim=600 --fresh-save  exit=0 SIM 10:00 level=25 kills=3900 … dmg_taken=626 peak=34 fps=145
+[OK  ] --pathing-test --fresh-save  exit=0 PATHINGTEST checks=42 failed=0 penetrations=0 stuck=0 seed=81073 ok=true
+[OK  ] --director-test --fresh-save  exit=0 DIRECTORTEST cases=144 failures=0 … ok=true
+[OK  ] --crowd-test --fresh-save  exit=0 CROWDTEST checks=46 failed=0 penetrations=0 active=ZAI2,ZAI3,ZAI4,ZAI5,ZAI6 ok=true
+```
 
 **Боссы из-за дома** — стенд `zai1_probe --probe=boss --noguns`, 16 попыток на карту (8 с перекрытой прямой,
 8 с открытой). «Дошёл» — за 2 × время по прямой + 5 с, как в ZAI1; «стоит» — доля времени без сдвига.

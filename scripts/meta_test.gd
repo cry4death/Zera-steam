@@ -844,7 +844,7 @@ func _q1_pack() -> void:
 		for stream: AudioStream in bank[id]:
 			paths.append(id + ":" + stream.resource_path)
 	print("PACKTEST variants=%d sha256=%s" % [paths.size(), "\n".join(paths).sha256_text()])
-	var ok := bank.size() == 92 and missing == 0 and maps == MapLoader.IDS.size()
+	var ok := bank.size() == 93 and missing == 0 and maps == MapLoader.IDS.size() # 93: + world/car_alarm (ZAI6)
 	print("PACKTEST bank=%d missing=%d maps=%d ok=%s" % [bank.size(), missing, maps, ok])
 	_q1_check("pack", ok)
 
